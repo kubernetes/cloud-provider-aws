@@ -1,0 +1,39 @@
+[[constraint]]
+  name = "github.com/spf13/pflag"
+  version = "1.0.0"
+
+[[override]]
+  name = "k8s.io/api"
+  version = "kubernetes-1.10.1"
+
+[[override]]
+  name = "k8s.io/apiextensions-apiserver"
+  version = "kubernetes-1.10.1"
+
+[[override]]
+  name = "k8s.io/apimachinery"
+  version = "kubernetes-1.10.1"
+
+[[constraint]]
+  name = "k8s.io/apiserver"
+  version = "kubernetes-1.10.1"
+
+[[override]]
+  name = "k8s.io/kubernetes"
+  version = "1.10.1"
+
+[[override]]
+  name = "k8s.io/client-go"
+  version = "kubernetes-1.10.1"
+
+[prune]
+  go-tests = true
+  unused-packages = true
+
+# Fix for:
+# k8s.io/cloud-provider-aws/vendor/k8s.io/kubernetes/pkg/util/parsers
+# vendor/k8s.io/kubernetes/pkg/util/parsers/parsers.go:36:16: undefined: reference.ParseNormalizedNamed
+[[override]]
+  name = "github.com/docker/distribution"
+  branch = "master"
+
