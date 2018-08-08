@@ -16,6 +16,9 @@ For the aws-cloud-controller-manager to be able to communicate to AWS APIs, you 
     {
       "Effect": "Allow",
       "Action": [
+        "autoscaling:DescribeAutoScalingGroups",
+        "autoscaling:DescribeLaunchConfigurations",
+        "autoscaling:DescribeTags",
         "ec2:DescribeInstances",
         "ec2:DescribeRegions",
         "ec2:DescribeRouteTables",
@@ -35,11 +38,6 @@ For the aws-cloud-controller-manager to be able to communicate to AWS APIs, you 
         "ec2:DeleteVolume",
         "ec2:DetachVolume",
         "ec2:RevokeSecurityGroupIngress",
-        
-        "autoscaling:DescribeAutoScalingGroups",
-        "autoscaling:DescribeLaunchConfigurations",
-        "autoscaling:DescribeTags",
-        
         "elasticloadbalancing:AddTags",
         "elasticloadbalancing:AttachLoadBalancerToSubnets",
         "elasticloadbalancing:ApplySecurityGroupsToLoadBalancer",
@@ -70,9 +68,7 @@ For the aws-cloud-controller-manager to be able to communicate to AWS APIs, you 
         "elasticloadbalancing:ModifyTargetGroup",
         "elasticloadbalancing:RegisterTargets",
         "elasticloadbalancing:SetLoadBalancerPoliciesOfListener",
-        
         "iam:CreateServiceLinkedRole",
-        
         "kms:DescribeKey"
       ],
       "Resource": [
@@ -92,7 +88,8 @@ For the aws-cloud-controller-manager to be able to communicate to AWS APIs, you 
           {
               "Effect": "Allow",
               "Action": [
-                  "ec2:Describe*",
+                  "ec2:DescribeInstances",
+                  "ec2:DescribeRegions",
                   "ecr:GetAuthorizationToken",
                   "ecr:BatchCheckLayerAvailability",
                   "ecr:GetDownloadUrlForLayer",
