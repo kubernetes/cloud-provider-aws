@@ -21,28 +21,12 @@ For the aws-cloud-controller-manager to be able to communicate to AWS APIs, you 
         "ec2:DescribeRouteTables",
         "ec2:DescribeSecurityGroups",
         "ec2:DescribeSubnets",
-        "ec2:DescribeVolumes"
-      ],
-      "Resource": [
-        "*"
-      ]
-    },
-    {
-      "Effect": "Allow",
-      "Action": [
+        "ec2:DescribeVolumes",
         "ec2:CreateSecurityGroup",
         "ec2:CreateTags",
         "ec2:CreateVolume",
         "ec2:ModifyInstanceAttribute",
-        "ec2:ModifyVolume"
-      ],
-      "Resource": [
-        "*"
-      ]
-    },
-    {
-      "Effect": "Allow",
-      "Action": [
+        "ec2:ModifyVolume",
         "ec2:AttachVolume",
         "ec2:AuthorizeSecurityGroupIngress",
         "ec2:CreateRoute",
@@ -50,37 +34,12 @@ For the aws-cloud-controller-manager to be able to communicate to AWS APIs, you 
         "ec2:DeleteSecurityGroup",
         "ec2:DeleteVolume",
         "ec2:DetachVolume",
-        "ec2:RevokeSecurityGroupIngress"
-      ],
-      "Resource": [
-        "*"
-      ],
-    },
-    {
-      "Effect": "Allow",
-      "Action": [
+        "ec2:RevokeSecurityGroupIngress",
+        
         "autoscaling:DescribeAutoScalingGroups",
         "autoscaling:DescribeLaunchConfigurations",
-        "autoscaling:DescribeTags"
-      ],
-      "Resource": [
-        "*"
-      ]
-    },
-    {
-      "Effect": "Allow",
-      "Action": [
-        "autoscaling:SetDesiredCapacity",
-        "autoscaling:TerminateInstanceInAutoScalingGroup",
-        "autoscaling:UpdateAutoScalingGroup"
-      ],
-      "Resource": [
-        "*"
-      ],
-    },
-    {
-      "Effect": "Allow",
-      "Action": [
+        "autoscaling:DescribeTags",
+        
         "elasticloadbalancing:AddTags",
         "elasticloadbalancing:AttachLoadBalancerToSubnets",
         "elasticloadbalancing:ApplySecurityGroupsToLoadBalancer",
@@ -96,15 +55,7 @@ For the aws-cloud-controller-manager to be able to communicate to AWS APIs, you 
         "elasticloadbalancing:DeregisterInstancesFromLoadBalancer",
         "elasticloadbalancing:ModifyLoadBalancerAttributes",
         "elasticloadbalancing:RegisterInstancesWithLoadBalancer",
-        "elasticloadbalancing:SetLoadBalancerPoliciesForBackendServer"
-      ],
-      "Resource": [
-        "*"
-      ]
-    },
-    {
-      "Effect": "Allow",
-      "Action": [
+        "elasticloadbalancing:SetLoadBalancerPoliciesForBackendServer",
         "ec2:DescribeVpcs",
         "elasticloadbalancing:AddTags",
         "elasticloadbalancing:CreateListener",
@@ -118,27 +69,16 @@ For the aws-cloud-controller-manager to be able to communicate to AWS APIs, you 
         "elasticloadbalancing:ModifyListener",
         "elasticloadbalancing:ModifyTargetGroup",
         "elasticloadbalancing:RegisterTargets",
-        "elasticloadbalancing:SetLoadBalancerPoliciesOfListener"
-      ],
-      "Resource": [
-        "*"
-      ]
-    },
-    {
-      "Effect": "Allow",
-      "Action": [
+        "elasticloadbalancing:SetLoadBalancerPoliciesOfListener",
+        
         "iam:CreateServiceLinkedRole",
+        
+        "kms:DescribeKey"
       ],
       "Resource": [
         "*"
       ]
     },
-    {
-      "Effect": "Allow",
-      "Action": [
-        "kms:DescribeKey",
-      ],
-    }
   ]
 }
 
