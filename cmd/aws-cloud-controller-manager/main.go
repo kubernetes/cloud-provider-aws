@@ -1,43 +1,71 @@
+/*
+Copyright 2018 The Kubernetes Authors.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+*/
+
+// The external controller manager is responsible for running controller loops that
+// are cloud provider dependent. It uses the API to listen to new events on resources.
+
 package main
 
 import (
+	goflag "flag"
 	"fmt"
+	"math/rand"
 	"os"
+	"time"
 
+	"github.com/golang/glog"
 	"github.com/spf13/cobra"
+	"github.com/spf13/pflag"
+
+	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/apiserver/pkg/server/healthz"
+	"k8s.io/apiserver/pkg/util/flag"
 	"k8s.io/apiserver/pkg/util/logs"
+	"k8s.io/cloud-provider-aws/pkg/cloudprovider/providers/aws"
 	"k8s.io/kubernetes/cmd/cloud-controller-manager/app"
 	"k8s.io/kubernetes/cmd/cloud-controller-manager/app/options"
 	_ "k8s.io/kubernetes/pkg/client/metrics/prometheus" // for client metric registration
-	_ "k8s.io/kubernetes/pkg/cloudprovider/providers/aws"
+	_ "k8s.io/kubernetes/pkg/features"                  // add the kubernetes feature gates
+	utilflag "k8s.io/kubernetes/pkg/util/flag"
 	_ "k8s.io/kubernetes/pkg/version/prometheus" // for version metric registration
 	"k8s.io/kubernetes/pkg/version/verflag"
 )
+
+var version string
 
 func init() {
 	healthz.DefaultHealthz()
 }
 
 func main() {
-	c := NewAWSCloudControllerManagerCommand()
+	rand.Seed(time.Now().UTC().UnixNano())
 
-	if err := c.Execute(); err != nil {
-		fmt.Fprintf(os.Stderr, "%v\n", err)
-		os.Exit(1)
+	goflag.CommandLine.Parse([]string{})
+	s, err := options.NewCloudControllerManagerOptions()
+	if err != nil {
+		glog.Fatalf("unable to initialize command options: %v", err)
 	}
-}
 
-func NewAWSCloudControllerManagerCommand() *cobra.Command {
-	s := options.NewCloudControllerManagerOptions()
-	s.Generic.ComponentConfig.CloudProvider = "aws"
-
-	cmd := &cobra.Command{
+	command := &cobra.Command{
 		Use: "aws-cloud-controller-manager",
 		Long: `The Cloud controller manager is a daemon that embeds
 the cloud specific control loops shipped with Kubernetes.`,
 		Run: func(cmd *cobra.Command, args []string) {
 			verflag.PrintAndExitIfRequested()
+			utilflag.PrintFlags(cmd.Flags())
 
 			c, err := s.Config()
 			if err != nil {
@@ -45,16 +73,30 @@ the cloud specific control loops shipped with Kubernetes.`,
 				os.Exit(1)
 			}
 
-			if err := app.Run(c.Complete()); err != nil {
+			if err := app.Run(c.Complete(), wait.NeverStop); err != nil {
 				fmt.Fprintf(os.Stderr, "%v\n", err)
 				os.Exit(1)
 			}
 		},
 	}
-	s.AddFlags(cmd.Flags())
+
+	fs := command.Flags()
+	namedFlagSets := s.Flags()
+	for _, f := range namedFlagSets.FlagSets {
+		fs.AddFlagSet(f)
+	}
+
+	pflag.CommandLine.SetNormalizeFunc(flag.WordSepNormalizeFunc)
+	pflag.CommandLine.AddGoFlagSet(goflag.CommandLine)
+	// utilflag.InitFlags()
 	logs.InitLogs()
 	defer logs.FlushLogs()
-	//flagutil.InitFlags()
 
-	return cmd
+	glog.V(1).Infof("aws-cloud-controller-manager version: %s", version)
+
+	s.KubeCloudShared.CloudProvider.Name = aws.ProviderName
+	if err := command.Execute(); err != nil {
+		fmt.Fprintf(os.Stderr, "error: %v\n", err)
+		os.Exit(1)
+	}
 }
