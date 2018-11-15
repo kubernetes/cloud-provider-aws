@@ -27,15 +27,27 @@ import (
 	"github.com/spf13/pflag"
 	"gopkg.in/natefinch/lumberjack.v2"
 
+	"k8s.io/apimachinery/pkg/runtime/schema"
+	auditv1 "k8s.io/apiserver/pkg/apis/audit/v1"
+	auditv1alpha1 "k8s.io/apiserver/pkg/apis/audit/v1alpha1"
 	auditv1beta1 "k8s.io/apiserver/pkg/apis/audit/v1beta1"
 	"k8s.io/apiserver/pkg/audit"
 	"k8s.io/apiserver/pkg/audit/policy"
-	"k8s.io/apiserver/pkg/features"
 	"k8s.io/apiserver/pkg/server"
-	utilfeature "k8s.io/apiserver/pkg/util/feature"
 	pluginbuffered "k8s.io/apiserver/plugin/pkg/audit/buffered"
 	pluginlog "k8s.io/apiserver/plugin/pkg/audit/log"
+	plugintruncate "k8s.io/apiserver/plugin/pkg/audit/truncate"
 	pluginwebhook "k8s.io/apiserver/plugin/pkg/audit/webhook"
+)
+
+const (
+	// Default configuration values for ModeBatch.
+	defaultBatchBufferSize = 10000 // Buffer up to 10000 events before starting discarding.
+	// These batch parameters are only used by the webhook backend.
+	defaultBatchMaxSize       = 400              // Only send up to 400 events at a time.
+	defaultBatchMaxWait       = 30 * time.Second // Send events at least twice a minute.
+	defaultBatchThrottleQPS   = 10               // Limit the send rate by 10 QPS.
+	defaultBatchThrottleBurst = 15               // Allow up to 15 QPS burst.
 )
 
 func appendBackend(existing, newBackend audit.Backend) audit.Backend {
@@ -45,17 +57,12 @@ func appendBackend(existing, newBackend audit.Backend) audit.Backend {
 	return audit.Union(existing, newBackend)
 }
 
-func advancedAuditingEnabled() bool {
-	return utilfeature.DefaultFeatureGate.Enabled(features.AdvancedAuditing)
-}
-
 type AuditOptions struct {
 	// Policy configuration file for filtering audit events that are captured.
 	// If unspecified, a default is provided.
 	PolicyFile string
 
 	// Plugin options
-
 	LogOptions     AuditLogOptions
 	WebhookOptions AuditWebhookOptions
 }
@@ -87,9 +94,15 @@ type AuditBatchOptions struct {
 	BatchConfig pluginbuffered.BatchConfig
 }
 
+type AuditTruncateOptions struct {
+	// Whether truncating is enabled or not.
+	Enabled bool
+
+	// Truncating configuration.
+	TruncateConfig plugintruncate.Config
+}
+
 // AuditLogOptions determines the output of the structured audit log by default.
-// If the AdvancedAuditing feature is set to false, AuditLogOptions holds the legacy
-// audit log writer.
 type AuditLogOptions struct {
 	Path       string
 	MaxAge     int
@@ -97,7 +110,11 @@ type AuditLogOptions struct {
 	MaxSize    int
 	Format     string
 
-	BatchOptions AuditBatchOptions
+	BatchOptions    AuditBatchOptions
+	TruncateOptions AuditTruncateOptions
+
+	// API group version used for serializing audit events.
+	GroupVersionString string
 }
 
 // AuditWebhookOptions control the webhook configuration for audit events.
@@ -105,27 +122,44 @@ type AuditWebhookOptions struct {
 	ConfigFile     string
 	InitialBackoff time.Duration
 
-	BatchOptions AuditBatchOptions
+	BatchOptions    AuditBatchOptions
+	TruncateOptions AuditTruncateOptions
+
+	// API group version used for serializing audit events.
+	GroupVersionString string
 }
 
 func NewAuditOptions() *AuditOptions {
-	defaultLogBatchConfig := pluginbuffered.NewDefaultBatchConfig()
-	defaultLogBatchConfig.ThrottleEnable = false
-
 	return &AuditOptions{
 		WebhookOptions: AuditWebhookOptions{
+			InitialBackoff: pluginwebhook.DefaultInitialBackoff,
 			BatchOptions: AuditBatchOptions{
 				Mode:        ModeBatch,
-				BatchConfig: pluginbuffered.NewDefaultBatchConfig(),
+				BatchConfig: defaultWebhookBatchConfig(),
 			},
-			InitialBackoff: pluginwebhook.DefaultInitialBackoff,
+			TruncateOptions: NewAuditTruncateOptions(),
+			// TODO(audit): use v1 API in release 1.13
+			GroupVersionString: "audit.k8s.io/v1beta1",
 		},
 		LogOptions: AuditLogOptions{
 			Format: pluginlog.FormatJson,
 			BatchOptions: AuditBatchOptions{
 				Mode:        ModeBlocking,
-				BatchConfig: defaultLogBatchConfig,
+				BatchConfig: defaultLogBatchConfig(),
 			},
+			TruncateOptions: NewAuditTruncateOptions(),
+			// TODO(audit): use v1 API in release 1.13
+			GroupVersionString: "audit.k8s.io/v1beta1",
+		},
+	}
+}
+
+func NewAuditTruncateOptions() AuditTruncateOptions {
+	return AuditTruncateOptions{
+		Enabled: false,
+		TruncateConfig: plugintruncate.Config{
+			MaxBatchSize: 10 * 1024 * 1024, // 10MB
+			MaxEventSize: 100 * 1024,       // 100KB
 		},
 	}
 }
@@ -136,17 +170,7 @@ func (o *AuditOptions) Validate() []error {
 		return nil
 	}
 
-	allErrors := []error{}
-
-	if !advancedAuditingEnabled() {
-		if len(o.PolicyFile) > 0 {
-			allErrors = append(allErrors, fmt.Errorf("feature '%s' must be enabled to set option --audit-policy-file", features.AdvancedAuditing))
-		}
-		if len(o.WebhookOptions.ConfigFile) > 0 {
-			allErrors = append(allErrors, fmt.Errorf("feature '%s' must be enabled to set option --audit-webhook-config-file", features.AdvancedAuditing))
-		}
-	}
-
+	var allErrors []error
 	allErrors = append(allErrors, o.LogOptions.Validate()...)
 	allErrors = append(allErrors, o.WebhookOptions.Validate()...)
 
@@ -177,13 +201,41 @@ func validateBackendBatchOptions(pluginName string, options AuditBatchOptions) e
 	if config.MaxBatchSize <= 0 {
 		return fmt.Errorf("invalid audit batch %s max batch size %v, must be a positive number", pluginName, config.MaxBatchSize)
 	}
-	if config.ThrottleQPS <= 0 {
-		return fmt.Errorf("invalid audit batch %s throttle QPS %v, must be a positive number", pluginName, config.ThrottleQPS)
-	}
-	if config.ThrottleBurst <= 0 {
-		return fmt.Errorf("invalid audit batch %s throttle burst %v, must be a positive number", pluginName, config.ThrottleBurst)
+	if config.ThrottleEnable {
+		if config.ThrottleQPS <= 0 {
+			return fmt.Errorf("invalid audit batch %s throttle QPS %v, must be a positive number", pluginName, config.ThrottleQPS)
+		}
+		if config.ThrottleBurst <= 0 {
+			return fmt.Errorf("invalid audit batch %s throttle burst %v, must be a positive number", pluginName, config.ThrottleBurst)
+		}
 	}
 	return nil
+}
+
+var knownGroupVersions = []schema.GroupVersion{
+	auditv1alpha1.SchemeGroupVersion,
+	auditv1beta1.SchemeGroupVersion,
+	auditv1.SchemeGroupVersion,
+}
+
+func validateGroupVersionString(groupVersion string) error {
+	gv, err := schema.ParseGroupVersion(groupVersion)
+	if err != nil {
+		return err
+	}
+	if !knownGroupVersion(gv) {
+		return fmt.Errorf("invalid group version, allowed versions are %q", knownGroupVersions)
+	}
+	return nil
+}
+
+func knownGroupVersion(gv schema.GroupVersion) bool {
+	for _, knownGv := range knownGroupVersions {
+		if gv == knownGv {
+			return true
+		}
+	}
+	return false
 }
 
 func (o *AuditOptions) AddFlags(fs *pflag.FlagSet) {
@@ -192,13 +244,14 @@ func (o *AuditOptions) AddFlags(fs *pflag.FlagSet) {
 	}
 
 	fs.StringVar(&o.PolicyFile, "audit-policy-file", o.PolicyFile,
-		"Path to the file that defines the audit policy configuration. Requires the 'AdvancedAuditing' feature gate."+
-			" With AdvancedAuditing, a profile is required to enable auditing.")
+		"Path to the file that defines the audit policy configuration.")
 
 	o.LogOptions.AddFlags(fs)
 	o.LogOptions.BatchOptions.AddFlags(pluginlog.PluginName, fs)
+	o.LogOptions.TruncateOptions.AddFlags(pluginlog.PluginName, fs)
 	o.WebhookOptions.AddFlags(fs)
 	o.WebhookOptions.BatchOptions.AddFlags(pluginwebhook.PluginName, fs)
+	o.WebhookOptions.TruncateOptions.AddFlags(pluginwebhook.PluginName, fs)
 }
 
 func (o *AuditOptions) ApplyTo(c *server.Config) error {
@@ -206,19 +259,14 @@ func (o *AuditOptions) ApplyTo(c *server.Config) error {
 		return nil
 	}
 
-	// Apply legacy audit options if advanced audit is not enabled.
-	if !advancedAuditingEnabled() {
-		return o.LogOptions.legacyApplyTo(c)
-	}
-
-	// Apply advanced options if advanced audit is enabled.
+	// Apply advanced options.
 	// 1. Apply generic options.
 	if err := o.applyTo(c); err != nil {
 		return err
 	}
 
 	// 2. Apply plugin options.
-	if err := o.LogOptions.advancedApplyTo(c); err != nil {
+	if err := o.LogOptions.applyTo(c); err != nil {
 		return err
 	}
 	if err := o.WebhookOptions.applyTo(c); err != nil {
@@ -274,10 +322,42 @@ func (o *AuditBatchOptions) wrapBackend(delegate audit.Backend) audit.Backend {
 	return pluginbuffered.NewBackend(delegate, o.BatchConfig)
 }
 
+func (o *AuditTruncateOptions) Validate(pluginName string) error {
+	config := o.TruncateConfig
+	if config.MaxEventSize <= 0 {
+		return fmt.Errorf("invalid audit truncate %s max event size %v, must be a positive number", pluginName, config.MaxEventSize)
+	}
+	if config.MaxBatchSize < config.MaxEventSize {
+		return fmt.Errorf("invalid audit truncate %s max batch size %v, must be greater than "+
+			"max event size (%v)", pluginName, config.MaxBatchSize, config.MaxEventSize)
+	}
+	return nil
+}
+
+func (o *AuditTruncateOptions) AddFlags(pluginName string, fs *pflag.FlagSet) {
+	fs.BoolVar(&o.Enabled, fmt.Sprintf("audit-%s-truncate-enabled", pluginName),
+		o.Enabled, "Whether event and batch truncating is enabled.")
+	fs.Int64Var(&o.TruncateConfig.MaxBatchSize, fmt.Sprintf("audit-%s-truncate-max-batch-size", pluginName),
+		o.TruncateConfig.MaxBatchSize, "Maximum size of the batch sent to the underlying backend. "+
+			"Actual serialized size can be several hundreds of bytes greater. If a batch exceeds this limit, "+
+			"it is split into several batches of smaller size.")
+	fs.Int64Var(&o.TruncateConfig.MaxEventSize, fmt.Sprintf("audit-%s-truncate-max-event-size", pluginName),
+		o.TruncateConfig.MaxEventSize, "Maximum size of the audit event sent to the underlying backend. "+
+			"If the size of an event is greater than this number, first request and response are removed, and "+
+			"if this doesn't reduce the size enough, event is discarded.")
+}
+
+func (o *AuditTruncateOptions) wrapBackend(delegate audit.Backend, gv schema.GroupVersion) audit.Backend {
+	if !o.Enabled {
+		return delegate
+	}
+	return plugintruncate.NewBackend(delegate, o.TruncateConfig, gv)
+}
+
 func (o *AuditLogOptions) AddFlags(fs *pflag.FlagSet) {
 	fs.StringVar(&o.Path, "audit-log-path", o.Path,
 		"If set, all requests coming to the apiserver will be logged to this file.  '-' means standard out.")
-	fs.IntVar(&o.MaxAge, "audit-log-maxage", o.MaxBackups,
+	fs.IntVar(&o.MaxAge, "audit-log-maxage", o.MaxAge,
 		"The maximum number of days to retain old audit log files based on the timestamp encoded in their filename.")
 	fs.IntVar(&o.MaxBackups, "audit-log-maxbackup", o.MaxBackups,
 		"The maximum number of old audit log files to retain.")
@@ -285,8 +365,10 @@ func (o *AuditLogOptions) AddFlags(fs *pflag.FlagSet) {
 		"The maximum size in megabytes of the audit log file before it gets rotated.")
 	fs.StringVar(&o.Format, "audit-log-format", o.Format,
 		"Format of saved audits. \"legacy\" indicates 1-line text format for each event."+
-			" \"json\" indicates structured json format. Requires the 'AdvancedAuditing' feature"+
-			" gate. Known formats are "+strings.Join(pluginlog.AllowedFormats, ",")+".")
+			" \"json\" indicates structured json format. Known formats are "+
+			strings.Join(pluginlog.AllowedFormats, ",")+".")
+	fs.StringVar(&o.GroupVersionString, "audit-log-version", o.GroupVersionString,
+		"API group and version used for serializing audit events written to log.")
 }
 
 func (o *AuditLogOptions) Validate() []error {
@@ -296,22 +378,28 @@ func (o *AuditLogOptions) Validate() []error {
 	}
 
 	var allErrors []error
-	if advancedAuditingEnabled() {
-		if err := validateBackendBatchOptions(pluginlog.PluginName, o.BatchOptions); err != nil {
-			allErrors = append(allErrors, err)
-		}
 
-		// Check log format
-		validFormat := false
-		for _, f := range pluginlog.AllowedFormats {
-			if f == o.Format {
-				validFormat = true
-				break
-			}
+	if err := validateBackendBatchOptions(pluginlog.PluginName, o.BatchOptions); err != nil {
+		allErrors = append(allErrors, err)
+	}
+	if err := o.TruncateOptions.Validate(pluginlog.PluginName); err != nil {
+		allErrors = append(allErrors, err)
+	}
+
+	if err := validateGroupVersionString(o.GroupVersionString); err != nil {
+		allErrors = append(allErrors, err)
+	}
+
+	// Check log format
+	validFormat := false
+	for _, f := range pluginlog.AllowedFormats {
+		if f == o.Format {
+			validFormat = true
+			break
 		}
-		if !validFormat {
-			allErrors = append(allErrors, fmt.Errorf("invalid audit log format %s, allowed formats are %q", o.Format, strings.Join(pluginlog.AllowedFormats, ",")))
-		}
+	}
+	if !validFormat {
+		allErrors = append(allErrors, fmt.Errorf("invalid audit log format %s, allowed formats are %q", o.Format, strings.Join(pluginlog.AllowedFormats, ",")))
 	}
 
 	// Check validities of MaxAge, MaxBackups and MaxSize of log options, if file log backend is enabled.
@@ -350,29 +438,28 @@ func (o *AuditLogOptions) getWriter() io.Writer {
 	return w
 }
 
-func (o *AuditLogOptions) advancedApplyTo(c *server.Config) error {
+func (o *AuditLogOptions) applyTo(c *server.Config) error {
 	if w := o.getWriter(); w != nil {
-		log := pluginlog.NewBackend(w, o.Format, auditv1beta1.SchemeGroupVersion)
-		c.AuditBackend = appendBackend(c.AuditBackend, o.BatchOptions.wrapBackend(log))
+		groupVersion, _ := schema.ParseGroupVersion(o.GroupVersionString)
+		log := pluginlog.NewBackend(w, o.Format, groupVersion)
+		log = o.BatchOptions.wrapBackend(log)
+		log = o.TruncateOptions.wrapBackend(log, groupVersion)
+		c.AuditBackend = appendBackend(c.AuditBackend, log)
 	}
-	return nil
-}
-
-func (o *AuditLogOptions) legacyApplyTo(c *server.Config) error {
-	c.LegacyAuditWriter = o.getWriter()
 	return nil
 }
 
 func (o *AuditWebhookOptions) AddFlags(fs *pflag.FlagSet) {
 	fs.StringVar(&o.ConfigFile, "audit-webhook-config-file", o.ConfigFile,
-		"Path to a kubeconfig formatted file that defines the audit webhook configuration."+
-			" Requires the 'AdvancedAuditing' feature gate.")
+		"Path to a kubeconfig formatted file that defines the audit webhook configuration.")
 	fs.DurationVar(&o.InitialBackoff, "audit-webhook-initial-backoff",
 		o.InitialBackoff, "The amount of time to wait before retrying the first failed request.")
 	fs.DurationVar(&o.InitialBackoff, "audit-webhook-batch-initial-backoff",
 		o.InitialBackoff, "The amount of time to wait before retrying the first failed request.")
 	fs.MarkDeprecated("audit-webhook-batch-initial-backoff",
 		"Deprecated, use --audit-webhook-initial-backoff instead.")
+	fs.StringVar(&o.GroupVersionString, "audit-webhook-version", o.GroupVersionString,
+		"API group and version used for serializing audit events written to webhook.")
 }
 
 func (o *AuditWebhookOptions) Validate() []error {
@@ -381,10 +468,15 @@ func (o *AuditWebhookOptions) Validate() []error {
 	}
 
 	var allErrors []error
-	if advancedAuditingEnabled() {
-		if err := validateBackendBatchOptions(pluginwebhook.PluginName, o.BatchOptions); err != nil {
-			allErrors = append(allErrors, err)
-		}
+	if err := validateBackendBatchOptions(pluginwebhook.PluginName, o.BatchOptions); err != nil {
+		allErrors = append(allErrors, err)
+	}
+	if err := o.TruncateOptions.Validate(pluginwebhook.PluginName); err != nil {
+		allErrors = append(allErrors, err)
+	}
+
+	if err := validateGroupVersionString(o.GroupVersionString); err != nil {
+		allErrors = append(allErrors, err)
 	}
 	return allErrors
 }
@@ -398,10 +490,41 @@ func (o *AuditWebhookOptions) applyTo(c *server.Config) error {
 		return nil
 	}
 
-	webhook, err := pluginwebhook.NewBackend(o.ConfigFile, auditv1beta1.SchemeGroupVersion, o.InitialBackoff)
+	groupVersion, _ := schema.ParseGroupVersion(o.GroupVersionString)
+	webhook, err := pluginwebhook.NewBackend(o.ConfigFile, groupVersion, o.InitialBackoff)
 	if err != nil {
 		return fmt.Errorf("initializing audit webhook: %v", err)
 	}
-	c.AuditBackend = appendBackend(c.AuditBackend, o.BatchOptions.wrapBackend(webhook))
+	webhook = o.BatchOptions.wrapBackend(webhook)
+	webhook = o.TruncateOptions.wrapBackend(webhook, groupVersion)
+	c.AuditBackend = appendBackend(c.AuditBackend, webhook)
 	return nil
+}
+
+// defaultWebhookBatchConfig returns the default BatchConfig used by the Webhook backend.
+func defaultWebhookBatchConfig() pluginbuffered.BatchConfig {
+	return pluginbuffered.BatchConfig{
+		BufferSize:   defaultBatchBufferSize,
+		MaxBatchSize: defaultBatchMaxSize,
+		MaxBatchWait: defaultBatchMaxWait,
+
+		ThrottleEnable: true,
+		ThrottleQPS:    defaultBatchThrottleQPS,
+		ThrottleBurst:  defaultBatchThrottleBurst,
+
+		AsyncDelegate: true,
+	}
+}
+
+// defaultLogBatchConfig returns the default BatchConfig used by the Log backend.
+func defaultLogBatchConfig() pluginbuffered.BatchConfig {
+	return pluginbuffered.BatchConfig{
+		BufferSize: defaultBatchBufferSize,
+		// Batching is not useful for the log-file backend.
+		// MaxBatchWait ignored.
+		MaxBatchSize:   1,
+		ThrottleEnable: false,
+		// Asynchronous log threads just create lock contention.
+		AsyncDelegate: false,
+	}
 }
