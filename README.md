@@ -74,7 +74,7 @@ For the aws-cloud-controller-manager to be able to communicate to AWS APIs, you 
       "Resource": [
         "*"
       ]
-    },
+    }
   ]
 }
 
