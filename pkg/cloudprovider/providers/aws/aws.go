@@ -420,6 +420,8 @@ type VolumeOptions struct {
 	Tags             map[string]string
 	VolumeType       string
 	AvailabilityZone string
+	// ID of the EBS snapshot to use for volume creation
+	SnapshotID	string
 	// IOPSPerGB x CapacityGB will give total IOPS of the volume to create.
 	// Calculated total IOPS will be capped at MaxTotalIOPS.
 	IOPSPerGB int
@@ -2186,6 +2188,9 @@ func (c *Cloud) CreateDisk(volumeOptions *VolumeOptions) (KubernetesVolumeID, er
 	}
 	if iops > 0 {
 		request.Iops = aws.Int64(iops)
+	}
+	if volumeOptions.SnapshotID != "" {
+		request.SnapshotID = volumeOptions.SnapshotID
 	}
 
 	tags := volumeOptions.Tags
