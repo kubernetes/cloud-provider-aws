@@ -420,6 +420,8 @@ type VolumeOptions struct {
 	Tags             map[string]string
 	VolumeType       string
 	AvailabilityZone string
+	// SnapshotID is the EBS snapshot used when creating the volume
+	SnapshotID string
 	// IOPSPerGB x CapacityGB will give total IOPS of the volume to create.
 	// Calculated total IOPS will be capped at MaxTotalIOPS.
 	IOPSPerGB int
@@ -2187,6 +2189,10 @@ func (c *Cloud) CreateDisk(volumeOptions *VolumeOptions) (KubernetesVolumeID, er
 	if iops > 0 {
 		request.Iops = aws.Int64(iops)
 	}
+	if volumeoptions.SnapshotID != "" {
+		request.VolumeOptions = aws.String(volumeOptions.SnapshotID)
+	}
+	
 
 	tags := volumeOptions.Tags
 	tags = c.tagging.buildTags(ResourceLifecycleOwned, tags)
@@ -2213,7 +2219,7 @@ func (c *Cloud) CreateDisk(volumeOptions *VolumeOptions) (KubernetesVolumeID, er
 	}
 	volumeName := KubernetesVolumeID("aws://" + aws.StringValue(response.AvailabilityZone) + "/" + string(awsID))
 
-	// AWS has a bad habbit of reporting success when creating a volume with
+	// AWS has a bad habit of reporting success when creating a volume with
 	// encryption keys that either don't exists or have wrong permissions.
 	// Such volume lives for couple of seconds and then it's silently deleted
 	// by AWS. There is no other check to ensure that given KMS key is correct,
