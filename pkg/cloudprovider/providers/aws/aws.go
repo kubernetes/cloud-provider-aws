@@ -45,7 +45,7 @@ import (
 	gcfg "gopkg.in/gcfg.v1"
 	"k8s.io/klog"
 
-	"k8s.io/api/core/v1"
+	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
@@ -2190,9 +2190,8 @@ func (c *Cloud) CreateDisk(volumeOptions *VolumeOptions) (KubernetesVolumeID, er
 		request.Iops = aws.Int64(iops)
 	}
 	if volumeOptions.SnapshotID != "" {
-		request.VolumeOptions = aws.String(volumeOptions.SnapshotID)
+		request.SnapshotId = aws.String(volumeOptions.SnapshotID)
 	}
-	
 
 	tags := volumeOptions.Tags
 	tags = c.tagging.buildTags(ResourceLifecycleOwned, tags)

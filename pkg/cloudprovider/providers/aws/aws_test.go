@@ -31,7 +31,7 @@ import (
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 
-	"k8s.io/api/core/v1"
+	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
@@ -1405,10 +1405,12 @@ func TestCreateDisk(t *testing.T) {
 	volumeOptions := &VolumeOptions{
 		AvailabilityZone: "us-east-1a",
 		CapacityGB:       10,
+		SnapshotID:       "snap-0252bea5b37202c35",
 	}
 	request := &ec2.CreateVolumeInput{
 		AvailabilityZone: aws.String("us-east-1a"),
 		Encrypted:        aws.Bool(false),
+		SnapshotId:       aws.String("snap-0252bea5b37202c35"),
 		VolumeType:       aws.String(DefaultVolumeType),
 		Size:             aws.Int64(10),
 		TagSpecifications: []*ec2.TagSpecification{
