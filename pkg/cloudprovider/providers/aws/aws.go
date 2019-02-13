@@ -2218,7 +2218,7 @@ func (c *Cloud) CreateDisk(volumeOptions *VolumeOptions) (KubernetesVolumeID, er
 	}
 	volumeName := KubernetesVolumeID("aws://" + aws.StringValue(response.AvailabilityZone) + "/" + string(awsID))
 
-	// AWS has a bad habbit of reporting success when creating a volume with
+	// AWS has a bad habit of reporting success when creating a volume with
 	// encryption keys that either don't exists or have wrong permissions.
 	// Such volume lives for couple of seconds and then it's silently deleted
 	// by AWS. There is no other check to ensure that given KMS key is correct,
