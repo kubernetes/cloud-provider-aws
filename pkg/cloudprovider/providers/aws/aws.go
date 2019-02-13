@@ -2189,7 +2189,7 @@ func (c *Cloud) CreateDisk(volumeOptions *VolumeOptions) (KubernetesVolumeID, er
 	if iops > 0 {
 		request.Iops = aws.Int64(iops)
 	}
-	if volumeoptions.SnapshotID != "" {
+	if volumeOptions.SnapshotID != "" {
 		request.VolumeOptions = aws.String(volumeOptions.SnapshotID)
 	}
 	
