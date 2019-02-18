@@ -109,3 +109,7 @@ The cloud provider currently uses the instance private DNS name as the node name
 
 ### NOTE
 Currently the implementation of the cloud provider is found in https://github.com/kubernetes/kubernetes/tree/master/pkg/cloudprovider/providers/aws, and vendored into this repository. In the future, the implementation will be migrated here and out of Kubernetes core.
+
+# Development
+## Note 
+* All the EBS volume plugin related logic will be in maintenance mode. For new feature request or bug fixes, please create issue or pull reequest in [EBS CSI Driver](https://github.com/kubernetes-sigs/aws-ebs-csi-driver)
