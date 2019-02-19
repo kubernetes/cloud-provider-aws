@@ -18,15 +18,13 @@ VERSION ?= $(shell git describe --exact-match 2> /dev/null || \
                  git describe --match=$(git rev-parse --short=8 HEAD) --always --dirty --abbrev=8)
 LDFLAGS   := "-w -s -X 'main.version=${VERSION}'"
 
-aws-cloud-controller-manager: depend $(SOURCES)
-	CGO_ENABLED=0 GOOS=$(GOOS) go build \
+export GO111MODULE=on
+
+aws-cloud-controller-manager: $(SOURCES)
+	 CGO_ENABLED=0 GOOS=$(GOOS) go build \
 		-ldflags $(LDFLAGS) \
 		-o aws-cloud-controller-manager \
 		cmd/aws-cloud-controller-manager/main.go
-
-.PHONY: depend
-depend:
-	dep ensure -v
 
 .PHONY: check
 check: verify-fmt verify-lint vet
