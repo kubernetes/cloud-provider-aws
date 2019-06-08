@@ -27,7 +27,6 @@ import (
 	"time"
 
 	"github.com/golang/glog"
-	"github.com/kubernetes/cloud-provider-aws/pkg/cloudprovider/providers/aws"
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 
@@ -35,6 +34,7 @@ import (
 	"k8s.io/apiserver/pkg/server/healthz"
 	"k8s.io/apiserver/pkg/util/flag"
 	"k8s.io/apiserver/pkg/util/logs"
+	"k8s.io/cloud-provider-aws/pkg/cloudprovider/providers/aws"
 	"k8s.io/kubernetes/cmd/cloud-controller-manager/app"
 	"k8s.io/kubernetes/cmd/cloud-controller-manager/app/options"
 	_ "k8s.io/kubernetes/pkg/client/metrics/prometheus" // for client metric registration
