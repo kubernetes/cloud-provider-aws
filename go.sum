@@ -232,8 +232,6 @@ k8s.io/apiserver v0.0.0-20181004124341-e85ad7b666fe h1:QNs3vf1GO871H/R8rUYJpiXjp
 k8s.io/apiserver v0.0.0-20181004124341-e85ad7b666fe/go.mod h1:6bqaTSOSJavUIXUtfaR9Os9JtTCm8ZqH2SUl2S60C4w=
 k8s.io/client-go v9.0.0+incompatible h1:2kqW3X2xQ9SbFvWZjGEHBLlWc1LG9JIJNXWkuqwdZ3A=
 k8s.io/client-go v9.0.0+incompatible/go.mod h1:7vJpHMYJwNQCWgzmNV+VYUl1zCObLyodBc8nIyt8L5s=
-k8s.io/cloud-provider v0.0.0-20181110194211-3a19c034b793 h1:K5QHP5ATvQLs9PW9S9o3BR1gxZ7V51cz/W8mQRGbyiU=
-k8s.io/cloud-provider v0.0.0-20181110194211-3a19c034b793/go.mod h1:LlIffnLBu+GG7d4ppPzC8UnA1Ex8S+ntmSRVsnr7Xy4=
 k8s.io/csi-api v0.0.0-20181110193203-3ace7a84ffef h1:DmRrl2VELxcrsA2gONfirs7nAZ7Oj+4QDXqGkPozAZE=
 k8s.io/csi-api v0.0.0-20181110193203-3ace7a84ffef/go.mod h1:GH854hXKH+vaEO06X/DMiE/o3rVO1aw8dXJJpP7awjA=
 k8s.io/klog v0.1.0 h1:I5HMfc/DtuVaGR1KPwUrTc476K8NCqNBldC7H4dYEzk=

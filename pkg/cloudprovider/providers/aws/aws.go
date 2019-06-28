@@ -45,7 +45,7 @@ import (
 	gcfg "gopkg.in/gcfg.v1"
 	"k8s.io/klog"
 
-	"k8s.io/api/core/v1"
+	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
@@ -55,8 +55,8 @@ import (
 	"k8s.io/client-go/kubernetes/scheme"
 	v1core "k8s.io/client-go/kubernetes/typed/core/v1"
 	"k8s.io/client-go/tools/record"
-	cloudprovider "k8s.io/cloud-provider"
 	"k8s.io/kubernetes/pkg/api/v1/service"
+	cloudprovider "k8s.io/kubernetes/pkg/cloudprovider"
 	"k8s.io/kubernetes/pkg/controller"
 	kubeletapis "k8s.io/kubernetes/pkg/kubelet/apis"
 	"k8s.io/kubernetes/pkg/volume"
@@ -1157,7 +1157,7 @@ func newAWSCloud(cfg CloudConfig, awsServices Services) (*Cloud, error) {
 }
 
 // Initialize passes a Kubernetes clientBuilder interface to the cloud provider
-func (c *Cloud) Initialize(clientBuilder cloudprovider.ControllerClientBuilder, stop <-chan struct{}) {
+func (c *Cloud) Initialize(clientBuilder controller.ControllerClientBuilder) {
 	c.clientBuilder = clientBuilder
 	c.kubeClient = clientBuilder.ClientOrDie("aws-cloud-provider")
 	c.eventBroadcaster = record.NewBroadcaster()

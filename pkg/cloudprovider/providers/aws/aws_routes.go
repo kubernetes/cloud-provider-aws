@@ -24,7 +24,7 @@ import (
 	"github.com/aws/aws-sdk-go/service/ec2"
 	"k8s.io/klog"
 
-	cloudprovider "k8s.io/cloud-provider"
+	cloudprovider "k8s.io/kubernetes/pkg/cloudprovider"
 )
 
 func (c *Cloud) findRouteTable(clusterName string) (*ec2.RouteTable, error) {
