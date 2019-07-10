@@ -31,7 +31,7 @@ import (
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 
-	"k8s.io/api/core/v1"
+	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
@@ -915,7 +915,7 @@ func TestGetVolumeLabels(t *testing.T) {
 func TestDescribeLoadBalancerOnDelete(t *testing.T) {
 	awsServices := newMockedFakeAWSServices(TestClusterID)
 	c, _ := newAWSCloud(CloudConfig{}, awsServices)
-	awsServices.elb.(*MockedFakeELB).expectDescribeLoadBalancers("aid")
+	awsServices.elb.(*MockedFakeELB).expectDescribeLoadBalancers("testCluster-id")
 
 	c.EnsureLoadBalancerDeleted(context.TODO(), TestClusterName, &v1.Service{ObjectMeta: metav1.ObjectMeta{Name: "myservice", UID: "id"}})
 }
@@ -923,7 +923,7 @@ func TestDescribeLoadBalancerOnDelete(t *testing.T) {
 func TestDescribeLoadBalancerOnUpdate(t *testing.T) {
 	awsServices := newMockedFakeAWSServices(TestClusterID)
 	c, _ := newAWSCloud(CloudConfig{}, awsServices)
-	awsServices.elb.(*MockedFakeELB).expectDescribeLoadBalancers("aid")
+	awsServices.elb.(*MockedFakeELB).expectDescribeLoadBalancers("testCluster-id")
 
 	c.UpdateLoadBalancer(context.TODO(), TestClusterName, &v1.Service{ObjectMeta: metav1.ObjectMeta{Name: "myservice", UID: "id"}}, []*v1.Node{})
 }
@@ -931,7 +931,7 @@ func TestDescribeLoadBalancerOnUpdate(t *testing.T) {
 func TestDescribeLoadBalancerOnGet(t *testing.T) {
 	awsServices := newMockedFakeAWSServices(TestClusterID)
 	c, _ := newAWSCloud(CloudConfig{}, awsServices)
-	awsServices.elb.(*MockedFakeELB).expectDescribeLoadBalancers("aid")
+	awsServices.elb.(*MockedFakeELB).expectDescribeLoadBalancers("testCluster-id")
 
 	c.GetLoadBalancer(context.TODO(), TestClusterName, &v1.Service{ObjectMeta: metav1.ObjectMeta{Name: "myservice", UID: "id"}})
 }
@@ -939,7 +939,7 @@ func TestDescribeLoadBalancerOnGet(t *testing.T) {
 func TestDescribeLoadBalancerOnEnsure(t *testing.T) {
 	awsServices := newMockedFakeAWSServices(TestClusterID)
 	c, _ := newAWSCloud(CloudConfig{}, awsServices)
-	awsServices.elb.(*MockedFakeELB).expectDescribeLoadBalancers("aid")
+	awsServices.elb.(*MockedFakeELB).expectDescribeLoadBalancers("testCluster-id")
 
 	c.EnsureLoadBalancer(context.TODO(), TestClusterName, &v1.Service{ObjectMeta: metav1.ObjectMeta{Name: "myservice", UID: "id"}}, []*v1.Node{})
 }
@@ -1188,13 +1188,13 @@ func TestLBExtraSecurityGroupsAnnotation(t *testing.T) {
 		{"Multiple SGs specified", sg3, []string{sg1[ServiceAnnotationLoadBalancerExtraSecurityGroups], sg2[ServiceAnnotationLoadBalancerExtraSecurityGroups]}},
 	}
 
-	awsServices.ec2.(*MockedFakeEC2).expectDescribeSecurityGroups(TestClusterID, "k8s-elb-aid")
+	awsServices.ec2.(*MockedFakeEC2).expectDescribeSecurityGroups(TestClusterID, "k8s-elb-testCluster-id")
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			serviceName := types.NamespacedName{Namespace: "default", Name: "myservice"}
 
-			sgList, err := c.buildELBSecurityGroupList(serviceName, "aid", test.annotations)
+			sgList, err := c.buildELBSecurityGroupList(serviceName, "testCluster-id", test.annotations)
 			assert.NoError(t, err, "buildELBSecurityGroupList failed")
 			extraSGs := sgList[1:]
 			assert.True(t, sets.NewString(test.expectedSGs...).Equal(sets.NewString(extraSGs...)),
@@ -1221,13 +1221,13 @@ func TestLBSecurityGroupsAnnotation(t *testing.T) {
 		{"Multiple SGs specified", sg3, []string{sg1[ServiceAnnotationLoadBalancerSecurityGroups], sg2[ServiceAnnotationLoadBalancerSecurityGroups]}},
 	}
 
-	awsServices.ec2.(*MockedFakeEC2).expectDescribeSecurityGroups(TestClusterID, "k8s-elb-aid")
+	awsServices.ec2.(*MockedFakeEC2).expectDescribeSecurityGroups(TestClusterID, "k8s-elb-testCluster-id")
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			serviceName := types.NamespacedName{Namespace: "default", Name: "myservice"}
 
-			sgList, err := c.buildELBSecurityGroupList(serviceName, "aid", test.annotations)
+			sgList, err := c.buildELBSecurityGroupList(serviceName, "testCluster-id", test.annotations)
 			assert.NoError(t, err, "buildELBSecurityGroupList failed")
 			assert.True(t, sets.NewString(test.expectedSGs...).Equal(sets.NewString(sgList...)),
 				"Security Groups expected=%q , returned=%q", test.expectedSGs, sgList)

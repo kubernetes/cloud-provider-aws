@@ -23,6 +23,7 @@ import (
 	"io"
 	"net"
 	"path"
+	"regexp"
 	"strconv"
 	"strings"
 	"sync"
@@ -45,7 +46,7 @@ import (
 	gcfg "gopkg.in/gcfg.v1"
 	"k8s.io/klog"
 
-	"k8s.io/api/core/v1"
+	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
@@ -3663,8 +3664,25 @@ func (c *Cloud) GetLoadBalancer(ctx context.Context, clusterName string, service
 
 // GetLoadBalancerName is an implementation of LoadBalancer.GetLoadBalancerName
 func (c *Cloud) GetLoadBalancerName(ctx context.Context, clusterName string, service *v1.Service) string {
-	// TODO: replace DefaultLoadBalancerName to generate more meaningful loadbalancer names.
-	return cloudprovider.DefaultLoadBalancerName(service)
+	// Ref: https://docs.aws.amazon.com/elasticloadbalancing/2012-06-01/APIReference/API_CreateLoadBalancer.html
+	// unique for the region / max 32 chars / alphanumeric plus hyphen / can't start or end with hyphen
+
+	ret := fmt.Sprintf("%s-%s", clusterName, string(service.UID))
+
+	reg, err := regexp.Compile(`[^a-zA-Z0-9\-]+`)
+
+	if err != nil {
+		klog.Warning("LoadBalancerName regexp failed to compile; falling back to cloudporovider.DefaultLoadBalancerName")
+		return cloudprovider.DefaultLoadBalancerName(service)
+	}
+
+	ret = reg.ReplaceAllString(ret, "")
+
+	if len(ret) > 32 {
+		ret = ret[:32]
+	}
+
+	return ret
 }
 
 func toStatus(lb *elb.LoadBalancerDescription) *v1.LoadBalancerStatus {
