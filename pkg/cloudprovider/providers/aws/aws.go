@@ -3666,18 +3666,10 @@ func (c *Cloud) GetLoadBalancer(ctx context.Context, clusterName string, service
 func (c *Cloud) GetLoadBalancerName(ctx context.Context, clusterName string, service *v1.Service) string {
 	// Ref: https://docs.aws.amazon.com/elasticloadbalancing/2012-06-01/APIReference/API_CreateLoadBalancer.html
 	// unique for the region / max 32 chars / alphanumeric plus hyphen / can't start or end with hyphen
+	reg := regexp.MustCompile(`[^a-zA-Z0-9\-]+`)
 
-	ret := "a" + string(service.UID) // This is the old implementation from cloudbalancer.DefaultLoadBalancerName
-
-	reg, err := regexp.Compile(`[^a-zA-Z0-9\-]+`)
-
-	if err == nil {
-		ret = fmt.Sprintf("%s-%s", clusterName, string(service.UID))
-		ret = reg.ReplaceAllString(ret, "")
-	} else {
-		klog.Warning("LoadBalancerName regexp failed to compile; falling back to previous implementation")
-		ret = strings.Replace(ret, "-", "", -1)
-	}
+	ret := fmt.Sprintf("%s-%s", clusterName, string(service.UID))
+	ret = reg.ReplaceAllString(ret, "")
 
 	if len(ret) > 32 {
 		ret = ret[:32]

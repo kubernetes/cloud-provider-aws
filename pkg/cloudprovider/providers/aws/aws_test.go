@@ -944,6 +944,16 @@ func TestDescribeLoadBalancerOnEnsure(t *testing.T) {
 	c.EnsureLoadBalancer(context.TODO(), TestClusterName, &v1.Service{ObjectMeta: metav1.ObjectMeta{Name: "myservice", UID: "id"}}, []*v1.Node{})
 }
 
+func TestLoadBalancerNameShouldBeLimitedTo32Characters(t *testing.T) {
+	longClusterName := "this-is-a-very-long-cluster-name-that-should-be-truncated"
+
+	awsServices := newMockedFakeAWSServices(longClusterName)
+	c, _ := newAWSCloud(CloudConfig{}, awsServices)
+	awsServices.elb.(*MockedFakeELB).expectDescribeLoadBalancers(fmt.Sprintf(longClusterName[:31]))
+
+	c.EnsureLoadBalancer(context.TODO(), TestClusterName, &v1.Service{ObjectMeta: metav1.ObjectMeta{Name: "myservice", UID: "id"}}, []*v1.Node{})
+}
+
 func TestBuildListener(t *testing.T) {
 	tests := []struct {
 		name string
