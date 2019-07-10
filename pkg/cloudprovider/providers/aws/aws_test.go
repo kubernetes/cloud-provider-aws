@@ -949,7 +949,11 @@ func TestLoadBalancerNameShouldBeLimitedTo32Characters(t *testing.T) {
 
 	awsServices := newMockedFakeAWSServices(longClusterName)
 	c, _ := newAWSCloud(CloudConfig{}, awsServices)
-	awsServices.elb.(*MockedFakeELB).expectDescribeLoadBalancers(fmt.Sprintf(longClusterName[:31]))
+
+	actualClusterName := c.GetLoadBalancerName(context.TODO(), longClusterName, &v1.Service{ObjectMeta: metav1.ObjectMeta{Name: "myservice", UID: "id"}})
+	expectedClusterName := longClusterName[:32]
+
+	assert.True(t, strings.Compare(actualClusterName, expectedClusterName) == 0, "Expected cluster name to be truncated to 32 chars: got '%s', expected '%s'", actualClusterName, expectedClusterName)
 
 	c.EnsureLoadBalancer(context.TODO(), TestClusterName, &v1.Service{ObjectMeta: metav1.ObjectMeta{Name: "myservice", UID: "id"}}, []*v1.Node{})
 }
