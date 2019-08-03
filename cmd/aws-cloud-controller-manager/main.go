@@ -14,8 +14,14 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-// The external controller manager is responsible for running controller loops that
-// are cloud provider dependent. It uses the API to listen to new events on resources.
+// aws-cloud-controller-manager is responsible for running controller loops
+// that create, delete and monitor cloud resources on AWS. These cloud
+// resources include EC2 instances and autoscaling groups, along with network
+// load balancers (NLB) and application load balancers (ALBs) The cloud
+// resources help provide a place for both control plane components -- e.g. EC2
+// instances might house Kubernetes worker nodes -- as well as data plane
+// components -- e.g. a Kubernetes Ingress object might be mapped to an EC2
+// application load balancer.
 
 package main
 
@@ -61,8 +67,8 @@ func main() {
 
 	command := &cobra.Command{
 		Use: "aws-cloud-controller-manager",
-		Long: `The Cloud controller manager is a daemon that embeds
-the cloud specific control loops shipped with Kubernetes.`,
+		Long: `aws-cloud-controller-manager manages AWS cloud resources
+for a Kubernetes cluster.`,
 		Run: func(cmd *cobra.Command, args []string) {
 			verflag.PrintAndExitIfRequested()
 			utilflag.PrintFlags(cmd.Flags())
