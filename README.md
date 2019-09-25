@@ -19,6 +19,7 @@ For the `aws-cloud-controller-manager` to be able to communicate to AWS APIs, yo
         "autoscaling:DescribeAutoScalingGroups",
         "autoscaling:DescribeLaunchConfigurations",
         "autoscaling:DescribeTags",
+        "ec2:DescribeAccountAttributes",
         "ec2:DescribeInstances",
         "ec2:DescribeRegions",
         "ec2:DescribeRouteTables",
