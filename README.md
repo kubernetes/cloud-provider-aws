@@ -67,6 +67,7 @@ For the `aws-cloud-controller-manager` to be able to communicate to AWS APIs, yo
         "elasticloadbalancing:ModifyListener",
         "elasticloadbalancing:ModifyTargetGroup",
         "elasticloadbalancing:RegisterTargets",
+        "elasticloadbalancing:DeregisterTargets",
         "elasticloadbalancing:SetLoadBalancerPoliciesOfListener",
         "iam:CreateServiceLinkedRole",
         "kms:DescribeKey"
