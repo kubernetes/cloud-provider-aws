@@ -109,4 +109,4 @@ The cloud provider currently uses the instance private DNS name as the node name
 
 # Development
 ## Note 
-* All the EBS volume plugin related logic will be in maintenance mode. For new feature request or bug fixes, please create issue or pull reequest in [EBS CSI Driver](https://github.com/kubernetes-sigs/aws-ebs-csi-driver)
+* All the EBS volume plugin related logic will be in maintenance mode. For new feature request or bug fixes, please create issue or pull request in [EBS CSI Driver](https://github.com/kubernetes-sigs/aws-ebs-csi-driver)
