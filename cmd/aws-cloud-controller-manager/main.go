@@ -38,16 +38,18 @@ import (
 
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/apimachinery/pkg/util/wait"
+	utilfeature "k8s.io/apiserver/pkg/util/feature"
 	"k8s.io/component-base/cli/globalflag"
 	"k8s.io/component-base/logs"
+	_ "k8s.io/component-base/metrics/prometheus/clientgo" // for client metric registration
+	_ "k8s.io/component-base/metrics/prometheus/version"  // for version metric registration
 	"k8s.io/klog"
 	"k8s.io/kubernetes/cmd/cloud-controller-manager/app"
 	"k8s.io/kubernetes/cmd/cloud-controller-manager/app/options"
-	_ "k8s.io/kubernetes/pkg/client/metrics/prometheus" // for client metric registration
-	_ "k8s.io/kubernetes/pkg/features"                  // add the kubernetes feature gates
+	"k8s.io/kubernetes/pkg/features" // add the kubernetes feature gates
 	utilflag "k8s.io/kubernetes/pkg/util/flag"
-	_ "k8s.io/kubernetes/pkg/version/prometheus" // for version metric registration
 	"k8s.io/legacy-cloud-providers/aws"
+	netutils "k8s.io/utils/net"
 
 	cloudprovider "k8s.io/cloud-provider"
 	cloudcontrollerconfig "k8s.io/kubernetes/cmd/cloud-controller-manager/app/config"
@@ -141,12 +143,17 @@ func newControllerInitializers() map[string]initFunc {
 
 func startCloudNodeController(ctx *cloudcontrollerconfig.CompletedConfig, cloud cloudprovider.Interface, stopCh <-chan struct{}) (http.Handler, bool, error) {
 	// Start the CloudNodeController
-	nodeController := cloudcontrollers.NewCloudNodeController(
+	nodeController, err := cloudcontrollers.NewCloudNodeController(
 		ctx.SharedInformers.Core().V1().Nodes(),
 		// cloud node controller uses existing cluster role from node-controller
 		ctx.ClientBuilder.ClientOrDie("node-controller"),
 		cloud,
-		ctx.ComponentConfig.NodeStatusUpdateFrequency.Duration)
+		ctx.ComponentConfig.NodeStatusUpdateFrequency.Duration,
+	)
+	if err != nil {
+		klog.Warningf("failed to start cloud node controller: %s", err)
+		return nil, false, nil
+	}
 
 	go nodeController.Run(stopCh)
 
@@ -204,13 +211,26 @@ func startRouteController(ctx *cloudcontrollerconfig.CompletedConfig, cloud clou
 		klog.Warning("configure-cloud-routes is set, but cloud provider does not support routes. Will not configure cloud provider routes.")
 		return nil, false, nil
 	}
-	var clusterCIDR *net.IPNet
-	var err error
-	if len(strings.TrimSpace(ctx.ComponentConfig.KubeCloudShared.ClusterCIDR)) != 0 {
-		_, clusterCIDR, err = net.ParseCIDR(ctx.ComponentConfig.KubeCloudShared.ClusterCIDR)
-		if err != nil {
-			klog.Warningf("Unsuccessful parsing of cluster CIDR %v: %v", ctx.ComponentConfig.KubeCloudShared.ClusterCIDR, err)
-		}
+
+	// failure: bad cidrs in config
+	clusterCIDRs, dualStack, err := processCIDRs(ctx.ComponentConfig.KubeCloudShared.ClusterCIDR)
+	if err != nil {
+		return nil, false, err
+	}
+
+	// failure: more than one cidr and dual stack is not enabled
+	if len(clusterCIDRs) > 1 && !utilfeature.DefaultFeatureGate.Enabled(features.IPv6DualStack) {
+		return nil, false, fmt.Errorf("len of ClusterCIDRs==%v and dualstack feature is not enabled", len(clusterCIDRs))
+	}
+
+	// failure: more than one cidr but they are not configured as dual stack
+	if len(clusterCIDRs) > 1 && !dualStack {
+		return nil, false, fmt.Errorf("len of ClusterCIDRs==%v and they are not configured as dual stack (at least one from each IPFamily", len(clusterCIDRs))
+	}
+
+	// failure: more than two cidrs is not allowed even with dual stack
+	if len(clusterCIDRs) > 2 {
+		return nil, false, fmt.Errorf("length of clusterCIDRs is:%v more than max allowed of 2", len(clusterCIDRs))
 	}
 
 	routeController := routecontroller.New(
@@ -218,9 +238,28 @@ func startRouteController(ctx *cloudcontrollerconfig.CompletedConfig, cloud clou
 		ctx.ClientBuilder.ClientOrDie("route-controller"),
 		ctx.SharedInformers.Core().V1().Nodes(),
 		ctx.ComponentConfig.KubeCloudShared.ClusterName,
-		clusterCIDR,
+		clusterCIDRs,
 	)
 	go routeController.Run(stopCh, ctx.ComponentConfig.KubeCloudShared.RouteReconciliationPeriod.Duration)
 
 	return nil, true, nil
+}
+
+// processCIDRs is a helper function that works on a comma separated cidrs and returns
+// a list of typed cidrs
+// a flag if cidrs represents a dual stack
+// error if failed to parse any of the cidrs
+func processCIDRs(cidrsList string) ([]*net.IPNet, bool, error) {
+	cidrsSplit := strings.Split(strings.TrimSpace(cidrsList), ",")
+
+	cidrs, err := netutils.ParseCIDRs(cidrsSplit)
+	if err != nil {
+		return nil, false, err
+	}
+
+	// if cidrs has an error then the previous call will fail
+	// safe to ignore error checking on next call
+	dualstack, _ := netutils.IsDualStackCIDRs(cidrs)
+
+	return cidrs, dualstack, nil
 }
