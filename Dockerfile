@@ -16,6 +16,15 @@
 # This build arg allows the specification of a custom Golang image.
 ARG GOLANG_IMAGE=golang:1.13.5
 
+# The distroless image on which the CPI manager image is built.
+#
+# Please do not use "latest". Explicit tags should be used to provide
+# deterministic builds. This image doesn't have semantic version tags, but
+# the fully-qualified image can be obtained by entering
+# "gcr.io/distroless/static:latest" in a browser and then copying the
+# fully-qualified image from the web page.
+ARG DISTROLESS_IMAGE=gcr.io/distroless/static@sha256:c6d5981545ce1406d33e61434c61e9452dad93ecd8397c41e89036ef977a88f4
+
 ################################################################################
 ##                              BUILD STAGE                                   ##
 ################################################################################
@@ -31,16 +40,16 @@ ARG GOPROXY
 
 WORKDIR /build
 COPY go.mod go.sum ./
-COPY cmd/    cmd/
+COPY cmd/ cmd/
+COPY Makefile ./Makefile
 ENV CGO_ENABLED=0
 ENV GOPROXY ${GOPROXY:-https://proxy.golang.org}
-RUN go build -a -ldflags='-w -s -extldflags=static -X main.version=${VERSION}' -o aws-cloud-controller-manager ./cmd/aws-cloud-controller-manager
+RUN make aws-cloud-controller-manager
 
 ################################################################################
 ##                               MAIN STAGE                                   ##
 ################################################################################
 # Copy the manager into the distroless image.
-FROM scratch
+FROM ${DISTROLESS_IMAGE}
 COPY --from=builder /build/aws-cloud-controller-manager /bin/aws-cloud-controller-manager
-COPY --from=builder /tmp/ /tmp
 ENTRYPOINT [ "/bin/aws-cloud-controller-manager" ]
