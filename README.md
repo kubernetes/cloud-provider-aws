@@ -103,7 +103,8 @@ For the `aws-cloud-controller-manager` to be able to communicate to AWS APIs, yo
           } 
       ]
   }
-  ```
+
+```
   
 ## Proper Node Names
 The cloud provider currently uses the instance private DNS name as the node name, but this is subject to change in the future.
