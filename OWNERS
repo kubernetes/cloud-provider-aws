@@ -1,27 +1,20 @@
 approvers:
 - justinsb
-- zmerlynn
-- gnufied
-- jsafrane
 - nckturner
-- micahhausler
-- mcrute
-- gyuho
-- d-nishi
 - M00nF1sh
 - leakingtapan
 - andrewsykim
 reviewers:
+- justinsb
+- nckturner
+- M00nF1sh
+- leakingtapan
+- andrewsykim
+emeritus_approvers:
+- zmerlynn
 - gnufied
 - jsafrane
-- justinsb
-- zmerlynn
-- chrislovecnm
-- nckturner
 - micahhausler
 - mcrute
 - gyuho
 - d-nishi
-- M00nF1sh
-- leakingtapan
-- andrewsykim
