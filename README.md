@@ -120,4 +120,4 @@ Before running this, ensure that the instance you are running on has the `Kubern
 By default this script will use the cloud provider binary from this repository. You will need to have the k8s main repo cloned before running this script.
 
 ## Note 
-* All the EBS volume plugin related logic will be in maintenance mode. For new feature request or bug fixes, please create issue or pull reequest in [EBS CSI Driver](https://github.com/kubernetes-sigs/aws-ebs-csi-driver)
+* All the EBS volume plugin related logic will be in maintenance mode. For new feature request or bug fixes, please create issue or pull request in [EBS CSI Driver](https://github.com/kubernetes-sigs/aws-ebs-csi-driver)
