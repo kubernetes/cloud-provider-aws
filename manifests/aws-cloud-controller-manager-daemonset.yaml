@@ -28,7 +28,7 @@ spec:
       serviceAccountName: cloud-controller-manager
       containers:
         - name: aws-cloud-controller-manager
-          image: <REPLACE ME> # TODO: update once we have a public image registry
+          image: 602401143452.dkr.ecr.us-west-2.amazonaws.com/amazon/cloud-provider-aws:v1.17.0
           args:
             - --v=2
             - --cloud-provider=aws
