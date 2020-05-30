@@ -1,6 +1,6 @@
 module k8s.io/cloud-provider-aws
 
-go 1.12
+go 1.13
 
 replace (
 	// these replacements are pinned to 9e991415386e which is the sha associated with the 1.18.0 tag on k/k
