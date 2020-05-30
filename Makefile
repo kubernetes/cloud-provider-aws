@@ -32,6 +32,10 @@ aws-cloud-controller-manager: $(SOURCES)
 build:
 	docker build -t $(IMAGE) .
 
+.PHONY: push
+push: build
+	docker push $(IMAGE)
+
 .PHONY: check
 check: verify-fmt verify-lint vet
 
