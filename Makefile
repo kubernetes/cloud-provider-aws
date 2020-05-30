@@ -18,6 +18,8 @@ VERSION ?= $(shell git describe --exact-match 2> /dev/null || \
                  git describe --match=$(git rev-parse --short=8 HEAD) --always --dirty --abbrev=8)
 LDFLAGS   := "-w -s -X 'main.version=${VERSION}'"
 
+IMAGE ?= gcr.io/k8s-staging-provider-aws/cloud-controller-manager:$(VERSION)
+
 export GO111MODULE=on
 
 aws-cloud-controller-manager: $(SOURCES)
@@ -25,6 +27,10 @@ aws-cloud-controller-manager: $(SOURCES)
 		-ldflags $(LDFLAGS) \
 		-o aws-cloud-controller-manager \
 		cmd/aws-cloud-controller-manager/main.go
+
+.PHONY: build
+build:
+	docker build -t $(IMAGE) .
 
 .PHONY: check
 check: verify-fmt verify-lint vet
