@@ -28,7 +28,7 @@ spec:
       serviceAccountName: cloud-controller-manager
       containers:
         - name: aws-cloud-controller-manager
-          image: <REPLACE ME> # TODO: update once we have a public image registry
+          image: gcr.io/k8s-staging-provider-aws/cloud-controller-manager:v1.18.0-alpha.0
           args:
             - --v=2
             - --cloud-provider=aws
