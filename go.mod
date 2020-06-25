@@ -21,7 +21,7 @@ replace (
 	k8s.io/kube-scheduler => k8s.io/kubernetes/staging/src/k8s.io/kube-scheduler v0.0.0-20200520124240-2e7996e3e271
 	k8s.io/kubectl => k8s.io/kubernetes/staging/src/k8s.io/kubectl v0.0.0-20200520124240-2e7996e3e271
 	k8s.io/kubelet => k8s.io/kubernetes/staging/src/k8s.io/kubelet v0.0.0-20200520124240-2e7996e3e271
-	k8s.io/legacy-cloud-providers => k8s.io/kubernetes/staging/src/k8s.io/legacy-cloud-providers v0.0.0-20200520124240-2e7996e3e271
+	k8s.io/legacy-cloud-providers => ./legacy-cloud-providers
 	k8s.io/metrics => k8s.io/kubernetes/staging/src/k8s.io/metrics v0.0.0-20200520124240-2e7996e3e271
 	k8s.io/sample-apiserver => k8s.io/kubernetes/staging/src/k8s.io/sample-apiserver v0.0.0-20200520124240-2e7996e3e271
 )
@@ -35,5 +35,5 @@ require (
 	k8s.io/klog v1.0.0
 	k8s.io/kubernetes v1.18.3
 	k8s.io/legacy-cloud-providers v0.0.0
-	k8s.io/utils v0.0.0-20200324210504-a9aa75ae1b89
+	k8s.io/utils v0.0.0-20200619165400-6e3d28b6ed19
 )
