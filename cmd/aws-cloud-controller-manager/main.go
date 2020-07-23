@@ -48,14 +48,20 @@ import (
 	"k8s.io/kubernetes/cmd/cloud-controller-manager/app/options"
 	"k8s.io/kubernetes/pkg/features" // add the kubernetes feature gates
 	utilflag "k8s.io/kubernetes/pkg/util/flag"
-	"k8s.io/legacy-cloud-providers/aws"
 	netutils "k8s.io/utils/net"
 
 	cloudprovider "k8s.io/cloud-provider"
+	awsv1 "k8s.io/cloud-provider-aws/pkg/providers/v1"
+	awsv2 "k8s.io/cloud-provider-aws/pkg/providers/v2"
+
 	cloudcontrollerconfig "k8s.io/kubernetes/cmd/cloud-controller-manager/app/config"
 	cloudcontrollers "k8s.io/kubernetes/pkg/controller/cloud"
 	routecontroller "k8s.io/kubernetes/pkg/controller/route"
 	servicecontroller "k8s.io/kubernetes/pkg/controller/service"
+)
+
+const (
+	enableAlphaV2EnvVar = "ENABLE_ALPHA_V2"
 )
 
 var version string
@@ -83,9 +89,22 @@ func main() {
 				os.Exit(0)
 			}
 
-			// Hard code aws cloud provider
+			// Default to the v1 provider if not set
 			cloudProviderFlag := cmd.Flags().Lookup("cloud-provider")
-			cloudProviderFlag.Value.Set(aws.ProviderName)
+			if cloudProviderFlag.Value.String() == "" {
+				cloudProviderFlag.Value.Set(awsv1.ProviderName)
+			}
+
+			cloudProvider := cloudProviderFlag.Value.String()
+			if cloudProvider != awsv1.ProviderName && cloudProvider != awsv2.ProviderName {
+				klog.Fatalf("unknown cloud provider %s, only 'aws' and 'aws/v2' are supported", cloudProvider)
+			}
+
+			if cloudProvider == awsv2.ProviderName {
+				if v2Enabled := os.Getenv(enableAlphaV2EnvVar); v2Enabled != "true" {
+					klog.Fatalf("aws/v2 cloud provider requires environment variable ENABLE_ALPHA_V2=true to be set")
+				}
+			}
 
 			utilflag.PrintFlags(cmd.Flags())
 
