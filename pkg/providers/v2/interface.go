@@ -21,7 +21,7 @@ package v2
 import (
 	"io"
 
-	"k8s.io/cloud-provider"
+	cloudprovider "k8s.io/cloud-provider"
 )
 
 func init() {
@@ -78,4 +78,13 @@ func (c *cloud) Routes() (cloudprovider.Routes, bool) {
 // HasClusterID returns true if the cluster has a clusterID
 func (c *cloud) HasClusterID() bool {
 	return false
+}
+
+// InstancesV2 is an implementation for instances and should only be implemented by external cloud providers.
+// Implementing InstancesV2 is behaviorally identical to Instances but is optimized to significantly reduce
+// API calls to the cloud provider when registering and syncing nodes.
+// Also returns true if the interface is supported, false otherwise.
+// WARNING: InstancesV2 is an experimental interface and is subject to change in v1.20.
+func (c *cloud) InstancesV2() (cloudprovider.InstancesV2, bool) {
+	return nil, false
 }
