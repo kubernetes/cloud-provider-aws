@@ -17,6 +17,10 @@ GOOS ?= $(shell go env GOOS)
 VERSION ?= $(shell git describe --exact-match 2> /dev/null || \
                  git describe --match=$(git rev-parse --short=8 HEAD) --always --dirty --abbrev=8)
 LDFLAGS   := "-w -s -X 'main.version=${VERSION}'"
+GOPROXY ?=
+ifneq ($(GOPROXY),)
+	GOPROXYFLAG := --build-arg GOPROXY=$(GOPROXY)
+endif
 
 IMAGE ?= gcr.io/k8s-staging-provider-aws/cloud-controller-manager:$(VERSION)
 
@@ -30,7 +34,7 @@ aws-cloud-controller-manager: $(SOURCES)
 
 .PHONY: build
 build:
-	docker build -t $(IMAGE) .
+	docker build $(GOPROXYFLAG) -t $(IMAGE) .
 
 .PHONY: push
 push: build
