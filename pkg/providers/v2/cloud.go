@@ -48,11 +48,23 @@ var _ cloudprovider.Interface = (*cloud)(nil)
 
 // cloud is the AWS v2 implementation of the cloud provider interface
 type cloud struct {
-	creds     *credentials.Credentials
-	instances cloudprovider.InstancesV2
-	region    string
-	ec2       EC2
-	metadata  EC2Metadata
+	creds        *credentials.Credentials
+	instances    cloudprovider.InstancesV2
+	region       string
+	ec2          EC2
+	metadata     EC2Metadata
+	loadbalancer cloudprovider.LoadBalancer
+}
+
+// EC2 is an interface defining only the methods we call from the AWS EC2 SDK.
+type EC2 interface {
+	DescribeInstances(request *ec2.DescribeInstancesInput) (*ec2.DescribeInstancesOutput, error)
+	DescribeSecurityGroups(request *ec2.DescribeSecurityGroupsInput) (*ec2.DescribeSecurityGroupsOutput, error)
+
+	DeleteSecurityGroup(request *ec2.DeleteSecurityGroupInput) (*ec2.DeleteSecurityGroupOutput, error)
+
+	AuthorizeSecurityGroupIngress(*ec2.AuthorizeSecurityGroupIngressInput) (*ec2.AuthorizeSecurityGroupIngressOutput, error)
+	RevokeSecurityGroupIngress(*ec2.RevokeSecurityGroupIngressInput) (*ec2.RevokeSecurityGroupIngressOutput, error)
 }
 
 // EC2Metadata is an abstraction over the AWS metadata service.
@@ -117,6 +129,11 @@ func newCloud() (cloudprovider.Interface, error) {
 		return nil, err
 	}
 
+	loadbalancer, err := newLoadBalancer(region, creds)
+	if err != nil {
+		return nil, err
+	}
+
 	ec2Sess, err := session.NewSession(&aws.Config{
 		Region:      aws.String(region),
 		Credentials: creds,
@@ -130,15 +147,14 @@ func newCloud() (cloudprovider.Interface, error) {
 		return nil, fmt.Errorf("error creating AWS ec2 client: %q", err)
 	}
 
-	awsCloud := &cloud{
-		creds:     creds,
-		instances: instances,
-		region:    region,
-		metadata:  metadataClient,
-		ec2:       ec2Service,
-	}
-
-	return awsCloud, nil
+	return &cloud{
+		creds:        creds,
+		instances:    instances,
+		region:       region,
+		metadata:     metadataClient,
+		ec2:          ec2Service,
+		loadbalancer: loadbalancer,
+	}, nil
 }
 
 // Initialize passes a Kubernetes clientBuilder interface to the cloud provider
@@ -157,7 +173,7 @@ func (c *cloud) ProviderName() string {
 
 // LoadBalancer returns an implementation of LoadBalancer for Amazon Web Services.
 func (c *cloud) LoadBalancer() (cloudprovider.LoadBalancer, bool) {
-	return nil, false
+	return c.loadbalancer, true
 }
 
 // Instances returns an implementation of Instances for Amazon Web Services.

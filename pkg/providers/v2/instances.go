@@ -59,11 +59,6 @@ func newInstances(az string, creds *credentials.Credentials) (cloudprovider.Inst
 	}, nil
 }
 
-// EC2 is an interface defining only the methods we call from the AWS EC2 SDK.
-type EC2 interface {
-	DescribeInstances(request *ec2.DescribeInstancesInput) (*ec2.DescribeInstancesOutput, error)
-}
-
 // instances is an implementation of cloudprovider.InstancesV2
 type instances struct {
 	availabilityZone string
