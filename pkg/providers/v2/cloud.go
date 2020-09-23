@@ -29,13 +29,19 @@ import (
 	"github.com/aws/aws-sdk-go/aws/ec2metadata"
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/ec2"
+	"gopkg.in/gcfg.v1"
 
 	cloudprovider "k8s.io/cloud-provider"
 )
 
 func init() {
 	cloudprovider.RegisterCloudProvider(ProviderName, func(config io.Reader) (cloudprovider.Interface, error) {
-		return newCloud()
+		cfg, err := readAWSCloudConfig(config)
+		if err != nil {
+			return nil, fmt.Errorf("unable to read AWS cloud provider config file: %v", err)
+		}
+
+		return newCloud(*cfg)
 	})
 }
 
@@ -48,11 +54,41 @@ var _ cloudprovider.Interface = (*cloud)(nil)
 
 // cloud is the AWS v2 implementation of the cloud provider interface
 type cloud struct {
-	creds     *credentials.Credentials
-	instances cloudprovider.InstancesV2
-	region    string
-	ec2       EC2
-	metadata  EC2Metadata
+	creds        *credentials.Credentials
+	instances    cloudprovider.InstancesV2
+	region       string
+	ec2          EC2
+	metadata     EC2Metadata
+	loadbalancer cloudprovider.LoadBalancer
+	cfg          *CloudConfig
+}
+
+// CloudConfig wraps the settings for the AWS cloud provider.
+type CloudConfig struct {
+	Global struct {
+		// The AWS VPC flag enables the possibility to run the master components
+		// on a different aws account, on a different cloud provider or on-premises.
+		// If the flag is set also the KubernetesClusterTag must be provided
+		VPC string
+		// SubnetID enables using a specific subnet to use for ELB's
+		SubnetID string
+	}
+}
+
+// EC2 is an interface defining only the methods we call from the AWS EC2 SDK.
+type EC2 interface {
+	DescribeInstances(request *ec2.DescribeInstancesInput) (*ec2.DescribeInstancesOutput, error)
+	DescribeSecurityGroups(request *ec2.DescribeSecurityGroupsInput) (*ec2.DescribeSecurityGroupsOutput, error)
+
+	DeleteSecurityGroup(request *ec2.DeleteSecurityGroupInput) (*ec2.DeleteSecurityGroupOutput, error)
+	CreateSecurityGroup(*ec2.CreateSecurityGroupInput) (*ec2.CreateSecurityGroupOutput, error)
+
+	AuthorizeSecurityGroupIngress(*ec2.AuthorizeSecurityGroupIngressInput) (*ec2.AuthorizeSecurityGroupIngressOutput, error)
+	RevokeSecurityGroupIngress(*ec2.RevokeSecurityGroupIngressInput) (*ec2.RevokeSecurityGroupIngressOutput, error)
+
+	DescribeSubnets(*ec2.DescribeSubnetsInput) (*ec2.DescribeSubnetsOutput, error)
+
+	DescribeRouteTables(request *ec2.DescribeRouteTablesInput) (*ec2.DescribeRouteTablesOutput, error)
 }
 
 // EC2Metadata is an abstraction over the AWS metadata service.
@@ -81,8 +117,23 @@ func azToRegion(az string) (string, error) {
 	return region, nil
 }
 
+// readAWSCloudConfig reads an instance of AWSCloudConfig from config reader.
+func readAWSCloudConfig(config io.Reader) (*CloudConfig, error) {
+	var cfg CloudConfig
+	var err error
+
+	if config != nil {
+		err = gcfg.ReadInto(&cfg, config)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	return &cfg, nil
+}
+
 // newCloud creates a new instance of AWSCloud.
-func newCloud() (cloudprovider.Interface, error) {
+func newCloud(cfg CloudConfig) (cloudprovider.Interface, error) {
 	sess, err := session.NewSession(&aws.Config{})
 	if err != nil {
 		return nil, fmt.Errorf("unable to initialize AWS session: %v", err)
@@ -117,6 +168,11 @@ func newCloud() (cloudprovider.Interface, error) {
 		return nil, err
 	}
 
+	loadbalancer, err := newLoadBalancer(region, creds, cfg.Global.VPC, cfg.Global.SubnetID)
+	if err != nil {
+		return nil, err
+	}
+
 	ec2Sess, err := session.NewSession(&aws.Config{
 		Region:      aws.String(region),
 		Credentials: creds,
@@ -130,15 +186,15 @@ func newCloud() (cloudprovider.Interface, error) {
 		return nil, fmt.Errorf("error creating AWS ec2 client: %q", err)
 	}
 
-	awsCloud := &cloud{
-		creds:     creds,
-		instances: instances,
-		region:    region,
-		metadata:  metadataClient,
-		ec2:       ec2Service,
-	}
-
-	return awsCloud, nil
+	return &cloud{
+		creds:        creds,
+		instances:    instances,
+		region:       region,
+		metadata:     metadataClient,
+		ec2:          ec2Service,
+		loadbalancer: loadbalancer,
+		cfg:          &cfg,
+	}, nil
 }
 
 // Initialize passes a Kubernetes clientBuilder interface to the cloud provider
@@ -157,7 +213,7 @@ func (c *cloud) ProviderName() string {
 
 // LoadBalancer returns an implementation of LoadBalancer for Amazon Web Services.
 func (c *cloud) LoadBalancer() (cloudprovider.LoadBalancer, bool) {
-	return nil, false
+	return c.loadbalancer, true
 }
 
 // Instances returns an implementation of Instances for Amazon Web Services.
