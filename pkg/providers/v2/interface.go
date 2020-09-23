@@ -21,6 +21,12 @@ package v2
 import (
 	"io"
 
+	"github.com/aws/aws-sdk-go/aws"
+	"github.com/aws/aws-sdk-go/aws/credentials"
+	"github.com/aws/aws-sdk-go/aws/credentials/ec2rolecreds"
+	"github.com/aws/aws-sdk-go/aws/ec2metadata"
+	"github.com/aws/aws-sdk-go/aws/session"
+
 	cloudprovider "k8s.io/cloud-provider"
 )
 
@@ -39,6 +45,32 @@ var _ cloudprovider.Interface = (*cloud)(nil)
 
 // cloud is the AWS v2 implementation of the cloud provider interface
 type cloud struct {
+	instances cloudprovider.InstancesV2
+}
+
+func newCloud() (*cloud, error) {
+	sess, err := session.NewSession(&aws.Config{})
+	if err != nil {
+		return nil, err
+	}
+
+	creds := credentials.NewChainCredentials(
+		[]credentials.Provider{
+			&credentials.EnvProvider{},
+			&ec2rolecreds.EC2RoleProvider{
+				Client: ec2metadata.New(sess),
+			},
+			&credentials.SharedCredentialsProvider{},
+		})
+
+	instances, err := newInstances("", creds)
+	if err != nil {
+		return nil, err
+	}
+
+	return &cloud{
+		instances: instances,
+	}, nil
 }
 
 // Initialize passes a Kubernetes clientBuilder interface to the cloud provider
