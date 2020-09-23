@@ -19,14 +19,21 @@ limitations under the License.
 package v2
 
 import (
+	"fmt"
 	"io"
+	"regexp"
 
+	"github.com/aws/aws-sdk-go/aws"
+	"github.com/aws/aws-sdk-go/aws/credentials"
+	"github.com/aws/aws-sdk-go/aws/credentials/ec2rolecreds"
+	"github.com/aws/aws-sdk-go/aws/ec2metadata"
+	"github.com/aws/aws-sdk-go/aws/session"
 	cloudprovider "k8s.io/cloud-provider"
 )
 
 func init() {
 	cloudprovider.RegisterCloudProvider(ProviderName, func(config io.Reader) (cloudprovider.Interface, error) {
-		return &cloud{}, nil
+		return newCloud()
 	})
 }
 
@@ -39,6 +46,71 @@ var _ cloudprovider.Interface = (*cloud)(nil)
 
 // cloud is the AWS v2 implementation of the cloud provider interface
 type cloud struct {
+	creds  *credentials.Credentials
+	region string
+}
+
+// EC2Metadata is an abstraction over the AWS metadata service.
+type EC2Metadata interface {
+	// Query the EC2 metadata service (used to discover instance-id etc)
+	GetMetadata(path string) (string, error)
+}
+
+func getAvailabilityZone(metadata EC2Metadata) (string, error) {
+	return metadata.GetMetadata("placement/availability-zone")
+}
+
+// Derives the region from a valid az name.
+// Returns an error if the az is known invalid (empty)
+func azToRegion(az string) (string, error) {
+	if len(az) == 0 {
+		return "", fmt.Errorf("invalid (empty) AZ")
+	}
+
+	r := regexp.MustCompile(`^([a-zA-Z]+-)+\d+`)
+	region := r.FindString(az)
+	if region == "" {
+		return "", fmt.Errorf("invalid AZ: %s", az)
+	}
+
+	return region, nil
+}
+
+// newCloud creates a new instance of AWSCloud.
+func newCloud() (cloudprovider.Interface, error) {
+	sess, err := session.NewSession(&aws.Config{})
+	if err != nil {
+		return nil, fmt.Errorf("unable to initialize AWS session: %v", err)
+	}
+
+	creds := credentials.NewChainCredentials(
+		[]credentials.Provider{
+			&credentials.EnvProvider{},
+			&ec2rolecreds.EC2RoleProvider{
+				Client: ec2metadata.New(sess),
+			},
+			&credentials.SharedCredentialsProvider{},
+		})
+
+	metadataClient := ec2metadata.New(sess)
+	if err != nil {
+		return nil, fmt.Errorf("error creating AWS metadata client: %q", err)
+	}
+
+	az, err := getAvailabilityZone(metadataClient)
+	if err != nil {
+		return nil, err
+	}
+
+	region, err := azToRegion(az)
+	if err != nil {
+		return nil, err
+	}
+
+	return &cloud{
+		creds:  creds,
+		region: region,
+	}, nil
 }
 
 // Initialize passes a Kubernetes clientBuilder interface to the cloud provider
