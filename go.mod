@@ -27,8 +27,10 @@ replace (
 )
 
 require (
+	github.com/aws/aws-sdk-go v1.28.2
 	github.com/spf13/cobra v1.0.0
 	github.com/spf13/pflag v1.0.5
+	github.com/stretchr/testify v1.4.0
 	k8s.io/apimachinery v0.0.0
 	k8s.io/apiserver v0.0.0
 	k8s.io/cloud-provider v0.0.0
