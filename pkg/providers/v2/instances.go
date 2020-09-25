@@ -30,6 +30,7 @@ import (
 	"github.com/aws/aws-sdk-go/service/ec2"
 
 	v1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/types"
 	cloudprovider "k8s.io/cloud-provider"
 )
 
@@ -138,32 +139,79 @@ func (i *instances) InstanceMetadata(ctx context.Context, node *v1.Node) (*cloud
 // getInstance returns the instance if the instance with the given node info still exists.
 // If false an error will be returned, the instance will be immediately deleted by the cloud controller manager.
 func (i *instances) getInstance(ctx context.Context, node *v1.Node) (*ec2.Instance, error) {
-	var request *ec2.DescribeInstancesInput
 	if node.Spec.ProviderID == "" {
-		// get Instance by private DNS name
-		request = &ec2.DescribeInstancesInput{
-			Filters: []*ec2.Filter{
-				newEc2Filter("private-dns-name", node.Name),
-			},
-		}
+		// get Instance by node name
 		klog.V(4).Infof("looking for node by private DNS name %v", node.Name)
-	} else {
-		// get Instance by provider ID
-		instanceID, err := parseInstanceIDFromProviderID(node.Spec.ProviderID)
-		if err != nil {
-			return nil, err
-		}
-
-		request = &ec2.DescribeInstancesInput{
-			InstanceIds: []*string{aws.String(instanceID)},
-		}
-		klog.V(4).Infof("looking for node by provider ID %v", node.Spec.ProviderID)
+		return getInstanceByPrivateDNSName(ctx, types.NodeName(node.Name), i.ec2)
 	}
+
+	// get Instance by provider ID
+	klog.V(4).Infof("looking for node by provider ID %v", node.Spec.ProviderID)
+	return getInstanceByProviderID(ctx, node.Spec.ProviderID, i.ec2)
+}
+
+// getInstanceByPrivateDNSName returns the instance if the instance with the given nodeName exists.
+// If false an error will be returned, the instance will be immediately deleted by the cloud controller manager.
+func getInstanceByPrivateDNSName(ctx context.Context, nodeName types.NodeName, ec2Client EC2) (*ec2.Instance, error) {
+	request := &ec2.DescribeInstancesInput{
+		Filters: []*ec2.Filter{
+			newEc2Filter("private-dns-name", string(nodeName)),
+		},
+	}
+	klog.V(4).Infof("looking for node by private DNS name %v", nodeName)
 
 	instances := []*ec2.Instance{}
 	var nextToken *string
 	for {
-		response, err := i.ec2.DescribeInstances(request)
+		response, err := ec2Client.DescribeInstances(request)
+		if err != nil {
+			return nil, fmt.Errorf("error describing ec2 instances: %v", err)
+		}
+
+		for _, reservation := range response.Reservations {
+			instances = append(instances, reservation.Instances...)
+		}
+
+		nextToken = response.NextToken
+		if aws.StringValue(nextToken) == "" {
+			break
+		}
+		request.NextToken = nextToken
+	}
+
+	if len(instances) == 0 {
+		return nil, cloudprovider.InstanceNotFound
+	}
+
+	if len(instances) > 1 {
+		return nil, fmt.Errorf("getInstance: multiple instances found")
+	}
+
+	state := instances[0].State.Name
+	if *state == ec2.InstanceStateNameTerminated {
+		return nil, fmt.Errorf("instance %v is terminated", instances[0].InstanceId)
+	}
+
+	return instances[0], nil
+}
+
+// getInstanceByProviderID returns the instance if the instance with the given providerID exists.
+// If false an error will be returned, the instance will be immediately deleted by the cloud controller manager.
+func getInstanceByProviderID(ctx context.Context, providerID string, ec2Client EC2) (*ec2.Instance, error) {
+	instanceID, err := parseInstanceIDFromProviderID(providerID)
+	if err != nil {
+		return nil, err
+	}
+
+	request := &ec2.DescribeInstancesInput{
+		InstanceIds: []*string{aws.String(instanceID)},
+	}
+	klog.V(4).Infof("looking for node by provider ID %v", providerID)
+
+	instances := []*ec2.Instance{}
+	var nextToken *string
+	for {
+		response, err := ec2Client.DescribeInstances(request)
 		if err != nil {
 			return nil, fmt.Errorf("error describing ec2 instances: %v", err)
 		}
