@@ -53,6 +53,7 @@ type cloud struct {
 	region    string
 	ec2       EC2
 	metadata  EC2Metadata
+	zones     cloudprovider.Zones
 }
 
 // EC2Metadata is an abstraction over the AWS metadata service.
@@ -117,6 +118,11 @@ func newCloud() (cloudprovider.Interface, error) {
 		return nil, err
 	}
 
+	zones, err := newZones(az, creds)
+	if err != nil {
+		return nil, err
+	}
+
 	ec2Sess, err := session.NewSession(&aws.Config{
 		Region:      aws.String(region),
 		Credentials: creds,
@@ -136,6 +142,7 @@ func newCloud() (cloudprovider.Interface, error) {
 		region:    region,
 		metadata:  metadataClient,
 		ec2:       ec2Service,
+		zones:     zones,
 	}
 
 	return awsCloud, nil
@@ -167,7 +174,7 @@ func (c *cloud) Instances() (cloudprovider.Instances, bool) {
 
 // Zones returns an implementation of Zones for Amazon Web Services.
 func (c *cloud) Zones() (cloudprovider.Zones, bool) {
-	return nil, false
+	return c.zones, true
 }
 
 // Routes returns an implementation of Routes for Amazon Web Services.
