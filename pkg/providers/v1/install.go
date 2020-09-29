@@ -15,7 +15,7 @@ limitations under the License.
 */
 
 // Package v1 is the legacy cloud provider imported from the main kubernetes repo.
-// This is the same implemention used the in-tree Kubernetes components (kubelet,
+// This is the same implementation used the in-tree Kubernetes components (kubelet,
 // kube-controller-manager, etc) but works out-of-tree as well.
 package v1
 
