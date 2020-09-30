@@ -41,6 +41,7 @@ ARG GOPROXY
 WORKDIR /build
 COPY go.mod go.sum ./
 COPY cmd/ cmd/
+COPY pkg/ pkg/
 COPY Makefile ./Makefile
 ENV CGO_ENABLED=0
 ENV GOPROXY ${GOPROXY:-https://proxy.golang.org}
