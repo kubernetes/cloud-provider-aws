@@ -28,7 +28,7 @@ spec:
       serviceAccountName: cloud-controller-manager
       containers:
         - name: aws-cloud-controller-manager
-          image: gcr.io/k8s-staging-provider-aws/cloud-controller-manager:v1.19.1-alpha.1
+          image: gcr.io/k8s-staging-provider-aws/cloud-controller-manager:v1.19.0-alpha.1
           args:
             - --v=2
             - --cloud-provider=aws
