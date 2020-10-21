@@ -28,14 +28,20 @@ replace (
 
 require (
 	github.com/aws/aws-sdk-go v1.28.2
+	github.com/golang/mock v1.3.1
+	github.com/google/go-cmp v0.4.0
+	github.com/google/uuid v1.1.1
 	github.com/spf13/cobra v1.0.0
 	github.com/spf13/pflag v1.0.5
 	github.com/stretchr/testify v1.4.0
+	gopkg.in/gcfg.v1 v1.2.0
+	k8s.io/api v0.0.0
 	k8s.io/apimachinery v0.0.0
 	k8s.io/apiserver v0.0.0
 	k8s.io/cloud-provider v0.0.0
 	k8s.io/component-base v0.0.0
 	k8s.io/klog v1.0.0
+	k8s.io/klog/v2 v2.2.0
 	k8s.io/kubernetes v1.19.1
 	k8s.io/legacy-cloud-providers v0.0.0
 	k8s.io/utils v0.0.0-20200729134348-d5654de09c73

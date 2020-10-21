@@ -28,6 +28,8 @@ import (
 	"github.com/aws/aws-sdk-go/aws/credentials/ec2rolecreds"
 	"github.com/aws/aws-sdk-go/aws/ec2metadata"
 	"github.com/aws/aws-sdk-go/aws/session"
+	"github.com/aws/aws-sdk-go/service/ec2"
+
 	cloudprovider "k8s.io/cloud-provider"
 )
 
@@ -46,8 +48,11 @@ var _ cloudprovider.Interface = (*cloud)(nil)
 
 // cloud is the AWS v2 implementation of the cloud provider interface
 type cloud struct {
-	creds  *credentials.Credentials
-	region string
+	creds     *credentials.Credentials
+	instances cloudprovider.InstancesV2
+	region    string
+	ec2       EC2
+	metadata  EC2Metadata
 }
 
 // EC2Metadata is an abstraction over the AWS metadata service.
@@ -107,10 +112,33 @@ func newCloud() (cloudprovider.Interface, error) {
 		return nil, err
 	}
 
-	return &cloud{
-		creds:  creds,
-		region: region,
-	}, nil
+	instances, err := newInstances(az, creds)
+	if err != nil {
+		return nil, err
+	}
+
+	ec2Sess, err := session.NewSession(&aws.Config{
+		Region:      aws.String(region),
+		Credentials: creds,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("unable to initialize AWS session: %v", err)
+	}
+
+	ec2Service := ec2.New(ec2Sess)
+	if err != nil {
+		return nil, fmt.Errorf("error creating AWS ec2 client: %q", err)
+	}
+
+	awsCloud := &cloud{
+		creds:     creds,
+		instances: instances,
+		region:    region,
+		metadata:  metadataClient,
+		ec2:       ec2Service,
+	}
+
+	return awsCloud, nil
 }
 
 // Initialize passes a Kubernetes clientBuilder interface to the cloud provider
@@ -158,5 +186,5 @@ func (c *cloud) HasClusterID() bool {
 // Also returns true if the interface is supported, false otherwise.
 // WARNING: InstancesV2 is an experimental interface and is subject to change in v1.20.
 func (c *cloud) InstancesV2() (cloudprovider.InstancesV2, bool) {
-	return nil, false
+	return c.instances, true
 }
