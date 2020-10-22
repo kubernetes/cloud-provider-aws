@@ -2,7 +2,7 @@
 The AWS cloud provider provides the interface between a Kubernetes cluster and AWS service APIs. This project allows a Kubernetes cluster to provision, monitor and remove AWS resources necessary for operation of the cluster.
 
 ## Flags
-The flag `--cloud-provider=external` needs to be passed to kubelet, kube-apiserver, and kube-controller-manager. You should not pass the --cloud-provider flag to `aws-cloud-controller-manager`.
+The flag `--cloud-provider=external` needs to be passed to kubelet, kube-apiserver, and kube-controller-manager. Optionally, you can also pass `--cloud-provider=aws` flag to `aws-cloud-controller-manager`.
 
 ## IAM Policy
 For the `aws-cloud-controller-manager` to be able to communicate to AWS APIs, you will need to create a few IAM policies for your EC2 instances. The master policy is a bit open and can be scaled back depending on the use case. Adjust these based on your needs.
