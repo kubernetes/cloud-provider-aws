@@ -21,6 +21,7 @@ package v2
 import (
 	"fmt"
 	"io"
+	"io/ioutil"
 	"regexp"
 
 	"github.com/aws/aws-sdk-go/aws"
@@ -31,11 +32,18 @@ import (
 	"github.com/aws/aws-sdk-go/service/ec2"
 
 	cloudprovider "k8s.io/cloud-provider"
+	"k8s.io/cloud-provider-aws/pkg/apis/config/v1alpha1"
+	"sigs.k8s.io/yaml"
 )
 
 func init() {
 	cloudprovider.RegisterCloudProvider(ProviderName, func(config io.Reader) (cloudprovider.Interface, error) {
-		return newCloud()
+		cfg, err := readAWSCloudConfig(config)
+		if err != nil {
+			return nil, fmt.Errorf("failed to read AWS cloud provider config file: %v", err)
+		}
+
+		return newCloud(*cfg)
 	})
 }
 
@@ -53,12 +61,44 @@ type cloud struct {
 	region    string
 	ec2       EC2
 	metadata  EC2Metadata
+	tagging   awsTagging
+}
+
+// EC2 is an interface defining only the methods we call from the AWS EC2 SDK.
+type EC2 interface {
+	DescribeInstances(request *ec2.DescribeInstancesInput) (*ec2.DescribeInstancesOutput, error)
+
+	CreateTags(*ec2.CreateTagsInput) (*ec2.CreateTagsOutput, error)
 }
 
 // EC2Metadata is an abstraction over the AWS metadata service.
 type EC2Metadata interface {
 	// Query the EC2 metadata service (used to discover instance-id etc)
 	GetMetadata(path string) (string, error)
+}
+
+func readAWSCloudConfig(config io.Reader) (*v1alpha1.AWSCloudConfig, error) {
+	if config == nil {
+		return nil, fmt.Errorf("no AWS cloud provider config file given")
+	}
+
+	// read the config file
+	data, err := ioutil.ReadAll(config)
+	if err != nil {
+		return nil, fmt.Errorf("unable to read cloud configuration from %q [%v]", config, err)
+	}
+
+	var cfg v1alpha1.AWSCloudConfig
+	err = yaml.Unmarshal(data, &cfg)
+	if err != nil {
+		// we got an error where the decode wasn't related to a missing type
+		return nil, err
+	}
+	if cfg.Kind != "AWSCloudConfig" {
+		return nil, fmt.Errorf("invalid cloud configuration object %q", cfg.Kind)
+	}
+
+	return &cfg, nil
 }
 
 func getAvailabilityZone(metadata EC2Metadata) (string, error) {
@@ -82,7 +122,7 @@ func azToRegion(az string) (string, error) {
 }
 
 // newCloud creates a new instance of AWSCloud.
-func newCloud() (cloudprovider.Interface, error) {
+func newCloud(cfg v1alpha1.AWSCloudConfig) (cloudprovider.Interface, error) {
 	sess, err := session.NewSession(&aws.Config{})
 	if err != nil {
 		return nil, fmt.Errorf("unable to initialize AWS session: %v", err)
@@ -138,6 +178,12 @@ func newCloud() (cloudprovider.Interface, error) {
 		ec2:       ec2Service,
 	}
 
+	if cfg.Config.ClusterName != "" {
+		if err := awsCloud.tagging.init(cfg.Config.ClusterName); err != nil {
+			return nil, err
+		}
+	}
+
 	return awsCloud, nil
 }
 
@@ -177,7 +223,7 @@ func (c *cloud) Routes() (cloudprovider.Routes, bool) {
 
 // HasClusterID returns true if the cluster has a clusterID
 func (c *cloud) HasClusterID() bool {
-	return false
+	return len(c.tagging.clusterName()) > 0
 }
 
 // InstancesV2 is an implementation for instances and should only be implemented by external cloud providers.
