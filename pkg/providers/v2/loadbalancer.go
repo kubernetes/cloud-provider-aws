@@ -35,6 +35,7 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
 	cloudprovider "k8s.io/cloud-provider"
+	servicehelpers "k8s.io/cloud-provider/service/helpers"
 	"k8s.io/klog/v2"
 )
 
@@ -48,6 +49,41 @@ const ServiceAnnotationLoadBalancerTargetNodeLabels = "service.beta.kubernetes.i
 // to indicate that we want an internal ELB.
 const ServiceAnnotationLoadBalancerInternal = "service.beta.kubernetes.io/aws-load-balancer-internal"
 
+// ServiceAnnotationLoadBalancerHealthCheckProtocol is the annotation used on the service to
+// specify the protocol used for the ELB health check. Supported values are TCP, HTTP, HTTPS
+// Default is TCP if externalTrafficPolicy is Cluster, HTTP if externalTrafficPolicy is Local
+const ServiceAnnotationLoadBalancerHealthCheckProtocol = "service.beta.kubernetes.io/aws-load-balancer-healthcheck-protocol"
+
+// ServiceAnnotationLoadBalancerHealthCheckPort is the annotation used on the service to
+// specify the port used for ELB health check.
+// Default is traffic-port if externalTrafficPolicy is Cluster, healthCheckNodePort if externalTrafficPolicy is Local
+const ServiceAnnotationLoadBalancerHealthCheckPort = "service.beta.kubernetes.io/aws-load-balancer-healthcheck-port"
+
+// ServiceAnnotationLoadBalancerHealthCheckPath is the annotation used on the service to
+// specify the path for the ELB health check when the health check protocol is HTTP/HTTPS
+// Defaults to /healthz if externalTrafficPolicy is Local, / otherwise
+const ServiceAnnotationLoadBalancerHealthCheckPath = "service.beta.kubernetes.io/aws-load-balancer-healthcheck-path"
+
+// ServiceAnnotationLoadBalancerHCHealthyThreshold is the annotation used on
+// the service to specify the number of successive successful health checks
+// required for a backend to be considered healthy for traffic. For NLB, healthy-threshold
+// and unhealthy-threshold must be equal.
+const ServiceAnnotationLoadBalancerHCHealthyThreshold = "service.beta.kubernetes.io/aws-load-balancer-healthcheck-healthy-threshold"
+
+// ServiceAnnotationLoadBalancerHCUnhealthyThreshold is the annotation used
+// on the service to specify the number of unsuccessful health checks
+// required for a backend to be considered unhealthy for traffic
+const ServiceAnnotationLoadBalancerHCUnhealthyThreshold = "service.beta.kubernetes.io/aws-load-balancer-healthcheck-unhealthy-threshold"
+
+// ServiceAnnotationLoadBalancerHCTimeout is the annotation used on the
+// service to specify, in seconds, how long to wait before marking a health
+// check as failed.
+const ServiceAnnotationLoadBalancerHCTimeout = "service.beta.kubernetes.io/aws-load-balancer-healthcheck-timeout"
+
+// ServiceAnnotationLoadBalancerHCInterval is the annotation used on the
+// service to specify, in seconds, the interval between health checks.
+const ServiceAnnotationLoadBalancerHCInterval = "service.beta.kubernetes.io/aws-load-balancer-healthcheck-interval"
+
 // ServiceAnnotationLoadBalancerType is the annotation used on the service
 // to indicate what type of Load Balancer we want. Right now, the only accepted
 // value is "nlb"
@@ -58,6 +94,11 @@ const ServiceAnnotationLoadBalancerType = "service.beta.kubernetes.io/aws-load-b
 // additional tags in the ELB.
 // For example: "Key1=Val1,Key2=Val2,KeyNoVal1=,KeyNoVal2"
 const ServiceAnnotationLoadBalancerAdditionalTags = "service.beta.kubernetes.io/aws-load-balancer-additional-resource-tags"
+
+// ServiceAnnotationLoadBalancerHealthCheckPort is the annotation used on the service to
+// specify the port used for ELB health check.
+// Default is traffic-port if externalTrafficPolicy is Cluster, healthCheckNodePort if externalTrafficPolicy is Local
+const ServiceAnnotationLoadBalancerHealthCheckPort = "service.beta.kubernetes.io/aws-load-balancer-healthcheck-port"
 
 // ServiceAnnotationLoadBalancerSSLNegotiationPolicy is the annotation used on
 // the service to specify a SSL negotiation settings for the HTTPS/SSL listeners
@@ -147,6 +188,19 @@ var backendProtocolMapping = map[string]string{
 	"tcp":   "ssl",
 }
 
+// Defaults for ELB Healthcheck
+var (
+	defaultElbHCHealthyThreshold   = int64(2)
+	defaultElbHCUnhealthyThreshold = int64(6)
+	defaultElbHCTimeout            = int64(5)
+	defaultElbHCInterval           = int64(10)
+	defaultNlbHealthCheckInterval  = int64(30)
+	defaultNlbHealthCheckTimeout   = int64(10)
+	defaultNlbHealthCheckThreshold = int64(3)
+	defaultHealthCheckPort         = "traffic-port"
+	defaultHealthCheckPath         = "/"
+)
+
 // loadbalancer is an implementation of cloudprovider.LoadBalancer
 type loadbalancer struct {
 	ec2      EC2
@@ -184,6 +238,8 @@ type ELB interface {
 	ModifyLoadBalancerAttributes(*elb.ModifyLoadBalancerAttributesInput) (*elb.ModifyLoadBalancerAttributesOutput, error)
 
 	SetLoadBalancerPoliciesForBackendServer(*elb.SetLoadBalancerPoliciesForBackendServerInput) (*elb.SetLoadBalancerPoliciesForBackendServerOutput, error)
+
+	ConfigureHealthCheck(*elb.ConfigureHealthCheckInput) (*elb.ConfigureHealthCheckOutput, error)
 }
 
 // newLoadBalancer returns an implementation of cloudprovider.LoadBalancer
@@ -279,8 +335,15 @@ func (l *loadbalancer) EnsureLoadBalancer(ctx context.Context, clusterName strin
 		return nil, err
 	}
 
-	// TODO: Determine if we need to set the Proxy protocol policy
+	// Determine if we need to set the Proxy protocol policy
 	proxyProtocol := false
+	proxyProtocolAnnotation := service.Annotations[ServiceAnnotationLoadBalancerProxyProtocol]
+	if proxyProtocolAnnotation != "" {
+		if proxyProtocolAnnotation != "*" {
+			return nil, fmt.Errorf("annotation %q=%q detected, but the only value supported currently is '*'", ServiceAnnotationLoadBalancerProxyProtocol, proxyProtocolAnnotation)
+		}
+		proxyProtocol = true
+	}
 
 	// Some load balancer attributes are required, so defaults are set. These can be overridden by annotations.
 	loadBalancerAttributes := &elb.LoadBalancerAttributes{
@@ -428,6 +491,7 @@ func (l *loadbalancer) EnsureLoadBalancer(ctx context.Context, clusterName strin
 		return nil, err
 	}
 
+	// set up SSL negotiation policy
 	if sslPolicyName, ok := annotations[ServiceAnnotationLoadBalancerSSLNegotiationPolicy]; ok {
 		err := l.ensureSSLNegotiationPolicy(loadBalancer, sslPolicyName)
 		if err != nil {
@@ -443,6 +507,41 @@ func (l *loadbalancer) EnsureLoadBalancer(ctx context.Context, clusterName strin
 	}
 
 	// TODO: health check
+	// We only configure a TCP health-check on the first port
+	var tcpHealthCheckPort int32
+	for _, listener := range listeners {
+		if listener.InstancePort == nil {
+			continue
+		}
+		tcpHealthCheckPort = int32(*listener.InstancePort)
+		break
+	}
+
+	if path, healthCheckNodePort := servicehelpers.GetServiceHealthCheckPathPort(service); path != "" {
+		klog.V(4).Infof("service %v (%v) needs health checks on :%d%s)", service.Name, loadBalancerName, healthCheckNodePort, path)
+		if annotations[ServiceAnnotationLoadBalancerHealthCheckPort] == defaultHealthCheckPort {
+			healthCheckNodePort = tcpHealthCheckPort
+		}
+
+		err = l.ensureLoadBalancerHealthCheck(loadBalancer, "HTTP", healthCheckNodePort, path, annotations)
+		if err != nil {
+			return nil, fmt.Errorf("Failed to ensure health check for localized service %v on node port %v: %q", loadBalancerName, healthCheckNodePort, err)
+		}
+	} else {
+		klog.V(4).Infof("service %v does not need custom health checks", service.Name)
+		annotationProtocol := strings.ToLower(annotations[ServiceAnnotationLoadBalancerBEProtocol])
+		var hcProtocol string
+		if annotationProtocol == "https" || annotationProtocol == "ssl" {
+			hcProtocol = "SSL"
+		} else {
+			hcProtocol = "TCP"
+		}
+		// there must be no path on TCP health check
+		err = l.ensureLoadBalancerHealthCheck(loadBalancer, hcProtocol, tcpHealthCheckPort, "", annotations)
+		if err != nil {
+			return nil, err
+		}
+	}
 
 	err = l.updateInstanceSecurityGroupsForLoadBalancer(loadBalancer, instances, annotations)
 	if err != nil {
@@ -590,6 +689,104 @@ func getLoadBalancerStatus(lb *elb.LoadBalancerDescription) *v1.LoadBalancerStat
 	}
 
 	return status
+}
+
+// Makes sure that the health check for an ELB matches the configured health check node port
+func (l *loadbalancer) ensureLoadBalancerHealthCheck(lb *elb.LoadBalancerDescription, protocol string, port int32, path string, annotations map[string]string) error {
+	name := aws.StringValue(lb.LoadBalancerName)
+
+	actual := lb.HealthCheck
+	// Override healthcheck protocol, port and path based on annotations
+	if s, ok := annotations[ServiceAnnotationLoadBalancerHealthCheckProtocol]; ok {
+		protocol = s
+	}
+	if s, ok := annotations[ServiceAnnotationLoadBalancerHealthCheckPort]; ok && s != defaultHealthCheckPort {
+		p, err := strconv.ParseInt(s, 10, 0)
+		if err != nil {
+			return err
+		}
+		port = int32(p)
+	}
+	switch strings.ToUpper(protocol) {
+	case "HTTP", "HTTPS":
+		if path == "" {
+			path = defaultHealthCheckPath
+		}
+		if s := annotations[ServiceAnnotationLoadBalancerHealthCheckPath]; s != "" {
+			path = s
+		}
+	default:
+		path = ""
+	}
+
+	expectedTarget := protocol + ":" + strconv.FormatInt(int64(port), 10) + path
+	expected, err := l.getExpectedHealthCheck(expectedTarget, annotations)
+	if err != nil {
+		return fmt.Errorf("cannot update health check for load balancer %q: %q", name, err)
+	}
+
+	// comparing attributes 1 by 1 to avoid breakage in case a new field is
+	// added to the HC which breaks the equality
+	if aws.StringValue(expected.Target) == aws.StringValue(actual.Target) &&
+		aws.Int64Value(expected.HealthyThreshold) == aws.Int64Value(actual.HealthyThreshold) &&
+		aws.Int64Value(expected.UnhealthyThreshold) == aws.Int64Value(actual.UnhealthyThreshold) &&
+		aws.Int64Value(expected.Interval) == aws.Int64Value(actual.Interval) &&
+		aws.Int64Value(expected.Timeout) == aws.Int64Value(actual.Timeout) {
+		return nil
+	}
+
+	request := &elb.ConfigureHealthCheckInput{
+		HealthCheck: expected,
+		LoadBalancerName: lb.LoadBalancerName,
+	}
+
+	_, err = l.elb.ConfigureHealthCheck(request)
+	if err != nil {
+		return fmt.Errorf("error configuring load balancer health check for %q: %q", name, err)
+	}
+
+	return nil
+}
+
+// getExpectedHealthCheck returns an elb.Healthcheck for the provided target
+// and using either sensible defaults or overrides via Service annotations
+func (l *loadbalancer) getExpectedHealthCheck(target string, annotations map[string]string) (*elb.HealthCheck, error) {
+	healthcheck := &elb.HealthCheck{Target: &target}
+	getOrDefault := func(annotation string, defaultValue int64) (*int64, error) {
+		i64 := defaultValue
+		var err error
+		if s, ok := annotations[annotation]; ok {
+			i64, err = strconv.ParseInt(s, 10, 0)
+			if err != nil {
+				return nil, fmt.Errorf("failed parsing health check annotation value: %v", err)
+			}
+		}
+		return &i64, nil
+	}
+
+	var err error
+	healthcheck.HealthyThreshold, err = getOrDefault(ServiceAnnotationLoadBalancerHCHealthyThreshold, defaultElbHCHealthyThreshold)
+	if err != nil {
+		return nil, err
+	}
+	healthcheck.UnhealthyThreshold, err = getOrDefault(ServiceAnnotationLoadBalancerHCUnhealthyThreshold, defaultElbHCUnhealthyThreshold)
+	if err != nil {
+		return nil, err
+	}
+	healthcheck.Timeout, err = getOrDefault(ServiceAnnotationLoadBalancerHCTimeout, defaultElbHCTimeout)
+	if err != nil {
+		return nil, err
+	}
+	healthcheck.Interval, err = getOrDefault(ServiceAnnotationLoadBalancerHCInterval, defaultElbHCInterval)
+	if err != nil {
+		return nil, err
+	}
+	
+	if err = healthcheck.Validate(); err != nil {
+		return nil, fmt.Errorf("some of the load balancer health check parameters are invalid: %v", err)
+	}
+	
+	return healthcheck, nil
 }
 
 // getInstancesForELB gets the EC2 instances corresponding to the Nodes, for setting up an ELB
@@ -1455,7 +1652,7 @@ func (l *loadbalancer) addLoadBalancerTags(loadBalancerName string, requested ma
 
 	request := &elb.AddTagsInput{
 		LoadBalancerNames: []*string{&loadBalancerName},
-		Tags: tags,
+		Tags:              tags,
 	}
 
 	_, err := l.elb.AddTags(request)
