@@ -78,6 +78,21 @@ func (mr *MockELBMockRecorder) DescribeLoadBalancers(arg0 interface{}) *gomock.C
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DescribeLoadBalancers", reflect.TypeOf((*MockELB)(nil).DescribeLoadBalancers), arg0)
 }
 
+// AddTags mocks base method
+func (m *MockELB) AddTags(arg0 *elb.AddTagsInput) (*elb.AddTagsOutput, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "AddTags", arg0)
+	ret0, _ := ret[0].(*elb.AddTagsOutput)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// AddTags indicates an expected call of AddTags
+func (mr *MockELBMockRecorder) AddTags(arg0 interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "AddTags", reflect.TypeOf((*MockELB)(nil).AddTags), arg0)
+}
+
 // RegisterInstancesWithLoadBalancer mocks base method
 func (m *MockELB) RegisterInstancesWithLoadBalancer(arg0 *elb.RegisterInstancesWithLoadBalancerInput) (*elb.RegisterInstancesWithLoadBalancerOutput, error) {
 	m.ctrl.T.Helper()
@@ -153,6 +168,36 @@ func (mr *MockELBMockRecorder) DescribeLoadBalancerPolicies(input interface{}) *
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DescribeLoadBalancerPolicies", reflect.TypeOf((*MockELB)(nil).DescribeLoadBalancerPolicies), input)
 }
 
+// DetachLoadBalancerFromSubnets mocks base method
+func (m *MockELB) DetachLoadBalancerFromSubnets(arg0 *elb.DetachLoadBalancerFromSubnetsInput) (*elb.DetachLoadBalancerFromSubnetsOutput, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "DetachLoadBalancerFromSubnets", arg0)
+	ret0, _ := ret[0].(*elb.DetachLoadBalancerFromSubnetsOutput)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// DetachLoadBalancerFromSubnets indicates an expected call of DetachLoadBalancerFromSubnets
+func (mr *MockELBMockRecorder) DetachLoadBalancerFromSubnets(arg0 interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DetachLoadBalancerFromSubnets", reflect.TypeOf((*MockELB)(nil).DetachLoadBalancerFromSubnets), arg0)
+}
+
+// AttachLoadBalancerToSubnets mocks base method
+func (m *MockELB) AttachLoadBalancerToSubnets(arg0 *elb.AttachLoadBalancerToSubnetsInput) (*elb.AttachLoadBalancerToSubnetsOutput, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "AttachLoadBalancerToSubnets", arg0)
+	ret0, _ := ret[0].(*elb.AttachLoadBalancerToSubnetsOutput)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// AttachLoadBalancerToSubnets indicates an expected call of AttachLoadBalancerToSubnets
+func (mr *MockELBMockRecorder) AttachLoadBalancerToSubnets(arg0 interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "AttachLoadBalancerToSubnets", reflect.TypeOf((*MockELB)(nil).AttachLoadBalancerToSubnets), arg0)
+}
+
 // CreateLoadBalancerListeners mocks base method
 func (m *MockELB) CreateLoadBalancerListeners(arg0 *elb.CreateLoadBalancerListenersInput) (*elb.CreateLoadBalancerListenersOutput, error) {
 	m.ctrl.T.Helper()
@@ -226,4 +271,19 @@ func (m *MockELB) ModifyLoadBalancerAttributes(arg0 *elb.ModifyLoadBalancerAttri
 func (mr *MockELBMockRecorder) ModifyLoadBalancerAttributes(arg0 interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ModifyLoadBalancerAttributes", reflect.TypeOf((*MockELB)(nil).ModifyLoadBalancerAttributes), arg0)
+}
+
+// SetLoadBalancerPoliciesForBackendServer mocks base method
+func (m *MockELB) SetLoadBalancerPoliciesForBackendServer(arg0 *elb.SetLoadBalancerPoliciesForBackendServerInput) (*elb.SetLoadBalancerPoliciesForBackendServerOutput, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "SetLoadBalancerPoliciesForBackendServer", arg0)
+	ret0, _ := ret[0].(*elb.SetLoadBalancerPoliciesForBackendServerOutput)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// SetLoadBalancerPoliciesForBackendServer indicates an expected call of SetLoadBalancerPoliciesForBackendServer
+func (mr *MockELBMockRecorder) SetLoadBalancerPoliciesForBackendServer(arg0 interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetLoadBalancerPoliciesForBackendServer", reflect.TypeOf((*MockELB)(nil).SetLoadBalancerPoliciesForBackendServer), arg0)
 }

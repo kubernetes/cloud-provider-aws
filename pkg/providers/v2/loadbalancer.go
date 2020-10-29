@@ -135,6 +135,10 @@ const SSLNegotiationPolicyNameFormat = "k8s-SSLNegotiationPolicy-%s"
 // In an eventually consistent system, it could fail unboundedly
 const MaxReadThenCreateRetries = 30
 
+// ProxyProtocolPolicyName is the tag named used for the proxy protocol
+// policy
+const ProxyProtocolPolicyName = "k8s-proxyprotocol-enabled"
+
 // Maps from backend protocol to ELB protocol
 var backendProtocolMapping = map[string]string{
 	"https": "https",
@@ -161,11 +165,15 @@ type ELB interface {
 	CreateLoadBalancer(*elb.CreateLoadBalancerInput) (*elb.CreateLoadBalancerOutput, error)
 	DeleteLoadBalancer(*elb.DeleteLoadBalancerInput) (*elb.DeleteLoadBalancerOutput, error)
 	DescribeLoadBalancers(*elb.DescribeLoadBalancersInput) (*elb.DescribeLoadBalancersOutput, error)
+	AddTags(*elb.AddTagsInput) (*elb.AddTagsOutput, error)
 	RegisterInstancesWithLoadBalancer(*elb.RegisterInstancesWithLoadBalancerInput) (*elb.RegisterInstancesWithLoadBalancerOutput, error)
 	DeregisterInstancesFromLoadBalancer(*elb.DeregisterInstancesFromLoadBalancerInput) (*elb.DeregisterInstancesFromLoadBalancerOutput, error)
 	CreateLoadBalancerPolicy(*elb.CreateLoadBalancerPolicyInput) (*elb.CreateLoadBalancerPolicyOutput, error)
 	SetLoadBalancerPoliciesOfListener(input *elb.SetLoadBalancerPoliciesOfListenerInput) (*elb.SetLoadBalancerPoliciesOfListenerOutput, error)
 	DescribeLoadBalancerPolicies(input *elb.DescribeLoadBalancerPoliciesInput) (*elb.DescribeLoadBalancerPoliciesOutput, error)
+
+	DetachLoadBalancerFromSubnets(*elb.DetachLoadBalancerFromSubnetsInput) (*elb.DetachLoadBalancerFromSubnetsOutput, error)
+	AttachLoadBalancerToSubnets(*elb.AttachLoadBalancerToSubnetsInput) (*elb.AttachLoadBalancerToSubnetsOutput, error)
 
 	CreateLoadBalancerListeners(*elb.CreateLoadBalancerListenersInput) (*elb.CreateLoadBalancerListenersOutput, error)
 	DeleteLoadBalancerListeners(*elb.DeleteLoadBalancerListenersInput) (*elb.DeleteLoadBalancerListenersOutput, error)
@@ -174,6 +182,8 @@ type ELB interface {
 
 	DescribeLoadBalancerAttributes(*elb.DescribeLoadBalancerAttributesInput) (*elb.DescribeLoadBalancerAttributesOutput, error)
 	ModifyLoadBalancerAttributes(*elb.ModifyLoadBalancerAttributesInput) (*elb.ModifyLoadBalancerAttributesOutput, error)
+
+	SetLoadBalancerPoliciesForBackendServer(*elb.SetLoadBalancerPoliciesForBackendServerInput) (*elb.SetLoadBalancerPoliciesForBackendServerOutput, error)
 }
 
 // newLoadBalancer returns an implementation of cloudprovider.LoadBalancer
@@ -1344,9 +1354,55 @@ func (l *loadbalancer) ensureLoadBalancer(namespacedName types.NamespacedName, l
 			return nil, err
 		}
 
-		// TODO: set up proxy protocol
+		if proxyProtocol {
+			err = l.createProxyProtocolPolicy(loadBalancerName)
+			if err != nil {
+				return nil, err
+			}
+
+			for _, listener := range listeners {
+				klog.V(2).Infof("Adjusting AWS loadbalancer proxy protocol on node port %d. Setting to true", *listener.InstancePort)
+				err := l.setBackendPolicies(loadBalancerName, *listener.InstancePort, []*string{aws.String(ProxyProtocolPolicyName)})
+				if err != nil {
+					return nil, err
+				}
+			}
+		}
 	} else {
-		// TODO: sync the current load balancer
+		// Sync the current load balancer
+		// Sync subnets
+		err := l.syncSubnets(loadBalancerName, subnetIDs, loadBalancer)
+		if err != nil {
+			return nil, fmt.Errorf("error syncing loadbalancer subnets: %q", err)
+		}
+
+		// Sync security groups
+		err = l.syncSecurityGroups(loadBalancerName, securityGroupIDs, loadBalancer)
+		if err != nil {
+			return nil, fmt.Errorf("error syncing loadbalancer security groups: %q", err)
+		}
+
+		// Sync listeners
+		err = l.syncListeners(loadBalancerName, listeners, loadBalancer)
+		if err != nil {
+			return nil, fmt.Errorf("error syncing loadbalancer listenrs: %q", err)
+		}
+
+		// Sync proxy protocol state for new and existing listeners
+		err = l.syncProxyProtocol(loadBalancerName, proxyProtocol, listeners, loadBalancer)
+		if err != nil {
+			return nil, fmt.Errorf("error syncing loadbalancer proxy protocol: %q", err)
+		}
+
+		// Add additional tags
+		klog.V(2).Infof("Creating additional load balancer tags for %s", loadBalancerName)
+		tags := getKeyValuePairsFromAnnotation(annotations, ServiceAnnotationLoadBalancerAdditionalTags)
+		if len(tags) > 0 {
+			err := l.addLoadBalancerTags(loadBalancerName, tags)
+			if err != nil {
+				return nil, fmt.Errorf("unable to create additional load balancer tags: %v", err)
+			}
+		}
 	}
 
 	// Whether the ELB was new or existing, sync attributes regardless. This accounts for things
@@ -1376,7 +1432,7 @@ func (l *loadbalancer) ensureLoadBalancer(namespacedName types.NamespacedName, l
 			}
 		}
 
-		// double check if the load balancer after creation/update
+		// double check if the load balancer exists after creation/update
 		loadBalancer, err = l.getLoadBalancerDescription(loadBalancerName)
 		if err != nil {
 			klog.Warning("Unable to retrieve load balancer after creation/update")
@@ -1385,6 +1441,267 @@ func (l *loadbalancer) ensureLoadBalancer(namespacedName types.NamespacedName, l
 
 		return loadBalancer, nil
 	}
+}
+
+func (l *loadbalancer) addLoadBalancerTags(loadBalancerName string, requested map[string]string) error {
+	var tags []*elb.Tag
+	for k, v := range requested {
+		tag := &elb.Tag{
+			Key:   aws.String(k),
+			Value: aws.String(v),
+		}
+		tags = append(tags, tag)
+	}
+
+	request := &elb.AddTagsInput{
+		LoadBalancerNames: []*string{&loadBalancerName},
+		Tags: tags,
+	}
+
+	_, err := l.elb.AddTags(request)
+	if err != nil {
+		return fmt.Errorf("error adding tags to load balancer: %v", err)
+	}
+
+	return nil
+}
+
+// Sync subnets
+func (l *loadbalancer) syncSubnets(loadBalancerName string, subnetIDs []string, lb *elb.LoadBalancerDescription) error {
+	expected := sets.NewString(subnetIDs...)
+	actual := stringSetFromPointers(lb.Subnets)
+
+	additions := expected.Difference(actual)
+	removals := actual.Difference(expected)
+
+	if removals.Len() != 0 {
+		request := &elb.DetachLoadBalancerFromSubnetsInput{
+			LoadBalancerName: aws.String(loadBalancerName),
+			Subnets:          stringSetToPointers(removals),
+		}
+		klog.V(2).Info("Detaching load balancer from removed subnets")
+
+		_, err := l.elb.DetachLoadBalancerFromSubnets(request)
+		if err != nil {
+			return fmt.Errorf("error detaching AWS loadbalancer from subnets: %q", err)
+		}
+	}
+
+	if additions.Len() != 0 {
+		request := &elb.AttachLoadBalancerToSubnetsInput{
+			LoadBalancerName: aws.String(loadBalancerName),
+			Subnets:          stringSetToPointers(additions),
+		}
+		klog.V(2).Info("Attaching load balancer to added subnets")
+
+		_, err := l.elb.AttachLoadBalancerToSubnets(request)
+		if err != nil {
+			return fmt.Errorf("error attaching AWS loadbalancer to subnets: %q", err)
+		}
+	}
+
+	return nil
+}
+
+// Sync security groups
+func (l *loadbalancer) syncSecurityGroups(loadBalancerName string, securityGroupIDs []string, lb *elb.LoadBalancerDescription) error {
+	expected := sets.NewString(securityGroupIDs...)
+	actual := stringSetFromPointers(lb.SecurityGroups)
+
+	if !expected.Equal(actual) {
+		// This call just replaces the security groups, unlike e.g. subnets (!)
+		request := &elb.ApplySecurityGroupsToLoadBalancerInput{
+			LoadBalancerName: aws.String(loadBalancerName),
+		}
+
+		if securityGroupIDs == nil {
+			request.SecurityGroups = nil
+		} else {
+			request.SecurityGroups = aws.StringSlice(securityGroupIDs)
+		}
+		klog.V(2).Info("Applying updated security groups to load balancer")
+
+		_, err := l.elb.ApplySecurityGroupsToLoadBalancer(request)
+		if err != nil {
+			return fmt.Errorf("error applying AWS loadbalancer security groups: %q", err)
+		}
+	}
+
+	return nil
+}
+
+// Sync listeners
+func (l *loadbalancer) syncListeners(loadBalancerName string, listeners []*elb.Listener, lb *elb.LoadBalancerDescription) error {
+	additions, removals := syncElbListeners(loadBalancerName, listeners, lb.ListenerDescriptions)
+
+	if len(removals) != 0 {
+		request := &elb.DeleteLoadBalancerListenersInput{}
+		request.LoadBalancerName = aws.String(loadBalancerName)
+		request.LoadBalancerPorts = removals
+		klog.V(2).Info("Deleting removed load balancer listeners")
+		if _, err := l.elb.DeleteLoadBalancerListeners(request); err != nil {
+			return fmt.Errorf("error deleting AWS loadbalancer listeners: %q", err)
+		}
+	}
+
+	if len(additions) != 0 {
+		request := &elb.CreateLoadBalancerListenersInput{}
+		request.LoadBalancerName = aws.String(loadBalancerName)
+		request.Listeners = additions
+		klog.V(2).Info("Creating added load balancer listeners")
+		if _, err := l.elb.CreateLoadBalancerListeners(request); err != nil {
+			fmt.Errorf("error creating AWS loadbalancer listeners: %q", err)
+		}
+	}
+
+	return nil
+}
+
+// Sync proxy protocol state for new and existing listeners
+func (l *loadbalancer) syncProxyProtocol(loadBalancerName string, proxyProtocol bool, listeners []*elb.Listener, lb *elb.LoadBalancerDescription) error {
+	proxyPolicies := make([]*string, 0)
+	if proxyProtocol {
+		// Ensure the backend policy exists
+		err := l.createProxyProtocolPolicy(loadBalancerName)
+		if err != nil {
+			return err
+		}
+
+		proxyPolicies = append(proxyPolicies, aws.String(ProxyProtocolPolicyName))
+	}
+
+	foundBackends := make(map[int64]bool)
+	proxyProtocolBackends := make(map[int64]bool)
+	for _, backendListener := range lb.BackendServerDescriptions {
+		foundBackends[*backendListener.InstancePort] = false
+		proxyProtocolBackends[*backendListener.InstancePort] = proxyProtocolEnabled(backendListener)
+	}
+
+	for _, listener := range listeners {
+		setPolicy := false
+		instancePort := *listener.InstancePort
+
+		if currentState, ok := proxyProtocolBackends[instancePort]; !ok {
+			// This is a new ELB backend so we only need to worry about
+			// potentially adding a policy and not removing an
+			// existing one
+			setPolicy = proxyProtocol
+		} else {
+			foundBackends[instancePort] = true
+			// This is an existing ELB backend so we need to determine
+			// if the state changed
+			setPolicy = (currentState != proxyProtocol)
+		}
+
+		if setPolicy {
+			klog.V(2).Infof("Adjusting AWS loadbalancer proxy protocol on node port %d. Setting to %t", instancePort, proxyProtocol)
+			err := l.setBackendPolicies(loadBalancerName, instancePort, proxyPolicies)
+			if err != nil {
+				return err
+			}
+		}
+	}
+
+	// We now need to figure out if any backend policies need removed
+	// because these old policies will stick around even if there is no
+	// corresponding listener anymore
+	for instancePort, found := range foundBackends {
+		if !found {
+			klog.V(2).Infof("Adjusting AWS loadbalancer proxy protocol on node port %d. Setting to false", instancePort)
+			err := l.setBackendPolicies(loadBalancerName, instancePort, []*string{})
+			if err != nil {
+				return err
+			}
+		}
+	}
+
+	return nil
+}
+
+// syncElbListeners computes a plan to reconcile the desired vs actual state of the listeners on an ELB
+// NOTE: there exists an O(nlgn) implementation for this function. However, as the default limit of
+//       listeners per elb is 100, this implementation is reduced from O(m*n) => O(n).
+func syncElbListeners(loadBalancerName string, listeners []*elb.Listener, listenerDescriptions []*elb.ListenerDescription) ([]*elb.Listener, []*int64) {
+	foundSet := make(map[int]bool)
+	removals := []*int64{}
+	additions := []*elb.Listener{}
+
+	for _, listenerDescription := range listenerDescriptions {
+		actual := listenerDescription.Listener
+		if actual == nil {
+			klog.Warning("Ignoring empty listener in AWS loadbalancer: ", loadBalancerName)
+			continue
+		}
+
+		found := false
+		for i, expected := range listeners {
+			if expected == nil {
+				klog.Warning("Ignoring empty desired listener for loadbalancer: ", loadBalancerName)
+				continue
+			}
+			if elbListenersAreEqual(actual, expected) {
+				// The current listener on the actual
+				// elb is in the set of desired listeners.
+				foundSet[i] = true
+				found = true
+				break
+			}
+		}
+		if !found {
+			removals = append(removals, actual.LoadBalancerPort)
+		}
+	}
+
+	for i := range listeners {
+		if !foundSet[i] {
+			additions = append(additions, listeners[i])
+		}
+	}
+
+	return additions, removals
+}
+
+func (l *loadbalancer) createProxyProtocolPolicy(loadBalancerName string) error {
+	request := &elb.CreateLoadBalancerPolicyInput{
+		LoadBalancerName: aws.String(loadBalancerName),
+		PolicyAttributes: []*elb.PolicyAttribute{
+			{
+				AttributeName:  aws.String("ProxyProtocol"),
+				AttributeValue: aws.String("true"),
+			},
+		},
+		PolicyName:     aws.String(ProxyProtocolPolicyName),
+		PolicyTypeName: aws.String("ProxyProtocolPolicyType"),
+	}
+	klog.V(2).Info("Creating proxy protocol policy on load balancer")
+
+	_, err := l.elb.CreateLoadBalancerPolicy(request)
+	if err != nil {
+		return fmt.Errorf("error creating proxy protocol policy on load balancer: %q", err)
+	}
+
+	return nil
+}
+
+func (l *loadbalancer) setBackendPolicies(loadBalancerName string, instancePort int64, policies []*string) error {
+	request := &elb.SetLoadBalancerPoliciesForBackendServerInput{
+		InstancePort:     aws.Int64(instancePort),
+		LoadBalancerName: aws.String(loadBalancerName),
+		PolicyNames:      policies,
+	}
+
+	if len(policies) > 0 {
+		klog.V(2).Infof("Adding AWS loadbalancer backend policies on node port %d", instancePort)
+	} else {
+		klog.V(2).Infof("Removing AWS loadbalancer backend policies on node port %d", instancePort)
+	}
+
+	_, err := l.elb.SetLoadBalancerPoliciesForBackendServer(request)
+	if err != nil {
+		return fmt.Errorf("error adjusting AWS loadbalancer backend policies: %q", err)
+	}
+
+	return nil
 }
 
 // Makes sure the security group includes the specified permissions

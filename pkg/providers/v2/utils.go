@@ -24,6 +24,9 @@ import (
 
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/service/ec2"
+	"github.com/aws/aws-sdk-go/service/elb"
+
+	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/klog/v2"
 )
 
@@ -90,4 +93,71 @@ func isSubnetPublic(rt []*ec2.RouteTable, subnetID string) (bool, error) {
 	}
 
 	return false, nil
+}
+
+func stringSetToPointers(in sets.String) []*string {
+	if in == nil {
+		return nil
+	}
+	out := make([]*string, 0, len(in))
+	for k := range in {
+		out = append(out, aws.String(k))
+	}
+	return out
+}
+
+func stringSetFromPointers(in []*string) sets.String {
+	if in == nil {
+		return nil
+	}
+	out := sets.NewString()
+	for i := range in {
+		out.Insert(aws.StringValue(in[i]))
+	}
+	return out
+}
+
+func elbListenersAreEqual(actual, expected *elb.Listener) bool {
+	if !elbProtocolsAreEqual(actual.Protocol, expected.Protocol) {
+		return false
+	}
+	if !elbProtocolsAreEqual(actual.InstanceProtocol, expected.InstanceProtocol) {
+		return false
+	}
+	if aws.Int64Value(actual.InstancePort) != aws.Int64Value(expected.InstancePort) {
+		return false
+	}
+	if aws.Int64Value(actual.LoadBalancerPort) != aws.Int64Value(expected.LoadBalancerPort) {
+		return false
+	}
+	if !awsArnEquals(actual.SSLCertificateId, expected.SSLCertificateId) {
+		return false
+	}
+	return true
+}
+
+func elbProtocolsAreEqual(l, r *string) bool {
+	if l == nil || r == nil {
+		return l == r
+	}
+	return strings.EqualFold(aws.StringValue(l), aws.StringValue(r))
+}
+
+// awsArnEquals checks if two ARN strings are considered the same
+// Comparison is case insensitive
+func awsArnEquals(l, r *string) bool {
+	if l == nil || r == nil {
+		return l == r
+	}
+	return strings.EqualFold(aws.StringValue(l), aws.StringValue(r))
+}
+
+func proxyProtocolEnabled(backend *elb.BackendServerDescription) bool {
+	for _, policy := range backend.PolicyNames {
+		if aws.StringValue(policy) == ProxyProtocolPolicyName {
+			return true
+		}
+	}
+
+	return false
 }
