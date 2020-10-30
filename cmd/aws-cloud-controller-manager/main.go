@@ -40,25 +40,24 @@ import (
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/apimachinery/pkg/util/wait"
 	utilfeature "k8s.io/apiserver/pkg/util/feature"
+	"k8s.io/cloud-provider/app"
+	"k8s.io/cloud-provider/options"
 	"k8s.io/component-base/cli/globalflag"
 	"k8s.io/component-base/logs"
 	_ "k8s.io/component-base/metrics/prometheus/clientgo" // for client metric registration
 	_ "k8s.io/component-base/metrics/prometheus/version"  // for version metric registration
 	"k8s.io/klog"
-	"k8s.io/kubernetes/cmd/cloud-controller-manager/app"
-	"k8s.io/kubernetes/cmd/cloud-controller-manager/app/options"
-	"k8s.io/kubernetes/pkg/features" // add the kubernetes feature gates
 	netutils "k8s.io/utils/net"
 
 	cloudprovider "k8s.io/cloud-provider"
 	awsv1 "k8s.io/cloud-provider-aws/pkg/providers/v1"
 	awsv2 "k8s.io/cloud-provider-aws/pkg/providers/v2"
 
+	cloudcontrollerconfig "k8s.io/cloud-provider/app/config"
 	cloudnodecontroller "k8s.io/cloud-provider/controllers/node"
 	cloudnodelifecyclecontroller "k8s.io/cloud-provider/controllers/nodelifecycle"
 	routecontroller "k8s.io/cloud-provider/controllers/route"
 	servicecontroller "k8s.io/cloud-provider/controllers/service"
-	cloudcontrollerconfig "k8s.io/kubernetes/cmd/cloud-controller-manager/app/config"
 )
 
 const (
@@ -240,7 +239,7 @@ func startRouteController(ctx *cloudcontrollerconfig.CompletedConfig, cloud clou
 	}
 
 	// failure: more than one cidr and dual stack is not enabled
-	if len(clusterCIDRs) > 1 && !utilfeature.DefaultFeatureGate.Enabled(features.IPv6DualStack) {
+	if len(clusterCIDRs) > 1 && !utilfeature.DefaultFeatureGate.Enabled(app.IPv6DualStack) {
 		return nil, false, fmt.Errorf("len of ClusterCIDRs==%v and dualstack feature is not enabled", len(clusterCIDRs))
 	}
 
