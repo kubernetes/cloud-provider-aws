@@ -889,11 +889,13 @@ k8s.io/kube-openapi v0.0.0-20200805222855-6aeccd4b50c6 h1:+WnxoVtG8TMiudHBSEtrVL
 k8s.io/kube-openapi v0.0.0-20200805222855-6aeccd4b50c6/go.mod h1:UuqjUnNftUyPE5H64/qeyjQoUZhGpeFDVdxjTeEVN2o=
 k8s.io/kubernetes v0.0.0-20201023141757-9e8ad8ce9d8a h1:uAU9n6UBa4coDhrOEQ7iCEHrYXAlm39VcI4asrBOkLA=
 k8s.io/kubernetes v0.0.0-20201023141757-9e8ad8ce9d8a/go.mod h1:yhT1/ltQajQsha3tnYc9QPFYSumGM45nlZdjf7WqE1A=
+k8s.io/kubernetes v1.19.3 h1:V6ohBHSxTkrPRyfVp8tbdEsgi9nfVN49xlUVkQseass=
 k8s.io/kubernetes/staging/src/k8s.io/api v0.0.0-20201023141757-9e8ad8ce9d8a h1:8ilXcbfDzt4rC/OVgFPIwW69aT5K/s1pPz415xSEctA=
 k8s.io/kubernetes/staging/src/k8s.io/api v0.0.0-20201023141757-9e8ad8ce9d8a/go.mod h1:Y4VjjNur38HL6/QxaTVK2yno1zjEQlvcvwbbRQs2DtQ=
 k8s.io/kubernetes/staging/src/k8s.io/apiextensions-apiserver v0.0.0-20201023141757-9e8ad8ce9d8a/go.mod h1:BvtZU215FgO19Oy19K6h8qwajFfjxYqGewgjuYHWGRw=
 k8s.io/kubernetes/staging/src/k8s.io/apimachinery v0.0.0-20201023141757-9e8ad8ce9d8a h1:aA1ABMciJFSVW1goSQyWMtZFE0ZfK/LD9zBsufsjl5Q=
 k8s.io/kubernetes/staging/src/k8s.io/apimachinery v0.0.0-20201023141757-9e8ad8ce9d8a/go.mod h1:4qgwPPTQvmc3E4Ub+c6I9LSsdbujYP3pIQEGuIVy8oQ=
+k8s.io/kubernetes/staging/src/k8s.io/apimachinery v0.0.0-20201030141406-7bf9b0a3beca h1:mLuMQQLH1lJIN/1cR2Avm9kuWAS/MK+BMAI5oGI0Lqs=
 k8s.io/kubernetes/staging/src/k8s.io/apiserver v0.0.0-20201023141757-9e8ad8ce9d8a h1:rUoFc7OSO1DLTKVGM39sDtfjHlRUezbBFV+St6HmkJQ=
 k8s.io/kubernetes/staging/src/k8s.io/apiserver v0.0.0-20201023141757-9e8ad8ce9d8a/go.mod h1:lpK+uXhJTVOwW6SDiSQiL0LaQaBktrM23VG489uC/U0=
 k8s.io/kubernetes/staging/src/k8s.io/cli-runtime v0.0.0-20201023141757-9e8ad8ce9d8a/go.mod h1:twd45pbv7psOvyGxI8eABhpeoXWW3bCX6aB5NVS6TXs=

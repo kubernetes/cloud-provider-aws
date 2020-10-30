@@ -17,6 +17,7 @@ package v2
 
 import (
 	"context"
+	"crypto/sha1"
 	"fmt"
 	"sort"
 	"strings"
@@ -130,15 +131,32 @@ func (l *loadbalancer) GetLoadBalancer(ctx context.Context, clusterName string, 
 }
 
 // GetLoadBalancerName returns the name of the load balancer.
+// format: k8s-svc-namespace[:8]-svc-name[:8]-hash
 func (l *loadbalancer) GetLoadBalancerName(ctx context.Context, clusterName string, service *v1.Service) string {
-	//  TODO: create a unique and friendly name with fixed length
-	name := strings.ToLower(clusterName) + strings.ToLower(service.Name) + string(service.UID)
-	name = strings.Replace(name, "-", "", -1)
-	// AWS requires that the name of a load balancer can have a maximum of 32 characters
-	if len(name) > 32 {
-		name = name[:32]
+	namespace := service.Namespace
+	namespace = strings.Replace(namespace, "-", "", -1)
+	if len(namespace) > 8 {
+		namespace = namespace[:8]
 	}
-	return name
+
+	serviceName := service.Name
+	serviceName = strings.Replace(serviceName, "-", "", -1)
+	if len(serviceName) > 8 {
+		serviceName = serviceName[:8]
+	}
+
+	h := sha1.New()
+	lbNamePrefix := "k8s" + strings.ToLower(namespace) + strings.ToLower(serviceName)
+	h.Write([]byte(lbNamePrefix))
+
+	lbName := lbNamePrefix + string(h.Sum(nil))
+	lbName = strings.Replace(lbName, "-", "", -1)
+	if len(lbName) > 32 {
+		// AWS requires that the name of a load balancer can have a maximum of 32 characters
+		lbName = lbName[:32]
+	}
+
+	return lbName
 }
 
 // EnsureLoadBalancer ensures a new load balancer, or updates the existing one. Returns the status of the balancer
@@ -415,7 +433,7 @@ func getInstanceIDsFromNodes(nodes []*v1.Node) ([]*string, error) {
 	return instanceIDs, nil
 }
 
-// Makes sure that exactly the specified hosts are registered as instances with the load balancer
+// ensureLoadBalancerInstances makes sure that exactly the specified hosts are registered as instances with the load balancer
 func (l *loadbalancer) ensureLoadBalancerInstances(loadBalancerName string, lbInstances []*elb.Instance, instanceIDs map[string]*ec2.Instance) error {
 	expected := sets.NewString()
 	for id := range instanceIDs {
@@ -432,15 +450,17 @@ func (l *loadbalancer) ensureLoadBalancerInstances(loadBalancerName string, lbIn
 
 	addInstances := []*elb.Instance{}
 	for _, instanceID := range additions.List() {
-		addInstance := &elb.Instance{}
-		addInstance.InstanceId = aws.String(instanceID)
+		addInstance := &elb.Instance{
+			InstanceId: aws.String(instanceID),
+		}
 		addInstances = append(addInstances, addInstance)
 	}
 
 	removeInstances := []*elb.Instance{}
 	for _, instanceID := range removals.List() {
-		removeInstance := &elb.Instance{}
-		removeInstance.InstanceId = aws.String(instanceID)
+		removeInstance := &elb.Instance{
+			InstanceId: aws.String(instanceID),
+		}
 		removeInstances = append(removeInstances, removeInstance)
 	}
 
@@ -546,7 +566,7 @@ func (l *loadbalancer) setSSLNegotiationPolicy(loadBalancerName, sslPolicyName s
 }
 
 // Open security group ingress rules on the instances so that the load balancer can talk to them
-// Will also remove any security groups ingress rules for the load balancer that are _not_ needed for allInstances
+// Will also remove any security groups ingress rules for the load balancer that are NOT needed for all instances
 func (l *loadbalancer) updateInstanceSecurityGroupsForLoadBalancer(lb *elb.LoadBalancerDescription, instances map[string]*ec2.Instance, annotations map[string]string) error {
 	// Determine the load balancer security group id
 	lbSecurityGroupIDs := aws.StringValueSlice(lb.SecurityGroups)
