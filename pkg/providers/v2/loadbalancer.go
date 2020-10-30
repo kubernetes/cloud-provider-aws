@@ -17,6 +17,7 @@ package v2
 
 import (
 	"context"
+	"crypto/sha1"
 	"fmt"
 	"reflect"
 	"sort"
@@ -39,6 +40,10 @@ import (
 	"k8s.io/klog/v2"
 )
 
+// TagNameKubernetesService is the tag name we use to differentiate multiple
+// services. Used currently for ELBs only.
+const TagNameKubernetesService = "kubernetes.io/service-name"
+
 // ServiceAnnotationLoadBalancerTargetNodeLabels is the annotation used on the service
 // to specify a comma-separated list of key-value pairs which will be used to select
 // the target nodes for the load balancer
@@ -48,6 +53,13 @@ const ServiceAnnotationLoadBalancerTargetNodeLabels = "service.beta.kubernetes.i
 // ServiceAnnotationLoadBalancerInternal is the annotation used on the service
 // to indicate that we want an internal ELB.
 const ServiceAnnotationLoadBalancerInternal = "service.beta.kubernetes.io/aws-load-balancer-internal"
+
+// ServiceAnnotationLoadBalancerProxyProtocol is the annotation used on the
+// service to enable the proxy protocol on an ELB. Right now we only accept the
+// value "*" which means enable the proxy protocol on all ELB backends. In the
+// future we could adjust this to allow setting the proxy protocol only on
+// certain backends.
+const ServiceAnnotationLoadBalancerProxyProtocol = "service.beta.kubernetes.io/aws-load-balancer-proxy-protocol"
 
 // ServiceAnnotationLoadBalancerHealthCheckProtocol is the annotation used on the service to
 // specify the protocol used for the ELB health check. Supported values are TCP, HTTP, HTTPS
@@ -94,11 +106,6 @@ const ServiceAnnotationLoadBalancerType = "service.beta.kubernetes.io/aws-load-b
 // additional tags in the ELB.
 // For example: "Key1=Val1,Key2=Val2,KeyNoVal1=,KeyNoVal2"
 const ServiceAnnotationLoadBalancerAdditionalTags = "service.beta.kubernetes.io/aws-load-balancer-additional-resource-tags"
-
-// ServiceAnnotationLoadBalancerHealthCheckPort is the annotation used on the service to
-// specify the port used for ELB health check.
-// Default is traffic-port if externalTrafficPolicy is Cluster, healthCheckNodePort if externalTrafficPolicy is Local
-const ServiceAnnotationLoadBalancerHealthCheckPort = "service.beta.kubernetes.io/aws-load-balancer-healthcheck-port"
 
 // ServiceAnnotationLoadBalancerSSLNegotiationPolicy is the annotation used on
 // the service to specify a SSL negotiation settings for the HTTPS/SSL listeners
@@ -207,6 +214,7 @@ type loadbalancer struct {
 	elb      ELB
 	vpcID    string
 	subnetID string
+	tagging  awsTagging
 }
 
 type portSets struct {
@@ -243,7 +251,7 @@ type ELB interface {
 }
 
 // newLoadBalancer returns an implementation of cloudprovider.LoadBalancer
-func newLoadBalancer(region string, creds *credentials.Credentials, vpcID string, subnetID string) (cloudprovider.LoadBalancer, error) {
+func newLoadBalancer(region string, creds *credentials.Credentials, vpcID string, subnetID string, tagging awsTagging) (cloudprovider.LoadBalancer, error) {
 	awsConfig := &aws.Config{
 		Region:      aws.String(region),
 		Credentials: creds,
@@ -262,6 +270,7 @@ func newLoadBalancer(region string, creds *credentials.Credentials, vpcID string
 		elb:      elbService,
 		vpcID:    vpcID,
 		subnetID: subnetID,
+		tagging:  tagging,
 	}, nil
 }
 
@@ -284,15 +293,32 @@ func (l *loadbalancer) GetLoadBalancer(ctx context.Context, clusterName string, 
 }
 
 // GetLoadBalancerName returns the name of the load balancer.
+// format: k8s-svc-namespace[:8]-svc-name[:8]-hash
 func (l *loadbalancer) GetLoadBalancerName(ctx context.Context, clusterName string, service *v1.Service) string {
-	//  TODO: create a unique and friendly name with fixed length
-	name := strings.ToLower(clusterName) + strings.ToLower(service.Name) + string(service.UID)
-	name = strings.Replace(name, "-", "", -1)
-	// AWS requires that the name of a load balancer can have a maximum of 32 characters
-	if len(name) > 32 {
-		name = name[:32]
+	namespace := service.Namespace
+	namespace = strings.Replace(namespace, "-", "", -1)
+	if len(namespace) > 8 {
+		namespace = namespace[:8]
 	}
-	return name
+
+	serviceName := service.Name
+	serviceName = strings.Replace(serviceName, "-", "", -1)
+	if len(serviceName) > 8 {
+		serviceName = serviceName[:8]
+	}
+
+	h := sha1.New()
+	lbNamePrefix := "k8s" + strings.ToLower(namespace) + strings.ToLower(serviceName)
+	h.Write([]byte(lbNamePrefix))
+
+	lbName := lbNamePrefix + string(h.Sum(nil))
+	lbName = strings.Replace(lbName, "-", "", -1)
+	if len(lbName) > 32 {
+		// AWS requires that the name of a load balancer can have a maximum of 32 characters
+		lbName = lbName[:32]
+	}
+
+	return lbName
 }
 
 // EnsureLoadBalancer ensures a new load balancer, or updates the existing one. Returns the status of the balancer
@@ -300,6 +326,8 @@ func (l *loadbalancer) EnsureLoadBalancer(ctx context.Context, clusterName strin
 	annotations := service.Annotations
 	klog.V(2).Infof("EnsureLoadBalancer(cluster name: %v, namespace: %v, service name: %v, load balancer IP: %v, ports: %v, annotations: %v)",
 		clusterName, service.Namespace, service.Name, service.Spec.LoadBalancerIP, service.Spec.Ports, annotations)
+
+	// TODO: check session affinity config
 
 	if len(service.Spec.Ports) == 0 {
 		return nil, fmt.Errorf("requested load balancer with no ports")
@@ -467,6 +495,7 @@ func (l *loadbalancer) EnsureLoadBalancer(ctx context.Context, clusterName strin
 
 	loadBalancerName := l.GetLoadBalancerName(ctx, clusterName, service)
 	serviceName := types.NamespacedName{Namespace: service.Namespace, Name: service.Name}
+	// TODO: determine whether we need to set up security group from cloud config
 	securityGroupIDs, err := l.buildELBSecurityGroupList(serviceName, loadBalancerName, annotations)
 	if err != nil {
 		return nil, err
@@ -506,7 +535,7 @@ func (l *loadbalancer) EnsureLoadBalancer(ctx context.Context, clusterName strin
 		}
 	}
 
-	// TODO: health check
+	// Set up health check for the load balancer
 	// We only configure a TCP health-check on the first port
 	var tcpHealthCheckPort int32
 	for _, listener := range listeners {
@@ -736,7 +765,7 @@ func (l *loadbalancer) ensureLoadBalancerHealthCheck(lb *elb.LoadBalancerDescrip
 	}
 
 	request := &elb.ConfigureHealthCheckInput{
-		HealthCheck: expected,
+		HealthCheck:      expected,
 		LoadBalancerName: lb.LoadBalancerName,
 	}
 
@@ -781,11 +810,11 @@ func (l *loadbalancer) getExpectedHealthCheck(target string, annotations map[str
 	if err != nil {
 		return nil, err
 	}
-	
+
 	if err = healthcheck.Validate(); err != nil {
 		return nil, fmt.Errorf("some of the load balancer health check parameters are invalid: %v", err)
 	}
-	
+
 	return healthcheck, nil
 }
 
@@ -1526,27 +1555,38 @@ func (l *loadbalancer) ensureLoadBalancer(namespacedName types.NamespacedName, l
 
 	if loadBalancer == nil {
 		// create a new load balancer
-		request := &elb.CreateLoadBalancerInput{
+		createRequest := &elb.CreateLoadBalancerInput{
 			Listeners:        listeners,
 			LoadBalancerName: aws.String(loadBalancerName),
 		}
 
 		if subnetIDs == nil {
-			request.Subnets = nil
+			createRequest.Subnets = nil
 		} else {
-			request.Subnets = aws.StringSlice(subnetIDs)
+			createRequest.Subnets = aws.StringSlice(subnetIDs)
 		}
 
 		if securityGroupIDs == nil {
-			request.SecurityGroups = nil
+			createRequest.SecurityGroups = nil
 		} else {
-			request.SecurityGroups = aws.StringSlice(securityGroupIDs)
+			createRequest.SecurityGroups = aws.StringSlice(securityGroupIDs)
 		}
 
-		// TODO: add tags
+		// Get additional tags set by the user
+		tags := getKeyValuePairsFromAnnotation(annotations, ServiceAnnotationLoadBalancerAdditionalTags)
+
+		// Add default tags
+		tags[TagNameKubernetesService] = namespacedName.String()
+		tags = l.tagging.buildTags(tags, ResourceLifecycleOwned)
+
+		for k, v := range tags {
+			createRequest.Tags = append(createRequest.Tags, &elb.Tag{
+				Key: aws.String(k), Value: aws.String(v),
+			})
+		}
 
 		klog.Infof("Creating load balancer for %v with name: %s", namespacedName, loadBalancerName)
-		_, err := l.elb.CreateLoadBalancer(request)
+		_, err := l.elb.CreateLoadBalancer(createRequest)
 		if err != nil {
 			return nil, err
 		}

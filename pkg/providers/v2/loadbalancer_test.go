@@ -17,6 +17,7 @@ package v2
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	"github.com/aws/aws-sdk-go/aws"
@@ -123,8 +124,8 @@ func TestGetLoadBalancerName(t *testing.T) {
 		elb: mockELB,
 	}
 
-	lbName := fakeLoadbalancers.GetLoadBalancerName(context.TODO(), TestClusterName, &v1.Service{ObjectMeta: metav1.ObjectMeta{Name: "myservice", UID: "id"}})
-	assert.Equal(t, "testclustermyserviceid", lbName)
+	lbName := fakeLoadbalancers.GetLoadBalancerName(context.TODO(), TestClusterName, &v1.Service{ObjectMeta: metav1.ObjectMeta{Name: "testservice", Namespace: "testnamespace"}})
+	assert.True(t, strings.HasPrefix(lbName, "k8stestnametestserv"))
 }
 
 func TestGetInstanceIDsFromNodes(t *testing.T) {
