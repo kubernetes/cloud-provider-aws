@@ -1,6 +1,6 @@
 module k8s.io/cloud-provider-aws
 
-go 1.13
+go 1.15
 
 replace (
 	k8s.io/api => k8s.io/kubernetes/staging/src/k8s.io/api v0.0.0-20201023141757-9e8ad8ce9d8a
