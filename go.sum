@@ -901,6 +901,7 @@ k8s.io/kubernetes/staging/src/k8s.io/client-go v0.0.0-20201023141757-9e8ad8ce9d8
 k8s.io/kubernetes/staging/src/k8s.io/cloud-provider v0.0.0-20201023141757-9e8ad8ce9d8a h1:HElK4nJcMiXaW4wEQCyHPBpIog76X6spRr+HiMskaYQ=
 k8s.io/kubernetes/staging/src/k8s.io/cloud-provider v0.0.0-20201023141757-9e8ad8ce9d8a/go.mod h1:vXBe7m69RSxIR/m6bm820O+WYUJHP9OXtEyTZf3twRo=
 k8s.io/kubernetes/staging/src/k8s.io/cluster-bootstrap v0.0.0-20201023141757-9e8ad8ce9d8a/go.mod h1:kEUR4nHaGTacDcHrY2P4IriUdykXxPuwBg7picxa+gk=
+k8s.io/kubernetes/staging/src/k8s.io/code-generator v0.0.0-20201023141757-9e8ad8ce9d8a h1:51faxHeSlfSIZcOmqauWiJ0DhD3iSOS+Gczum92uFWg=
 k8s.io/kubernetes/staging/src/k8s.io/code-generator v0.0.0-20201023141757-9e8ad8ce9d8a/go.mod h1:CqfZDv+BcdomYCAbV0kiIw9wyBW1Fnf/iDHBd0jEWW8=
 k8s.io/kubernetes/staging/src/k8s.io/component-base v0.0.0-20201023141757-9e8ad8ce9d8a h1:fG6M7zjAnwTkcC0ufuS2jksxPPeYzAhRI8+h1DFafz0=
 k8s.io/kubernetes/staging/src/k8s.io/component-base v0.0.0-20201023141757-9e8ad8ce9d8a/go.mod h1:jR+bJp7erYNUmcS7lWDm404aFVonltWE56LV8CuqKyg=
