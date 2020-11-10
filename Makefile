@@ -56,6 +56,10 @@ verify-lint:
 	which golint 2>&1 >/dev/null || go get golang.org/x/lint/golint
 	golint -set_exit_status $(shell go list ./...)
 
+.PHONY: verify-codegen
+verify-codegen: 
+	./hack/verify-codegen.sh
+
 .PHONY: vet
 vet:
 	go vet ./...
