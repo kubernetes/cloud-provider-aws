@@ -1,4 +1,4 @@
-# Copyright 2018 The Kubernetes Authors.
+# Copyright 2020 The Kubernetes Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -12,33 +12,59 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 #
+
+# Set by cloudbuild (see cloudbuild.yaml)
+# TAG will contain a tag of the form vYYYYMMDD-hash, vYYYYMMDD-tag, or vYYYYMMDD-tag-n-ghash,
+# depending on the git tags on your repo. The test-infra docs recommend using $_GIT_TAG
+# to tag our images.
+# PULL_BASE_REF will contain the base ref that was pushed to - for instance, master or
+# release-0.2 for a PR merge, or v0.2 for a tag.
+
 SOURCES := $(shell find . -name '*.go')
 GOOS ?= $(shell go env GOOS)
-VERSION ?= $(shell git describe --exact-match 2> /dev/null || \
-                 git describe --match=$(git rev-parse --short=8 HEAD) --always --dirty --abbrev=8)
-LDFLAGS   := "-w -s -X 'main.version=${VERSION}'"
-GOPROXY ?=
+GIT_VERSION := $(shell git describe --match=$(git rev-parse --short=8 HEAD) --always --dirty --abbrev=8)
+LDFLAGS := "-w -s -X 'main.version=$(GIT_VERSION)'"
 ifneq ($(GOPROXY),)
 	GOPROXYFLAG := --build-arg GOPROXY=$(GOPROXY)
 endif
 
-IMAGE ?= gcr.io/k8s-staging-provider-aws/cloud-controller-manager:$(VERSION)
+# Registry and image name
+STAGING_REGISTRY := gcr.io/k8s-staging-provider-aws
+REGISTRY ?= $(STAGING_REGISTRY)
+IMAGE_NAME ?= cloud-controller-manager
 
-export GO111MODULE=on
+# tags
+ifneq ($(TAG),)
+	DEV_TAG = $(TAG)
+else
+	DEV_TAG = $(GIT_VERSION)
+endif
+IMAGE ?= $(REGISTRY)/$(IMAGE_NAME):$(DEV_TAG)
+
+RELEASE_TAG := $(shell git describe --abbrev=0 2>/dev/null)
+RELEASE_IMAGE ?= $(REGISTRY)/$(IMAGE_NAME):$(RELEASE_TAG)
 
 aws-cloud-controller-manager: $(SOURCES)
-	 CGO_ENABLED=0 GOOS=$(GOOS) go build \
+	 CGO111MODULE=on GO_ENABLED=0 GOOS=$(GOOS) go build \
 		-ldflags $(LDFLAGS) \
 		-o aws-cloud-controller-manager \
 		cmd/aws-cloud-controller-manager/main.go
 
-.PHONY: build
-build:
-	docker build $(GOPROXYFLAG) -t $(IMAGE) .
+.PHONY: docker-build
+docker-build:
+	docker build --build-arg LDFLAGS=$(LDFLAGS) $(GOPROXYFLAG) -t $(IMAGE) .
 
-.PHONY: push
-push: build
+.PHONY: docker-push
+docker-push:
 	docker push $(IMAGE)
+
+.PHONY: release-tag
+release-tag:
+	gcloud container images add-tag -q $(IMAGE) $(RELEASE_IMAGE)
+
+.PHONY: release-staging
+release-staging:
+	$(MAKE) docker-build docker-push release-tag
 
 .PHONY: check
 check: verify-fmt verify-lint vet
