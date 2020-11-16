@@ -37,8 +37,17 @@ type AWSConfig struct {
 	// expected as tag values for every AWS resource that represents this cluster. The expected
 	// tagging format is:
 	//
-	//     kubernetes.io/cluster=<clusterName>
+	//     kubernetes.io/cluster/<clusterID> = shared|owned
 	//
 	// Resources without this tag will not be seen by the AWS cloud provider. Changing the cluster name is not supported.
 	ClusterName string `json:"clusterName"`
+
+	// List of additional tags to apply to aid in billing and other tag use cases.
+	AdditionalTags []Tag `json:"additionalTags"`
+}
+
+// Tag consists of a key and an optional value, both of which you define.
+type Tag struct {
+	Name  string `json:"name"`
+	Value string `json:"value"`
 }
