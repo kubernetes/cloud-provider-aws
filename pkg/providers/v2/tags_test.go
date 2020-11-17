@@ -23,7 +23,7 @@ import (
 )
 
 func TestFindClusterName(t *testing.T) {
-	grid := []struct {
+	testCases := []struct {
 		Tags                map[string]string
 		ExpectedClusterName string
 		ExpectError         bool
@@ -33,7 +33,19 @@ func TestFindClusterName(t *testing.T) {
 		},
 		{
 			Tags: map[string]string{
-				TagNameKubernetesClusterPrefix: TestClusterID,
+				TagNameKubernetesClusterPrefix + TestClusterID: "owned",
+			},
+			ExpectedClusterName: TestClusterID,
+		},
+		{
+			Tags: map[string]string{
+				TagNameKubernetesClusterPrefix + TestClusterID: "shared",
+			},
+			ExpectedClusterName: TestClusterID,
+		},
+		{
+			Tags: map[string]string{
+				TagNameKubernetesClusterPrefix + TestClusterID: "",
 			},
 			ExpectedClusterName: TestClusterID,
 		},
@@ -43,26 +55,33 @@ func TestFindClusterName(t *testing.T) {
 			},
 			ExpectedClusterName: "",
 		},
+		{
+			Tags: map[string]string{
+				TagNameKubernetesClusterPrefix + "a": "",
+				TagNameKubernetesClusterPrefix + "b": "",
+			},
+			ExpectError: true,
+		},
 	}
-	for _, g := range grid {
+	for _, testCase := range testCases {
 		var ec2Tags []*ec2.Tag
-		for k, v := range g.Tags {
+		for k, v := range testCase.Tags {
 			ec2Tags = append(ec2Tags, &ec2.Tag{Key: aws.String(k), Value: aws.String(v)})
 		}
 		clusterName, err := findClusterName(ec2Tags)
-		if g.ExpectError {
+		if testCase.ExpectError {
 			if err == nil {
-				t.Errorf("expected error for tags %v", g.Tags)
+				t.Errorf("expected error for tags %v", testCase.Tags)
 				continue
 			}
 		} else {
 			if err != nil {
-				t.Errorf("unexpected error for tags %v: %v", g.Tags, err)
+				t.Errorf("unexpected error for tags %v: %v", testCase.Tags, err)
 				continue
 			}
 
-			if g.ExpectedClusterName != clusterName {
-				t.Errorf("unexpected new clusterName for tags %v: %s vs %s", g.Tags, g.ExpectedClusterName, clusterName)
+			if testCase.ExpectedClusterName != clusterName {
+				t.Errorf("unexpected new clusterName for tags %v: %s vs %s", testCase.Tags, testCase.ExpectedClusterName, clusterName)
 				continue
 			}
 		}

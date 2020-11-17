@@ -34,7 +34,7 @@ import (
 )
 
 // newInstances returns an implementation of cloudprovider.InstancesV2
-func newInstances(az string, creds *credentials.Credentials) (cloudprovider.InstancesV2, error) {
+func newInstances(az string, creds *credentials.Credentials, tags awsTagging) (cloudprovider.InstancesV2, error) {
 	region, err := azToRegion(az)
 	if err != nil {
 		return nil, err
@@ -56,6 +56,7 @@ func newInstances(az string, creds *credentials.Credentials) (cloudprovider.Inst
 		availabilityZone: az,
 		ec2:              ec2Service,
 		region:           region,
+		tags:             tags,
 	}, nil
 }
 
@@ -64,6 +65,7 @@ type instances struct {
 	availabilityZone string
 	ec2              EC2
 	region           string
+	tags             awsTagging
 }
 
 // InstanceExists indicates whether a given node exists according to the cloud provider
@@ -153,6 +155,13 @@ func (i *instances) getInstance(ctx context.Context, node *v1.Node) (*ec2.Instan
 			InstanceIds: []*string{aws.String(instanceID)},
 		}
 		klog.V(4).Infof("looking for node by provider ID %v", node.Spec.ProviderID)
+	}
+
+	// TODO: add additional tags from users
+	tags := i.tags.buildTags(map[string]string{}, ResourceLifecycleOwned)
+	for tagKey, tagValue := range tags {
+		request.Filters = append(request.Filters,
+			newEc2Filter("tag:"+tagKey, tagValue))
 	}
 
 	instances := []*ec2.Instance{}

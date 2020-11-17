@@ -17,4 +17,5 @@ require (
 	k8s.io/klog/v2 v2.4.0
 	k8s.io/legacy-cloud-providers v0.20.0
 	k8s.io/utils v0.0.0-20201110183641-67b214c5f920
+	sigs.k8s.io/yaml v1.2.0
 )

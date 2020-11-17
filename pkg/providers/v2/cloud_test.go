@@ -19,9 +19,14 @@ limitations under the License.
 package v2
 
 import (
+	"bytes"
+	"reflect"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/cloud-provider-aws/pkg/apis/config/v1alpha1"
 )
 
 func TestAzToRegion(t *testing.T) {
@@ -42,5 +47,176 @@ func TestAzToRegion(t *testing.T) {
 		ret, err := azToRegion(testCase.az)
 		assert.NoError(t, err)
 		assert.Equal(t, testCase.region, ret)
+	}
+}
+
+func TestReadAWSCloudConfig(t *testing.T) {
+	testcases := []struct {
+		name       string
+		configData string
+		config     *v1alpha1.AWSCloudConfig
+		expectErr  bool
+	}{
+		{
+			name: "config with valid cluster name",
+			configData: `---
+kind: AWSCloudConfig
+apiVersion: config.aws.io/v1alpha1
+config:
+    clusterName: test
+    `,
+			config: &v1alpha1.AWSCloudConfig{
+				TypeMeta: metav1.TypeMeta{
+					Kind:       "AWSCloudConfig",
+					APIVersion: "config.aws.io/v1alpha1",
+				},
+				Config: v1alpha1.AWSConfig{
+					ClusterName: "test",
+				},
+			},
+		},
+		{
+			name: "config with empty cluster name",
+			configData: `---
+kind: AWSCloudConfig
+apiVersion: config.aws.io/v1alpha1
+config:
+    clusterName: ""
+    `,
+			config: &v1alpha1.AWSCloudConfig{
+				TypeMeta: metav1.TypeMeta{
+					Kind:       "AWSCloudConfig",
+					APIVersion: "config.aws.io/v1alpha1",
+				},
+				Config: v1alpha1.AWSConfig{
+					ClusterName: "",
+				},
+			},
+		},
+		{
+			name: "config with only kind and apiVersion",
+			configData: `---
+kind: AWSCloudConfig
+apiVersion: config.aws.io/v1alpha1
+    `,
+			config: &v1alpha1.AWSCloudConfig{
+				TypeMeta: metav1.TypeMeta{
+					Kind:       "AWSCloudConfig",
+					APIVersion: "config.aws.io/v1alpha1",
+				},
+				Config: v1alpha1.AWSConfig{
+					ClusterName: "",
+				},
+			},
+		},
+		{
+			name: "config with wrong Kind",
+			configData: `---
+kind: WrongCloudConfig
+apiVersion: config.aws.io/v1alpha1
+config:
+    clusterName: test
+	`,
+			config:    nil,
+			expectErr: true,
+		},
+		{
+			name: "config with wrong apiversion",
+			configData: `---
+kind: AWSCloudConfig
+apiVersion: wrong.aws.io/v1alpha1
+config:
+    clusterName: test
+	`,
+			config:    nil,
+			expectErr: true,
+		},
+	}
+
+	for _, testcase := range testcases {
+		t.Run(testcase.name, func(t *testing.T) {
+			buffer := bytes.NewBufferString(testcase.configData)
+			cloudConfig, err := readAWSCloudConfig(buffer)
+			if err != nil && !testcase.expectErr {
+				t.Fatal(err)
+			}
+
+			if err == nil && testcase.expectErr {
+				t.Error("expected error but got none")
+			}
+
+			if !reflect.DeepEqual(cloudConfig, testcase.config) {
+				t.Logf("actual cloud config: %#v", cloudConfig)
+				t.Logf("expected cloud config: %#v", testcase.config)
+				t.Error("AWS cloud config did not match")
+			}
+		})
+	}
+}
+
+func TestValidateAWSCloudConfig(t *testing.T) {
+	testcases := []struct {
+		name      string
+		config    *v1alpha1.AWSCloudConfig
+		expectErr bool
+	}{
+		{
+			name: "valid config",
+			config: &v1alpha1.AWSCloudConfig{
+				TypeMeta: metav1.TypeMeta{
+					Kind:       "AWSCloudConfig",
+					APIVersion: "config.aws.io/v1alpha1",
+				},
+				Config: v1alpha1.AWSConfig{
+					ClusterName: "test",
+				},
+			},
+		},
+		{
+			name: "empty cluster name",
+			config: &v1alpha1.AWSCloudConfig{
+				TypeMeta: metav1.TypeMeta{
+					Kind:       "AWSCloudConfig",
+					APIVersion: "config.aws.io/v1alpha1",
+				},
+				Config: v1alpha1.AWSConfig{
+					ClusterName: "",
+				},
+			},
+			expectErr: true,
+		},
+		{
+			name: "empty config",
+			config: &v1alpha1.AWSCloudConfig{
+				TypeMeta: metav1.TypeMeta{
+					Kind:       "AWSCloudConfig",
+					APIVersion: "config.aws.io/v1alpha1",
+				},
+				Config: v1alpha1.AWSConfig{},
+			},
+			expectErr: true,
+		},
+		{
+			name: "invalid config",
+			config: &v1alpha1.AWSCloudConfig{
+				TypeMeta: metav1.TypeMeta{
+					Kind:       "AWSCloudConfig",
+					APIVersion: "config.aws.io/v1alpha1",
+				},
+			},
+			expectErr: true,
+		},
+	}
+
+	for _, testcase := range testcases {
+		t.Run(testcase.name, func(t *testing.T) {
+			errs := validateAWSCloudConfig(testcase.config)
+
+			if testcase.expectErr && len(errs) == 0 {
+				t.Errorf("expected error but got none")
+			} else if !testcase.expectErr && len(errs) > 0 {
+				t.Errorf("expected no error but received errors: %v", errs.ToAggregate())
+			}
+		})
 	}
 }

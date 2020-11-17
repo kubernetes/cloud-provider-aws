@@ -16,6 +16,7 @@ limitations under the License.
 package v2
 
 import (
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -30,7 +31,9 @@ import (
 const (
 	// TagNameKubernetesClusterPrefix is the tag name we use to differentiate multiple
 	// logically independent clusters running in the same AZ.
-	// tag format: kubernetes.io/cluster/=<clusterName>
+	// tag format: kubernetes.io/cluster/<clusterID> = shared|owned
+	// The tag key = TagNameKubernetesClusterPrefix + clusterID
+	// The tag value is an ownership value
 	TagNameKubernetesClusterPrefix = "kubernetes.io/cluster/"
 
 	// createTag* is configuration of exponential backoff for CreateTag call. We
@@ -38,15 +41,34 @@ const (
 	// "fully created" (eventual consistency). Starting with 1 second, doubling
 	// it every step and taking 9 steps results in 255 second total waiting
 	// time.
+	// TODO: revisit these values
 	createTagInitialDelay = 1 * time.Second
 	createTagFactor       = 2.0
 	createTagSteps        = 9
+
+	// ResourceLifecycleOwned is the value we use when tagging resources to indicate
+	// that the resource is considered owned and managed by the cluster,
+	// and in particular that the lifecycle is tied to the lifecycle of the cluster.
+	ResourceLifecycleOwned = "owned"
 )
 
 type awsTagging struct {
 	// ClusterName is our cluster identifier: we tag AWS resources with this value,
 	// and thus we can run two independent clusters in the same VPC or subnets.
 	ClusterName string
+}
+
+// newAWSTags is a constructor function for awsTagging
+func newAWSTags(clusterName string) (awsTagging, error) {
+	if clusterName != "" {
+		klog.Infof("AWS cloud filtering on ClusterName: %v", clusterName)
+	} else {
+		return awsTagging{}, errors.New("No ClusterName found in the config")
+	}
+
+	return awsTagging{
+		ClusterName: clusterName,
+	}, nil
 }
 
 // Extracts the cluster name from the given tags, if they are present
@@ -57,7 +79,7 @@ func findClusterName(tags []*ec2.Tag) (string, error) {
 	for _, tag := range tags {
 		tagKey := aws.StringValue(tag.Key)
 		if strings.HasPrefix(tagKey, TagNameKubernetesClusterPrefix) {
-			name := aws.StringValue(tag.Value)
+			name := strings.TrimPrefix(tagKey, TagNameKubernetesClusterPrefix)
 			if clusterName != "" {
 				return "", fmt.Errorf("Found multiple cluster tags with prefix %s (%q and %q)", TagNameKubernetesClusterPrefix, clusterName, name)
 			}
@@ -68,64 +90,36 @@ func findClusterName(tags []*ec2.Tag) (string, error) {
 	return clusterName, nil
 }
 
-func (t *awsTagging) init(clusterName string) error {
-	t.ClusterName = clusterName
-
-	if clusterName != "" {
-		klog.Infof("AWS cloud filtering on ClusterName: %v", clusterName)
-	} else {
-		return fmt.Errorf("AWS cloud failed to find ClusterName")
-	}
-
-	return nil
-}
-
-// Extracts a cluster name from the given tags, if one is present
-// If no clusterName is found, returns "", nil
-// If multiple (different) clusterNames are found, returns an error
-func (t *awsTagging) initFromTags(tags []*ec2.Tag) error {
-	clusterName, err := findClusterName(tags)
-	if err != nil {
-		return err
-	}
-
-	if clusterName == "" {
-		klog.Errorf("Tag %q not found; Kubernetes may behave unexpectedly.", TagNameKubernetesClusterPrefix)
-	}
-
-	return t.init(clusterName)
-}
-
-func (t *awsTagging) hasClusterTag(tags []*ec2.Tag) bool {
-	// if the clusterName is not configured -- we consider all instances.
+func (t *awsTagging) hasClusterTag(tags []*ec2.Tag) error {
 	if len(t.ClusterName) == 0 {
-		return true
+		return errors.New("cluster name is not configured (an empty value)")
 	}
 
 	for _, tag := range tags {
 		tagKey := aws.StringValue(tag.Key)
-		if (tagKey == TagNameKubernetesClusterPrefix) && (aws.StringValue(tag.Value) == t.ClusterName) {
-			return true
+		if tagKey == (TagNameKubernetesClusterPrefix + t.ClusterName) {
+			return nil
 		}
 	}
 
-	return false
+	return errors.New("cluster tag does not exist")
 }
 
 func (t *awsTagging) buildTags(additionalTags map[string]string, lifecycle string) map[string]string {
 	tags := make(map[string]string)
-	for k, v := range additionalTags {
-		tags[k] = v
+	for tagKey, tagValue := range additionalTags {
+		tags[tagKey] = tagValue
 	}
 
 	// no clusterName is a sign of misconfigured cluster, but we can't be tagging the resources with empty
 	// strings
+	// TODO: revise the logic
 	if len(t.ClusterName) == 0 {
 		return tags
 	}
 
-	// tag format: kubernetes.io/cluster/=<clusterName>
-	tags[TagNameKubernetesClusterPrefix] = t.ClusterName
+	// tag format: kubernetes.io/cluster/<clusterID> = shared|owned
+	tags[TagNameKubernetesClusterPrefix+t.ClusterName] = lifecycle
 
 	return tags
 }
@@ -141,10 +135,10 @@ func (t *awsTagging) createTags(ec2Client EC2, resourceID string, lifecycle stri
 	}
 
 	var awsTags []*ec2.Tag
-	for k, v := range tags {
+	for tagKey, tagValue := range tags {
 		tag := &ec2.Tag{
-			Key:   aws.String(k),
-			Value: aws.String(v),
+			Key:   aws.String(tagKey),
+			Value: aws.String(tagValue),
 		}
 		awsTags = append(awsTags, tag)
 	}
