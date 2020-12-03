@@ -1,5 +1,7 @@
+// +build !providerless
+
 /*
-Copyright 2020 The Kubernetes Authors.
+Copyright 2014 The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -14,17 +16,32 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-// Package v1 is the legacy cloud provider imported from the main kubernetes repo.
-// This is the same implementation used the in-tree Kubernetes components (kubelet,
-// kube-controller-manager, etc) but works out-of-tree as well.
-package v1
+package aws
 
 import (
-	// install the legacy provider by importing it
-	"k8s.io/legacy-cloud-providers/aws"
+	"github.com/aws/aws-sdk-go/aws"
+
+	"k8s.io/apimachinery/pkg/util/sets"
 )
 
-const (
-	// ProviderName is the name of the v1 AWS cloud provider
-	ProviderName = aws.ProviderName
-)
+func stringSetToPointers(in sets.String) []*string {
+	if in == nil {
+		return nil
+	}
+	out := make([]*string, 0, len(in))
+	for k := range in {
+		out = append(out, aws.String(k))
+	}
+	return out
+}
+
+func stringSetFromPointers(in []*string) sets.String {
+	if in == nil {
+		return nil
+	}
+	out := sets.NewString()
+	for i := range in {
+		out.Insert(aws.StringValue(in[i]))
+	}
+	return out
+}
