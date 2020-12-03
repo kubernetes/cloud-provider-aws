@@ -45,7 +45,7 @@ RELEASE_TAG := $(shell git describe --abbrev=0 2>/dev/null)
 RELEASE_IMAGE ?= $(REGISTRY)/$(IMAGE_NAME):$(RELEASE_TAG)
 
 aws-cloud-controller-manager: $(SOURCES)
-	 CGO111MODULE=on GO_ENABLED=0 GOOS=$(GOOS) go build \
+	 GO111MODULE=on CGO_ENABLED=0 GOOS=$(GOOS) go build \
 		-ldflags $(LDFLAGS) \
 		-o aws-cloud-controller-manager \
 		cmd/aws-cloud-controller-manager/main.go
@@ -83,7 +83,7 @@ verify-lint:
 	golint -set_exit_status $(shell go list ./...)
 
 .PHONY: verify-codegen
-verify-codegen: 
+verify-codegen:
 	./hack/verify-codegen.sh
 
 .PHONY: vet
