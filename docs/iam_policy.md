@@ -1,4 +1,5 @@
-## IAM Policy
+# IAM Policy
+
 For the `aws-cloud-controller-manager` to be able to communicate to AWS APIs, you will need to create a few IAM policies for your EC2 instances. The master policy is a bit open and can be scaled back depending on the use case. Adjust these based on your needs.
 
 1. Master Policy
