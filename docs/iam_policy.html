@@ -4,7 +4,7 @@
     <head>
         <meta charset="UTF-8">
         <meta content="text/html; charset=utf-8" http-equiv="Content-Type">
-        <title>Getting Started · GitBook</title>
+        <title>IAM Policy · GitBook</title>
         <meta http-equiv="X-UA-Compatible" content="IE=edge" />
         <meta name="description" content="">
         <meta name="generator" content="GitBook 3.2.3">
@@ -57,10 +57,10 @@
     <link rel="shortcut icon" href="gitbook/images/favicon.ico" type="image/x-icon">
 
     
-    <link rel="next" href="service_loadbalancers.html" />
+    <link rel="next" href="development.html" />
     
     
-    <link rel="prev" href="prerequisites.html" />
+    <link rel="prev" href="known_limitations.html" />
     
 
     </head>
@@ -129,7 +129,7 @@
             
         </li>
     
-        <li class="chapter active" data-level="1.2.2" data-path="getting_started.html">
+        <li class="chapter " data-level="1.2.2" data-path="getting_started.html">
             
                 <a href="getting_started.html">
             
@@ -168,7 +168,7 @@
             
         </li>
     
-        <li class="chapter " data-level="1.2.5" data-path="iam_policy.html">
+        <li class="chapter active" data-level="1.2.5" data-path="iam_policy.html">
             
                 <a href="iam_policy.html">
             
@@ -229,7 +229,7 @@
     <!-- Title -->
     <h1>
         <i class="fa fa-circle-o-notch fa-spin"></i>
-        <a href="." >Getting Started</a>
+        <a href="." >IAM Policy</a>
     </h1>
 </div>
 
@@ -244,25 +244,103 @@
     
                                 <section class="normal markdown-section">
                                 
-                                <h1 id="getting-started">Getting Started</h1>
-<h2 id="aws-cloud-controller-manager">AWS Cloud Controller Manager</h2>
-<p>In order to launch a cluster running the AWS cloud-controller-manager, you can run the appropriate container image release from this repository on an existing cluster, or you can use a deployment tool that has support for the AWS cloud-controller-manager, like kops.</p>
-<h2 id="running-on-an-existing-cluster">Running on an Existing Cluster</h2>
-<p>Follow these steps when upgrading an existing cluster by launching the cloud-controller-manager as a pod:</p>
+                                <h1 id="iam-policy">IAM Policy</h1>
+<p>For the <code>aws-cloud-controller-manager</code> to be able to communicate to AWS APIs, you will need to create a few IAM policies for your EC2 instances. The master policy is a bit open and can be scaled back depending on the use case. Adjust these based on your needs.</p>
 <ol>
-<li>Temporarily stop the kube-controller-managers from running.</li>
-<li>Add the <code>--cloud-provider=external</code> to the kube-controller-manager config.</li>
-<li>Add the <code>--cloud-provider=external</code> to the kube-apiserver config.</li>
-<li>Add the <code>--cloud-provider=external</code> to each the kubelet&apos;s config.</li>
-<li>Deploy the required RBAC to your cluster:
- <code>kubectl apply -f https://raw.githubusercontent.com/kubernetes/cloud-provider-aws/master/manifests/rbac.yaml</code></li>
-<li>Deploy the cloud-controller-manager to your cluster:
- <code>kubectl apply -f https://raw.githubusercontent.com/kubernetes/cloud-provider-aws/master/manifests/aws-cloud-controller-manager-daemonset.yaml</code></li>
+<li>Master Policy</li>
 </ol>
-<h3 id="flags">Flags</h3>
-<p>The flag <code>--cloud-provider=external</code> needs to be passed to kubelet, kube-apiserver, and kube-controller-manager. Optionally, you can also pass <code>--cloud-provider=aws</code> flag to <code>aws-cloud-controller-manager</code>.</p>
-<h2 id="using-kops">Using Kops</h2>
-
+<pre><code>{
+  &quot;Version&quot;: &quot;2012-10-17&quot;,
+  &quot;Statement&quot;: [
+    {
+      &quot;Effect&quot;: &quot;Allow&quot;,
+      &quot;Action&quot;: [
+        &quot;autoscaling:DescribeAutoScalingGroups&quot;,
+        &quot;autoscaling:DescribeLaunchConfigurations&quot;,
+        &quot;autoscaling:DescribeTags&quot;,
+        &quot;ec2:DescribeInstances&quot;,
+        &quot;ec2:DescribeRegions&quot;,
+        &quot;ec2:DescribeRouteTables&quot;,
+        &quot;ec2:DescribeSecurityGroups&quot;,
+        &quot;ec2:DescribeSubnets&quot;,
+        &quot;ec2:DescribeVolumes&quot;,
+        &quot;ec2:CreateSecurityGroup&quot;,
+        &quot;ec2:CreateTags&quot;,
+        &quot;ec2:CreateVolume&quot;,
+        &quot;ec2:ModifyInstanceAttribute&quot;,
+        &quot;ec2:ModifyVolume&quot;,
+        &quot;ec2:AttachVolume&quot;,
+        &quot;ec2:AuthorizeSecurityGroupIngress&quot;,
+        &quot;ec2:CreateRoute&quot;,
+        &quot;ec2:DeleteRoute&quot;,
+        &quot;ec2:DeleteSecurityGroup&quot;,
+        &quot;ec2:DeleteVolume&quot;,
+        &quot;ec2:DetachVolume&quot;,
+        &quot;ec2:RevokeSecurityGroupIngress&quot;,
+        &quot;ec2:DescribeVpcs&quot;,
+        &quot;elasticloadbalancing:AddTags&quot;,
+        &quot;elasticloadbalancing:AttachLoadBalancerToSubnets&quot;,
+        &quot;elasticloadbalancing:ApplySecurityGroupsToLoadBalancer&quot;,
+        &quot;elasticloadbalancing:CreateLoadBalancer&quot;,
+        &quot;elasticloadbalancing:CreateLoadBalancerPolicy&quot;,
+        &quot;elasticloadbalancing:CreateLoadBalancerListeners&quot;,
+        &quot;elasticloadbalancing:ConfigureHealthCheck&quot;,
+        &quot;elasticloadbalancing:DeleteLoadBalancer&quot;,
+        &quot;elasticloadbalancing:DeleteLoadBalancerListeners&quot;,
+        &quot;elasticloadbalancing:DescribeLoadBalancers&quot;,
+        &quot;elasticloadbalancing:DescribeLoadBalancerAttributes&quot;,
+        &quot;elasticloadbalancing:DetachLoadBalancerFromSubnets&quot;,
+        &quot;elasticloadbalancing:DeregisterInstancesFromLoadBalancer&quot;,
+        &quot;elasticloadbalancing:ModifyLoadBalancerAttributes&quot;,
+        &quot;elasticloadbalancing:RegisterInstancesWithLoadBalancer&quot;,
+        &quot;elasticloadbalancing:SetLoadBalancerPoliciesForBackendServer&quot;,
+        &quot;elasticloadbalancing:AddTags&quot;,
+        &quot;elasticloadbalancing:CreateListener&quot;,
+        &quot;elasticloadbalancing:CreateTargetGroup&quot;,
+        &quot;elasticloadbalancing:DeleteListener&quot;,
+        &quot;elasticloadbalancing:DeleteTargetGroup&quot;,
+        &quot;elasticloadbalancing:DescribeListeners&quot;,
+        &quot;elasticloadbalancing:DescribeLoadBalancerPolicies&quot;,
+        &quot;elasticloadbalancing:DescribeTargetGroups&quot;,
+        &quot;elasticloadbalancing:DescribeTargetHealth&quot;,
+        &quot;elasticloadbalancing:ModifyListener&quot;,
+        &quot;elasticloadbalancing:ModifyTargetGroup&quot;,
+        &quot;elasticloadbalancing:RegisterTargets&quot;,
+        &quot;elasticloadbalancing:DeregisterTargets&quot;,
+        &quot;elasticloadbalancing:SetLoadBalancerPoliciesOfListener&quot;,
+        &quot;iam:CreateServiceLinkedRole&quot;,
+        &quot;kms:DescribeKey&quot;
+      ],
+      &quot;Resource&quot;: [
+        &quot;*&quot;
+      ]
+    }
+  ]
+}
+</code></pre><ol>
+<li>Node Policy</li>
+</ol>
+<pre><code>{
+  &quot;Version&quot;: &quot;2012-10-17&quot;,
+  &quot;Statement&quot;: [
+    {
+      &quot;Effect&quot;: &quot;Allow&quot;,
+      &quot;Action&quot;: [
+        &quot;ec2:DescribeInstances&quot;,
+        &quot;ec2:DescribeRegions&quot;,
+        &quot;ecr:GetAuthorizationToken&quot;,
+        &quot;ecr:BatchCheckLayerAvailability&quot;,
+        &quot;ecr:GetDownloadUrlForLayer&quot;,
+        &quot;ecr:GetRepositoryPolicy&quot;,
+        &quot;ecr:DescribeRepositories&quot;,
+        &quot;ecr:ListImages&quot;,
+        &quot;ecr:BatchGetImage&quot;
+      ],
+      &quot;Resource&quot;: &quot;*&quot;
+    }
+  ]
+}
+</code></pre>
                                 
                                 </section>
                             
@@ -289,12 +367,12 @@
 
             
                 
-                <a href="prerequisites.html" class="navigation navigation-prev " aria-label="Previous page: Prerequisites">
+                <a href="known_limitations.html" class="navigation navigation-prev " aria-label="Previous page: Known Limitations">
                     <i class="fa fa-angle-left"></i>
                 </a>
                 
                 
-                <a href="service_loadbalancers.html" class="navigation navigation-next " aria-label="Next page: Service LoadBalancers">
+                <a href="development.html" class="navigation navigation-next " aria-label="Next page: Development">
                     <i class="fa fa-angle-right"></i>
                 </a>
                 
@@ -305,7 +383,7 @@
     <script>
         var gitbook = gitbook || [];
         gitbook.push(function() {
-            gitbook.page.hasChanged({"page":{"title":"Getting Started","level":"1.2.2","depth":2,"next":{"title":"Service LoadBalancers","level":"1.2.3","depth":2,"path":"service_loadbalancers.md","ref":"service_loadbalancers.md","articles":[]},"previous":{"title":"Prerequisites","level":"1.2.1","depth":2,"path":"prerequisites.md","ref":"prerequisites.md","articles":[]},"dir":"ltr"},"config":{"gitbook":"*","theme":"default","variables":{},"plugins":[],"pluginsConfig":{"highlight":{},"search":{},"lunr":{"maxIndexSize":1000000,"ignoreSpecialCharacters":false},"sharing":{"facebook":true,"twitter":true,"google":false,"weibo":false,"instapaper":false,"vk":false,"all":["facebook","google","twitter","weibo","instapaper"]},"fontsettings":{"theme":"white","family":"sans","size":2},"theme-default":{"styles":{"website":"styles/website.css","pdf":"styles/pdf.css","epub":"styles/epub.css","mobi":"styles/mobi.css","ebook":"styles/ebook.css","print":"styles/print.css"},"showLevel":false}},"structure":{"langs":"LANGS.md","readme":"README.md","glossary":"GLOSSARY.md","summary":"SUMMARY.md"},"pdf":{"pageNumbers":true,"fontSize":12,"fontFamily":"Arial","paperSize":"a4","chapterMark":"pagebreak","pageBreaksBefore":"/","margin":{"right":62,"left":62,"top":56,"bottom":56}},"styles":{"website":"styles/website.css","pdf":"styles/pdf.css","epub":"styles/epub.css","mobi":"styles/mobi.css","ebook":"styles/ebook.css","print":"styles/print.css"}},"file":{"path":"getting_started.md","mtime":"2020-12-04T09:37:58.515Z","type":"markdown"},"gitbook":{"version":"3.2.3","time":"2020-12-04T09:44:58.710Z"},"basePath":".","book":{"language":""}});
+            gitbook.page.hasChanged({"page":{"title":"IAM Policy","level":"1.2.5","depth":2,"next":{"title":"Development","level":"1.2.6","depth":2,"path":"development.md","ref":"development.md","articles":[]},"previous":{"title":"Known Limitations","level":"1.2.4","depth":2,"path":"known_limitations.md","ref":"known_limitations.md","articles":[]},"dir":"ltr"},"config":{"gitbook":"*","theme":"default","variables":{},"plugins":[],"pluginsConfig":{"highlight":{},"search":{},"lunr":{"maxIndexSize":1000000,"ignoreSpecialCharacters":false},"sharing":{"facebook":true,"twitter":true,"google":false,"weibo":false,"instapaper":false,"vk":false,"all":["facebook","google","twitter","weibo","instapaper"]},"fontsettings":{"theme":"white","family":"sans","size":2},"theme-default":{"styles":{"website":"styles/website.css","pdf":"styles/pdf.css","epub":"styles/epub.css","mobi":"styles/mobi.css","ebook":"styles/ebook.css","print":"styles/print.css"},"showLevel":false}},"structure":{"langs":"LANGS.md","readme":"README.md","glossary":"GLOSSARY.md","summary":"SUMMARY.md"},"pdf":{"pageNumbers":true,"fontSize":12,"fontFamily":"Arial","paperSize":"a4","chapterMark":"pagebreak","pageBreaksBefore":"/","margin":{"right":62,"left":62,"top":56,"bottom":56}},"styles":{"website":"styles/website.css","pdf":"styles/pdf.css","epub":"styles/epub.css","mobi":"styles/mobi.css","ebook":"styles/ebook.css","print":"styles/print.css"}},"file":{"path":"iam_policy.md","mtime":"2020-12-04T09:37:58.515Z","type":"markdown"},"gitbook":{"version":"3.2.3","time":"2020-12-04T09:44:58.710Z"},"basePath":".","book":{"language":""}});
         });
     </script>
 </div>

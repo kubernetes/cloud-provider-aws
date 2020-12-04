@@ -4,7 +4,7 @@
     <head>
         <meta charset="UTF-8">
         <meta content="text/html; charset=utf-8" http-equiv="Content-Type">
-        <title>Getting Started · GitBook</title>
+        <title>Development · GitBook</title>
         <meta http-equiv="X-UA-Compatible" content="IE=edge" />
         <meta name="description" content="">
         <meta name="generator" content="GitBook 3.2.3">
@@ -57,10 +57,8 @@
     <link rel="shortcut icon" href="gitbook/images/favicon.ico" type="image/x-icon">
 
     
-    <link rel="next" href="service_loadbalancers.html" />
     
-    
-    <link rel="prev" href="prerequisites.html" />
+    <link rel="prev" href="iam_policy.html" />
     
 
     </head>
@@ -129,7 +127,7 @@
             
         </li>
     
-        <li class="chapter active" data-level="1.2.2" data-path="getting_started.html">
+        <li class="chapter " data-level="1.2.2" data-path="getting_started.html">
             
                 <a href="getting_started.html">
             
@@ -181,7 +179,7 @@
             
         </li>
     
-        <li class="chapter " data-level="1.2.6" data-path="development.html">
+        <li class="chapter active" data-level="1.2.6" data-path="development.html">
             
                 <a href="development.html">
             
@@ -229,7 +227,7 @@
     <!-- Title -->
     <h1>
         <i class="fa fa-circle-o-notch fa-spin"></i>
-        <a href="." >Getting Started</a>
+        <a href="." >Development</a>
     </h1>
 </div>
 
@@ -244,24 +242,11 @@
     
                                 <section class="normal markdown-section">
                                 
-                                <h1 id="getting-started">Getting Started</h1>
-<h2 id="aws-cloud-controller-manager">AWS Cloud Controller Manager</h2>
-<p>In order to launch a cluster running the AWS cloud-controller-manager, you can run the appropriate container image release from this repository on an existing cluster, or you can use a deployment tool that has support for the AWS cloud-controller-manager, like kops.</p>
-<h2 id="running-on-an-existing-cluster">Running on an Existing Cluster</h2>
-<p>Follow these steps when upgrading an existing cluster by launching the cloud-controller-manager as a pod:</p>
-<ol>
-<li>Temporarily stop the kube-controller-managers from running.</li>
-<li>Add the <code>--cloud-provider=external</code> to the kube-controller-manager config.</li>
-<li>Add the <code>--cloud-provider=external</code> to the kube-apiserver config.</li>
-<li>Add the <code>--cloud-provider=external</code> to each the kubelet&apos;s config.</li>
-<li>Deploy the required RBAC to your cluster:
- <code>kubectl apply -f https://raw.githubusercontent.com/kubernetes/cloud-provider-aws/master/manifests/rbac.yaml</code></li>
-<li>Deploy the cloud-controller-manager to your cluster:
- <code>kubectl apply -f https://raw.githubusercontent.com/kubernetes/cloud-provider-aws/master/manifests/aws-cloud-controller-manager-daemonset.yaml</code></li>
-</ol>
-<h3 id="flags">Flags</h3>
-<p>The flag <code>--cloud-provider=external</code> needs to be passed to kubelet, kube-apiserver, and kube-controller-manager. Optionally, you can also pass <code>--cloud-provider=aws</code> flag to <code>aws-cloud-controller-manager</code>.</p>
-<h2 id="using-kops">Using Kops</h2>
+                                <h1 id="development">Development</h1>
+<p>A local single node cluster can be brought up on AWS by running the local up script while on an AWS EC2 instance.
+Before running this, ensure that the instance you are running on has the <code>KubernetesCluster</code> tag. The tag can be any value.</p>
+<pre><code>./hack/local-up-cluster.sh
+</code></pre><p>By default this script will use the cloud provider binary from this repository. You will need to have the k8s main repo cloned before running this script.</p>
 
                                 
                                 </section>
@@ -289,14 +274,10 @@
 
             
                 
-                <a href="prerequisites.html" class="navigation navigation-prev " aria-label="Previous page: Prerequisites">
+                <a href="iam_policy.html" class="navigation navigation-prev navigation-unique" aria-label="Previous page: IAM Policy">
                     <i class="fa fa-angle-left"></i>
                 </a>
                 
-                
-                <a href="service_loadbalancers.html" class="navigation navigation-next " aria-label="Next page: Service LoadBalancers">
-                    <i class="fa fa-angle-right"></i>
-                </a>
                 
             
         
@@ -305,7 +286,7 @@
     <script>
         var gitbook = gitbook || [];
         gitbook.push(function() {
-            gitbook.page.hasChanged({"page":{"title":"Getting Started","level":"1.2.2","depth":2,"next":{"title":"Service LoadBalancers","level":"1.2.3","depth":2,"path":"service_loadbalancers.md","ref":"service_loadbalancers.md","articles":[]},"previous":{"title":"Prerequisites","level":"1.2.1","depth":2,"path":"prerequisites.md","ref":"prerequisites.md","articles":[]},"dir":"ltr"},"config":{"gitbook":"*","theme":"default","variables":{},"plugins":[],"pluginsConfig":{"highlight":{},"search":{},"lunr":{"maxIndexSize":1000000,"ignoreSpecialCharacters":false},"sharing":{"facebook":true,"twitter":true,"google":false,"weibo":false,"instapaper":false,"vk":false,"all":["facebook","google","twitter","weibo","instapaper"]},"fontsettings":{"theme":"white","family":"sans","size":2},"theme-default":{"styles":{"website":"styles/website.css","pdf":"styles/pdf.css","epub":"styles/epub.css","mobi":"styles/mobi.css","ebook":"styles/ebook.css","print":"styles/print.css"},"showLevel":false}},"structure":{"langs":"LANGS.md","readme":"README.md","glossary":"GLOSSARY.md","summary":"SUMMARY.md"},"pdf":{"pageNumbers":true,"fontSize":12,"fontFamily":"Arial","paperSize":"a4","chapterMark":"pagebreak","pageBreaksBefore":"/","margin":{"right":62,"left":62,"top":56,"bottom":56}},"styles":{"website":"styles/website.css","pdf":"styles/pdf.css","epub":"styles/epub.css","mobi":"styles/mobi.css","ebook":"styles/ebook.css","print":"styles/print.css"}},"file":{"path":"getting_started.md","mtime":"2020-12-04T09:37:58.515Z","type":"markdown"},"gitbook":{"version":"3.2.3","time":"2020-12-04T09:44:58.710Z"},"basePath":".","book":{"language":""}});
+            gitbook.page.hasChanged({"page":{"title":"Development","level":"1.2.6","depth":2,"previous":{"title":"IAM Policy","level":"1.2.5","depth":2,"path":"iam_policy.md","ref":"iam_policy.md","articles":[]},"dir":"ltr"},"config":{"gitbook":"*","theme":"default","variables":{},"plugins":[],"pluginsConfig":{"highlight":{},"search":{},"lunr":{"maxIndexSize":1000000,"ignoreSpecialCharacters":false},"sharing":{"facebook":true,"twitter":true,"google":false,"weibo":false,"instapaper":false,"vk":false,"all":["facebook","google","twitter","weibo","instapaper"]},"fontsettings":{"theme":"white","family":"sans","size":2},"theme-default":{"styles":{"website":"styles/website.css","pdf":"styles/pdf.css","epub":"styles/epub.css","mobi":"styles/mobi.css","ebook":"styles/ebook.css","print":"styles/print.css"},"showLevel":false}},"structure":{"langs":"LANGS.md","readme":"README.md","glossary":"GLOSSARY.md","summary":"SUMMARY.md"},"pdf":{"pageNumbers":true,"fontSize":12,"fontFamily":"Arial","paperSize":"a4","chapterMark":"pagebreak","pageBreaksBefore":"/","margin":{"right":62,"left":62,"top":56,"bottom":56}},"styles":{"website":"styles/website.css","pdf":"styles/pdf.css","epub":"styles/epub.css","mobi":"styles/mobi.css","ebook":"styles/ebook.css","print":"styles/print.css"}},"file":{"path":"development.md","mtime":"2020-12-04T09:37:58.515Z","type":"markdown"},"gitbook":{"version":"3.2.3","time":"2020-12-04T09:44:58.710Z"},"basePath":".","book":{"language":""}});
         });
     </script>
 </div>
