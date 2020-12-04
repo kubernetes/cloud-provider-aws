@@ -246,9 +246,9 @@
                                 
                                 <h1 id="getting-started">Getting Started</h1>
 <h2 id="aws-cloud-controller-manager">AWS Cloud Controller Manager</h2>
-<p>In order to launch a cluster running the AWS cloud-controller-manager, you can run the appropriate container image release from this repository on an existing cluster, or you can use a deployment tool that has support for the AWS cloud-controller-manager, like kops.</p>
+<p>In order to launch a cluster running the aws-cloud-controller-manager, you can run the appropriate container image release from this repository on an existing cluster, or you can use a deployment tool that has support for deploying it, like kops.</p>
 <h2 id="running-on-an-existing-cluster">Running on an Existing Cluster</h2>
-<p>Follow these steps when upgrading an existing cluster by launching the cloud-controller-manager as a pod:</p>
+<p>Follow these steps when upgrading an existing cluster by launching the aws-cloud-controller-manager as a pod:</p>
 <ol>
 <li>Temporarily stop the kube-controller-managers from running.</li>
 <li>Add the <code>--cloud-provider=external</code> to the kube-controller-manager config.</li>
@@ -260,8 +260,61 @@
  <code>kubectl apply -f https://raw.githubusercontent.com/kubernetes/cloud-provider-aws/master/manifests/aws-cloud-controller-manager-daemonset.yaml</code></li>
 </ol>
 <h3 id="flags">Flags</h3>
-<p>The flag <code>--cloud-provider=external</code> needs to be passed to kubelet, kube-apiserver, and kube-controller-manager. Optionally, you can also pass <code>--cloud-provider=aws</code> flag to <code>aws-cloud-controller-manager</code>.</p>
+<table>
+<thead>
+<tr>
+<th>flag</th>
+<th>component</th>
+<th>description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>--cloud-provider=external</code></td>
+<td>kube-apiserver</td>
+<td>Disables the cloud provider in the API Server.</td>
+</tr>
+<tr>
+<td><code>--cloud-provider=external</code></td>
+<td>kube-controller-manager</td>
+<td>Disables the cloud provider in the Kube Controller Manager.</td>
+</tr>
+<tr>
+<td><code>--cloud-provider=external</code></td>
+<td>kubelet</td>
+<td>Disables the cloud provider in the Kubelet.</td>
+</tr>
+<tr>
+<td>`--cloud-provider=[aws</td>
+<td>aws/v2]`</td>
+<td>aws-cloud-controller-manager</td>
+<td>Optional.  Selects the legacy cloud-provider or the v2 cloud-provider in the aws-cloud-controller-manager. WARNING: the v2 cloud-provider is in a pre-alpha state.</td>
+</tr>
+<tr>
+<td><code>--external-cloud-volume-plugin=aws</code></td>
+<td>kube-controller-manager</td>
+<td>Tells the Kube Controller Manager to run the volume loops that have cloud provider code in them.  This is required for volumes to work if you are not using CSI with migration enabled.</td>
+</tr>
+</tbody>
+</table>
+<p>needs to be passed to kubelet, kube-apiserver, and kube-controller-manager. Optionally, you can also pass <code>--cloud-provider=aws</code> flag to <code>aws-cloud-controller-manager</code>.</p>
 <h2 id="using-kops">Using Kops</h2>
+<p>In order to create a cluster using kops, the following flags should be set in your cluster.yaml in order to pass the correct flags to the control plane components.</p>
+<pre><code>apiVersion: kops.k8s.io/v1alpha2
+kind: Cluster
+metadata:
+  name: cloud-controller-example
+spec:
+  cloudControllerManager:
+    cloudProvider: aws
+  kubeControllerManager:
+    externalCloudVolumePlugin: aws
+  cloudProvider: aws
+  kubeAPIServer:
+    cloudProvider: external
+  kubelet:
+    cloudProvider: aws
+</code></pre><p>Note: the above config omits all config not related to the aws-cloud-controller-manager Check <code>examples/kops</code> for a full kops configuration. (TODO)</p>
 
                                 
                                 </section>
@@ -305,7 +358,7 @@
     <script>
         var gitbook = gitbook || [];
         gitbook.push(function() {
-            gitbook.page.hasChanged({"page":{"title":"Getting Started","level":"1.2.2","depth":2,"next":{"title":"Service LoadBalancers","level":"1.2.3","depth":2,"path":"service_loadbalancers.md","ref":"service_loadbalancers.md","articles":[]},"previous":{"title":"Prerequisites","level":"1.2.1","depth":2,"path":"prerequisites.md","ref":"prerequisites.md","articles":[]},"dir":"ltr"},"config":{"gitbook":"*","theme":"default","variables":{},"plugins":[],"pluginsConfig":{"highlight":{},"search":{},"lunr":{"maxIndexSize":1000000,"ignoreSpecialCharacters":false},"sharing":{"facebook":true,"twitter":true,"google":false,"weibo":false,"instapaper":false,"vk":false,"all":["facebook","google","twitter","weibo","instapaper"]},"fontsettings":{"theme":"white","family":"sans","size":2},"theme-default":{"styles":{"website":"styles/website.css","pdf":"styles/pdf.css","epub":"styles/epub.css","mobi":"styles/mobi.css","ebook":"styles/ebook.css","print":"styles/print.css"},"showLevel":false}},"structure":{"langs":"LANGS.md","readme":"README.md","glossary":"GLOSSARY.md","summary":"SUMMARY.md"},"pdf":{"pageNumbers":true,"fontSize":12,"fontFamily":"Arial","paperSize":"a4","chapterMark":"pagebreak","pageBreaksBefore":"/","margin":{"right":62,"left":62,"top":56,"bottom":56}},"styles":{"website":"styles/website.css","pdf":"styles/pdf.css","epub":"styles/epub.css","mobi":"styles/mobi.css","ebook":"styles/ebook.css","print":"styles/print.css"}},"file":{"path":"getting_started.md","mtime":"2020-12-04T09:37:58.515Z","type":"markdown"},"gitbook":{"version":"3.2.3","time":"2020-12-04T09:44:58.710Z"},"basePath":".","book":{"language":""}});
+            gitbook.page.hasChanged({"page":{"title":"Getting Started","level":"1.2.2","depth":2,"next":{"title":"Service LoadBalancers","level":"1.2.3","depth":2,"path":"service_loadbalancers.md","ref":"service_loadbalancers.md","articles":[]},"previous":{"title":"Prerequisites","level":"1.2.1","depth":2,"path":"prerequisites.md","ref":"prerequisites.md","articles":[]},"dir":"ltr"},"config":{"gitbook":"*","theme":"default","variables":{},"plugins":[],"pluginsConfig":{"highlight":{},"search":{},"lunr":{"maxIndexSize":1000000,"ignoreSpecialCharacters":false},"sharing":{"facebook":true,"twitter":true,"google":false,"weibo":false,"instapaper":false,"vk":false,"all":["facebook","google","twitter","weibo","instapaper"]},"fontsettings":{"theme":"white","family":"sans","size":2},"theme-default":{"styles":{"website":"styles/website.css","pdf":"styles/pdf.css","epub":"styles/epub.css","mobi":"styles/mobi.css","ebook":"styles/ebook.css","print":"styles/print.css"},"showLevel":false}},"structure":{"langs":"LANGS.md","readme":"README.md","glossary":"GLOSSARY.md","summary":"SUMMARY.md"},"pdf":{"pageNumbers":true,"fontSize":12,"fontFamily":"Arial","paperSize":"a4","chapterMark":"pagebreak","pageBreaksBefore":"/","margin":{"right":62,"left":62,"top":56,"bottom":56}},"styles":{"website":"styles/website.css","pdf":"styles/pdf.css","epub":"styles/epub.css","mobi":"styles/mobi.css","ebook":"styles/ebook.css","print":"styles/print.css"}},"file":{"path":"getting_started.md","mtime":"2020-12-04T18:42:26.129Z","type":"markdown"},"gitbook":{"version":"3.2.3","time":"2020-12-04T18:43:37.776Z"},"basePath":".","book":{"language":""}});
         });
     </script>
 </div>
