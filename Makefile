@@ -93,3 +93,11 @@ vet:
 .PHONY: update-fmt
 update-fmt:
 	./hack/update-gofmt.sh
+
+.PHONY: docs
+docs:
+	./hack/build-gitbooks.sh
+
+.PHONY: publish-docs
+publish-docs:
+	./hack/publish-docs.sh
