@@ -32,20 +32,18 @@ ARG DISTROLESS_IMAGE=gcr.io/distroless/static@sha256:c6d5981545ce1406d33e61434c6
 # libc, muscl, etc.
 FROM ${GOLANG_IMAGE} as builder
 
-# This build arg is the version to embed in the CPI binary
-ARG VERSION=unknown
-
-# This build arg controls the GOPROXY setting
-ARG GOPROXY
+ARG VERSION
+ARG GOPROXY=https://goproxy.io,direct
+ARG GOOS=linux
 
 WORKDIR /build
 COPY go.mod go.sum ./
 COPY cmd/ cmd/
 COPY pkg/ pkg/
-COPY Makefile ./Makefile
-ENV CGO_ENABLED=0
-ENV GOPROXY ${GOPROXY:-https://proxy.golang.org}
-RUN make aws-cloud-controller-manager
+RUN GO111MODULE=on CGO_ENABLED=0 GOOS=${GOOS} GOPROXY=${GOPROXY} go build \
+		-ldflags="-w -s -X 'main.version=${VERSION}'" \
+		-o=aws-cloud-controller-manager \
+		cmd/aws-cloud-controller-manager/main.go
 
 ################################################################################
 ##                               MAIN STAGE                                   ##
