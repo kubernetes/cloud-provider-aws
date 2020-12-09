@@ -7,8 +7,8 @@ steps:
   - name: gcr.io/cloud-builders/docker
     args:
     - build
-    - --tag=gcr.io/$PROJECT_ID/k8s-staging-provider-aws:$_GIT_TAG
-    - --tag=gcr.io/$PROJECT_ID/k8s-staging-provider-aws:latest
-    - --build-arg=VERSION=$_GIT_TAG \
+    - --tag=gcr.io/$PROJECT_ID/cloud-controller-manager:$_GIT_TAG
+    - --tag=gcr.io/$PROJECT_ID/cloud-controller-manager:latest
+    - --build-arg=VERSION=$_GIT_TAG
     - .
 timeout: 1200s
