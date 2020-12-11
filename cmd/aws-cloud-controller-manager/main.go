@@ -109,6 +109,11 @@ func main() {
 				}
 			}
 
+			cloudConfigFlag := cmd.Flags().Lookup("cloud-config")
+			if cloudConfigFlag.Value.String() == "" {
+				klog.Warning("empty cloud config file path")
+			}
+
 			cliflag.PrintFlags(cmd.Flags())
 
 			c, err := s.Config(KnownControllers(), app.ControllersDisabledByDefault.List())
@@ -118,7 +123,8 @@ func main() {
 			}
 
 			// initialize cloud provider with the cloud provider name and config file provided
-			cloud, err := cloudprovider.InitCloudProvider(cloudProvider, "")
+			cloudConfigFile := cloudConfigFlag.Value.String()
+			cloud, err := cloudprovider.InitCloudProvider(cloudProvider, cloudConfigFile)
 			if err != nil {
 				klog.Fatalf("Cloud provider could not be initialized: %v", err)
 			}
