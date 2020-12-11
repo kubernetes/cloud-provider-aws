@@ -109,11 +109,6 @@ func main() {
 				}
 			}
 
-			cloudConfigFlag := cmd.Flags().Lookup("cloud-config")
-			if cloudConfigFlag.Value.String() == "" {
-				klog.Warning("empty cloud config file path")
-			}
-
 			cliflag.PrintFlags(cmd.Flags())
 
 			c, err := s.Config(KnownControllers(), app.ControllersDisabledByDefault.List())
@@ -122,8 +117,9 @@ func main() {
 				os.Exit(1)
 			}
 
+			cloudConfigFile := c.ComponentConfig.KubeCloudShared.CloudProvider.CloudConfigFile
+
 			// initialize cloud provider with the cloud provider name and config file provided
-			cloudConfigFile := cloudConfigFlag.Value.String()
 			cloud, err := cloudprovider.InitCloudProvider(cloudProvider, cloudConfigFile)
 			if err != nil {
 				klog.Fatalf("Cloud provider could not be initialized: %v", err)
