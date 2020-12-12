@@ -117,8 +117,10 @@ func main() {
 				os.Exit(1)
 			}
 
+			cloudConfigFile := c.ComponentConfig.KubeCloudShared.CloudProvider.CloudConfigFile
+
 			// initialize cloud provider with the cloud provider name and config file provided
-			cloud, err := cloudprovider.InitCloudProvider(cloudProvider, "")
+			cloud, err := cloudprovider.InitCloudProvider(cloudProvider, cloudConfigFile)
 			if err != nil {
 				klog.Fatalf("Cloud provider could not be initialized: %v", err)
 			}
