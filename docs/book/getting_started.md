@@ -2,6 +2,8 @@
 
 ## AWS Cloud Controller Manager
 
+Before you start, make sure you go through the [prerequisites](../prerequisites.md).
+
 In order to launch a cluster running the aws-cloud-controller-manager, you can run the appropriate container image release from this repository on an existing cluster, or you can use a deployment tool that has support for deploying it, like kops.
 
 ## Running on an Existing Cluster
