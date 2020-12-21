@@ -2,6 +2,8 @@
 
 ## AWS Cloud Controller Manager
 
+Before you start, make sure you go through the [prerequisites](../prerequisites.md).
+
 In order to launch a cluster running the aws-cloud-controller-manager, you can run the appropriate container image release from this repository on an existing cluster, or you can use a deployment tool that has support for deploying it, like kops.
 
 ## Running on an Existing Cluster
@@ -25,9 +27,6 @@ Follow these steps when upgrading an existing cluster by launching the aws-cloud
 | `--cloud-provider=external` | kubelet | Disables the cloud provider in the Kubelet. |
 | <code>--cloud-provider=[aws&#124;aws/v2]</code> | aws-cloud-controller-manager | Optional.  Selects the legacy cloud-provider or the v2 cloud-provider in the aws-cloud-controller-manager. WARNING: the v2 cloud-provider is in a pre-alpha state. |
 | `--external-cloud-volume-plugin=aws` | kube-controller-manager | Tells the Kube Controller Manager to run the volume loops that have cloud provider code in them.  This is required for volumes to work if you are not using CSI with migration enabled. |
-
-
-needs to be passed to kubelet, kube-apiserver, and kube-controller-manager. Optionally, you can also pass `--cloud-provider=aws` flag to `aws-cloud-controller-manager`.
 
 ## Using Kops
 
