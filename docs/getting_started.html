@@ -57,7 +57,7 @@
     <link rel="shortcut icon" href="gitbook/images/favicon.ico" type="image/x-icon">
 
     
-    <link rel="next" href="service_loadbalancers.html" />
+    <link rel="next" href="development.html" />
     
     
     <link rel="prev" href="prerequisites.html" />
@@ -142,46 +142,7 @@
             
         </li>
     
-        <li class="chapter " data-level="1.2.3" data-path="service_loadbalancers.html">
-            
-                <a href="service_loadbalancers.html">
-            
-                    
-                    Service LoadBalancers
-            
-                </a>
-            
-
-            
-        </li>
-    
-        <li class="chapter " data-level="1.2.4" data-path="known_limitations.html">
-            
-                <a href="known_limitations.html">
-            
-                    
-                    Known Limitations
-            
-                </a>
-            
-
-            
-        </li>
-    
-        <li class="chapter " data-level="1.2.5" data-path="iam_policy.html">
-            
-                <a href="iam_policy.html">
-            
-                    
-                    IAM Policy
-            
-                </a>
-            
-
-            
-        </li>
-    
-        <li class="chapter " data-level="1.2.6" data-path="development.html">
+        <li class="chapter " data-level="1.2.3" data-path="development.html">
             
                 <a href="development.html">
             
@@ -246,6 +207,7 @@
                                 
                                 <h1 id="getting-started">Getting Started</h1>
 <h2 id="aws-cloud-controller-manager">AWS Cloud Controller Manager</h2>
+<p>Before you start, make sure you go through the <a href="../prerequisites.md">prerequisites</a>.</p>
 <p>In order to launch a cluster running the aws-cloud-controller-manager, you can run the appropriate container image release from this repository on an existing cluster, or you can use a deployment tool that has support for deploying it, like kops.</p>
 <h2 id="running-on-an-existing-cluster">Running on an Existing Cluster</h2>
 <p>Follow these steps when upgrading an existing cluster by launching the aws-cloud-controller-manager as a pod:</p>
@@ -296,7 +258,6 @@
 </tr>
 </tbody>
 </table>
-<p>needs to be passed to kubelet, kube-apiserver, and kube-controller-manager. Optionally, you can also pass <code>--cloud-provider=aws</code> flag to <code>aws-cloud-controller-manager</code>.</p>
 <h2 id="using-kops">Using Kops</h2>
 <p>In order to create a cluster using kops, the following flags should be set in your cluster.yaml in order to pass the correct flags to the control plane components.</p>
 <pre><code>apiVersion: kops.k8s.io/v1alpha2
@@ -346,7 +307,7 @@ spec:
                 </a>
                 
                 
-                <a href="service_loadbalancers.html" class="navigation navigation-next " aria-label="Next page: Service LoadBalancers">
+                <a href="development.html" class="navigation navigation-next " aria-label="Next page: Development">
                     <i class="fa fa-angle-right"></i>
                 </a>
                 
@@ -357,7 +318,7 @@ spec:
     <script>
         var gitbook = gitbook || [];
         gitbook.push(function() {
-            gitbook.page.hasChanged({"page":{"title":"Getting Started","level":"1.2.2","depth":2,"next":{"title":"Service LoadBalancers","level":"1.2.3","depth":2,"path":"service_loadbalancers.md","ref":"service_loadbalancers.md","articles":[]},"previous":{"title":"Prerequisites","level":"1.2.1","depth":2,"path":"prerequisites.md","ref":"prerequisites.md","articles":[]},"dir":"ltr"},"config":{"gitbook":"*","theme":"default","variables":{},"plugins":[],"pluginsConfig":{"highlight":{},"search":{},"lunr":{"maxIndexSize":1000000,"ignoreSpecialCharacters":false},"sharing":{"facebook":true,"twitter":true,"google":false,"weibo":false,"instapaper":false,"vk":false,"all":["facebook","google","twitter","weibo","instapaper"]},"fontsettings":{"theme":"white","family":"sans","size":2},"theme-default":{"styles":{"website":"styles/website.css","pdf":"styles/pdf.css","epub":"styles/epub.css","mobi":"styles/mobi.css","ebook":"styles/ebook.css","print":"styles/print.css"},"showLevel":false}},"structure":{"langs":"LANGS.md","readme":"README.md","glossary":"GLOSSARY.md","summary":"SUMMARY.md"},"pdf":{"pageNumbers":true,"fontSize":12,"fontFamily":"Arial","paperSize":"a4","chapterMark":"pagebreak","pageBreaksBefore":"/","margin":{"right":62,"left":62,"top":56,"bottom":56}},"styles":{"website":"styles/website.css","pdf":"styles/pdf.css","epub":"styles/epub.css","mobi":"styles/mobi.css","ebook":"styles/ebook.css","print":"styles/print.css"}},"file":{"path":"getting_started.md","mtime":"2020-12-04T18:46:34.750Z","type":"markdown"},"gitbook":{"version":"3.2.3","time":"2020-12-04T18:47:25.930Z"},"basePath":".","book":{"language":""}});
+            gitbook.page.hasChanged({"page":{"title":"Getting Started","level":"1.2.2","depth":2,"next":{"title":"Development","level":"1.2.3","depth":2,"path":"development.md","ref":"development.md","articles":[]},"previous":{"title":"Prerequisites","level":"1.2.1","depth":2,"path":"prerequisites.md","ref":"prerequisites.md","articles":[]},"dir":"ltr"},"config":{"gitbook":"*","theme":"default","variables":{},"plugins":[],"pluginsConfig":{"highlight":{},"search":{},"lunr":{"maxIndexSize":1000000,"ignoreSpecialCharacters":false},"sharing":{"facebook":true,"twitter":true,"google":false,"weibo":false,"instapaper":false,"vk":false,"all":["facebook","google","twitter","weibo","instapaper"]},"fontsettings":{"theme":"white","family":"sans","size":2},"theme-default":{"styles":{"website":"styles/website.css","pdf":"styles/pdf.css","epub":"styles/epub.css","mobi":"styles/mobi.css","ebook":"styles/ebook.css","print":"styles/print.css"},"showLevel":false}},"structure":{"langs":"LANGS.md","readme":"README.md","glossary":"GLOSSARY.md","summary":"SUMMARY.md"},"pdf":{"pageNumbers":true,"fontSize":12,"fontFamily":"Arial","paperSize":"a4","chapterMark":"pagebreak","pageBreaksBefore":"/","margin":{"right":62,"left":62,"top":56,"bottom":56}},"styles":{"website":"styles/website.css","pdf":"styles/pdf.css","epub":"styles/epub.css","mobi":"styles/mobi.css","ebook":"styles/ebook.css","print":"styles/print.css"}},"file":{"path":"getting_started.md","mtime":"2020-12-21T20:46:44.763Z","type":"markdown"},"gitbook":{"version":"3.2.3","time":"2020-12-21T21:44:50.287Z"},"basePath":".","book":{"language":""}});
         });
     </script>
 </div>
