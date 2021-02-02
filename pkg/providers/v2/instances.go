@@ -127,6 +127,8 @@ func (i *instances) InstanceMetadata(ctx context.Context, node *v1.Node) (*cloud
 		ProviderID:    providerID,
 		InstanceType:  aws.StringValue(ec2Instance.InstanceType),
 		NodeAddresses: nodeAddresses,
+		Zone:          i.availabilityZone,
+		Region:        i.region,
 	}
 
 	return metadata, nil
