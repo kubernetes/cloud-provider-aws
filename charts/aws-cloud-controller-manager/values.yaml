@@ -1,0 +1,116 @@
+namespace: "kube-system"
+
+extraArgs: {}
+
+
+image:
+    repository: gcr.io/k8s-staging-provider-aws/cloud-controller-manager
+    tag:  v1.19.0-alpha.1
+
+# nameOverride -- String to partially override `aws-cloud-controller-manager.fullname`
+nameOverride: "aws-cloud-controller-manager"
+
+# nodeSelector -- Node labels for pod assignment. Ref: https://kubernetes.io/docs/user-guide/node-selection/.
+
+nodeSelector:
+  node-role.kubernetes.io/master: ""
+
+clusterRoleRules:
+- apiGroups:
+  - ""
+  resources:
+  - events
+  verbs:
+  - create
+  - patch
+  - update
+- apiGroups:
+  - ""
+  resources:
+  - nodes
+  verbs:
+  - '*'
+- apiGroups:
+  - ""
+  resources:
+  - nodes/status
+  verbs:
+  - patch
+- apiGroups:
+  - ""
+  resources:
+  - services
+  verbs:
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - ""
+  resources:
+  - services/status
+  verbs:
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - ""
+  resources:
+  - serviceaccounts
+  verbs:
+  - create
+- apiGroups:
+  - ""
+  resources:
+  - persistentvolumes
+  verbs:
+  - get
+  - list
+  - update
+  - watch
+- apiGroups:
+  - ""
+  resources:
+  - endpoints
+  verbs:
+  - create
+  - get
+  - list
+  - watch
+  - update
+- apiGroups:
+  - coordination.k8s.io
+  resources:
+  - leases
+  verbs:
+  - create
+  - get
+  - list
+  - watch
+  - update
+
+# resources -- Pod resource requests and limits.
+resources:
+  # limits:
+  #   cpu: 100m
+  #   memory: 300Mi
+  requests:
+    cpu: 200m
+  #   memory: 300Mi
+
+# tolerations -- List of node taints to tolerate (requires Kubernetes >= 1.6).
+tolerations:
+- key: node.cloudprovider.kubernetes.io/uninitialized
+  value: "true"
+  effect: NoSchedule
+- key: node-role.kubernetes.io/master
+  effect: NoSchedule
+
+clusterRoleName : system:cloud-controller-manager
+
+roleBindingName: cloud-controller-manager:apiserver-authentication-reader
+
+serviceAccountName: cloud-controller-manager
+
+roleName: extension-apiserver-authentication-reader
