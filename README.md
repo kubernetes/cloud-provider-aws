@@ -41,5 +41,25 @@ The AWS cloud provider provides the interface between a Kubernetes cluster and A
     <strong><a href="https://kubernetes.github.io/cloud-provider-aws/">See the online documentation here</a></strong>
 </p>
 
-## Note
-* All the EBS volume plugin related logic will be in maintenance mode. For new feature request or bug fixes, please create issue or pull request in [EBS CSI Driver](https://github.com/kubernetes-sigs/aws-ebs-csi-driver)
+## Compatibility with Kubernetes
+
+The AWS cloud provider is released with a specific semantic version that correlates with the Kubernetes upstream version. The major and minor versions are equivalent to the compatible upstream release, and the patch version is reserved to denote subsequent releases of the cloud provider code for that Kubernetes release.  Currently, for a given cloud provider release version, compatibility is ONLY guaranteed between that release and the corresponding Kubernetes version, meaning you need to upgrade the cloud provider components every time you upgrade Kubernetes, just like you would do for the kube controller manager.  See the [external cloud provider versioning KEP](https://github.com/kubernetes/enhancements/tree/master/keps/sig-cloud-provider/1771-versioning-policy-for-external-cloud-providers) for more details.
+
+| Kubernetes Version          | Latest AWS Cloud Provider Release Version     |
+|-----------------------------|-----------------------------------------------|
+| v1.19                       | v1.19.0-alpha.1                               |
+| v1.18                       | v1.18.0-alpha.1                               |
+
+## Migration from In-Tree
+The in-tree cloud provider code has mostly stopped accepting new features, so future development for the AWS cloud provider should continue here.  The in-tree plugins will be removed in a future release of Kubernetes.
+
+## Components
+
+### AWS Cloud Controller Manager
+The AWS Cloud Controller Manager is the controller that is primarily responsible for creating and updating AWS loadbalancers (classic and NLB) and node lifecycle management.  The controller loops that are migrating out of the kube controller manager include the route controller, the service controller, the node controller, and the node lifecycle controller.  See the [cloud controller manager KEP](https://github.com/kubernetes/enhancements/blob/master/keps/sig-cloud-provider/20180530-cloud-controller-manager.md) for more details.
+
+### AWS Credential Provider
+The AWS credential provider is a binary that is executed by kubelet to provide credentials for images in ECR.  Refer to the [credential provider extraction KEP](https://github.com/kubernetes/enhancements/tree/master/keps/sig-cloud-provider/2133-out-of-tree-credential-provider) for more details.
+
+### Volume Plugins
+All the EBS volume plugin related logic will be in maintenance mode. For new feature request or bug fixes, please create issue or pull request in [EBS CSI Driver](https://github.com/kubernetes-sigs/aws-ebs-csi-driver)
