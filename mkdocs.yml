@@ -7,5 +7,6 @@ theme: material
 nav:
   - index.md
   - prerequisites.md
+  - credential_provider.md
   - getting_started.md
   - development.md
