@@ -1,7 +1,13 @@
 # Netlify build
 [build]
-    command = "./hack/build-gitbooks.sh"
-    publish = "docs/book/_book"
+    publish = "site"
+    command = """
+        pip install mkdocs && pip install mkdocs-material
+        mkdocs build -d site
+    """
+
+[build.environment]
+    PYTHON_VERSION = "3.7"
 
 # Netlify redirects
 [[redirects]]
