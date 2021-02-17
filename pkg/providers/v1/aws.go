@@ -281,6 +281,12 @@ const (
 	// Number of node names that can be added to a filter. The AWS limit is 200
 	// but we are using a lower limit on purpose
 	filterNodeLimit = 150
+
+	// fargateNodeNamePrefix string is added to awsInstance nodeName and providerID of Fargate nodes.
+	fargateNodeNamePrefix = "fargate-"
+
+	// privateDNSNamePrefix is the prefix added to ENI Private DNS Name.
+	privateDNSNamePrefix = "ip-"
 )
 
 const (
@@ -365,6 +371,8 @@ type EC2 interface {
 	ModifyInstanceAttribute(request *ec2.ModifyInstanceAttributeInput) (*ec2.ModifyInstanceAttributeOutput, error)
 
 	DescribeVpcs(input *ec2.DescribeVpcsInput) (*ec2.DescribeVpcsOutput, error)
+
+	DescribeNetworkInterfaces(input *ec2.DescribeNetworkInterfacesInput) (*ec2.DescribeNetworkInterfacesOutput, error)
 }
 
 // ELB is a simple pass-through of AWS' ELB client interface, which allows for testing
@@ -969,6 +977,15 @@ func (s *awsSdkEC2) DescribeInstances(request *ec2.DescribeInstancesInput) ([]*e
 	timeTaken := time.Since(requestTime).Seconds()
 	recordAWSMetric("describe_instance", timeTaken, nil)
 	return results, nil
+}
+
+// DescribeNetworkInterfaces describes network interface provided in the input.
+func (s *awsSdkEC2) DescribeNetworkInterfaces(input *ec2.DescribeNetworkInterfacesInput) (*ec2.DescribeNetworkInterfacesOutput, error) {
+	requestTime := time.Now()
+	resp, err := s.ec2.DescribeNetworkInterfaces(input)
+	timeTaken := time.Since(requestTime).Seconds()
+	recordAWSMetric("describe_network_interfaces", timeTaken, err)
+	return resp, err
 }
 
 // Implements EC2.DescribeSecurityGroups
@@ -1616,6 +1633,16 @@ func extractNodeAddresses(instance *ec2.Instance) ([]v1.NodeAddress, error) {
 	return addresses, nil
 }
 
+// getNodeAddressesForFargateNode generates list of Node addresses for Fargate node.
+func getNodeAddressesForFargateNode(privateDNSName, privateIP string) []v1.NodeAddress {
+	addresses := []v1.NodeAddress{}
+	addresses = append(addresses, v1.NodeAddress{Type: v1.NodeInternalIP, Address: privateIP})
+	if privateDNSName != "" {
+		addresses = append(addresses, v1.NodeAddress{Type: v1.NodeInternalDNS, Address: privateDNSName})
+	}
+	return addresses
+}
+
 // NodeAddressesByProviderID returns the node addresses of an instances with the specified unique providerID
 // This method will not be called from the node that is requesting this ID. i.e. metadata service
 // and other local methods cannot be used here
@@ -1623,6 +1650,14 @@ func (c *Cloud) NodeAddressesByProviderID(ctx context.Context, providerID string
 	instanceID, err := KubernetesInstanceID(providerID).MapToAWSInstanceID()
 	if err != nil {
 		return nil, err
+	}
+
+	if isFargateNode(string(instanceID)) {
+		eni, err := c.describeNetworkInterfaces(string(instanceID))
+		if eni == nil || err != nil {
+			return nil, err
+		}
+		return getNodeAddressesForFargateNode(aws.StringValue(eni.PrivateDnsName), aws.StringValue(eni.PrivateIpAddress)), nil
 	}
 
 	instance, err := describeInstance(c.ec2, instanceID)
@@ -1639,6 +1674,11 @@ func (c *Cloud) InstanceExistsByProviderID(ctx context.Context, providerID strin
 	instanceID, err := KubernetesInstanceID(providerID).MapToAWSInstanceID()
 	if err != nil {
 		return false, err
+	}
+
+	if isFargateNode(string(instanceID)) {
+		eni, err := c.describeNetworkInterfaces(string(instanceID))
+		return eni != nil, err
 	}
 
 	request := &ec2.DescribeInstancesInput{
@@ -1674,6 +1714,11 @@ func (c *Cloud) InstanceShutdownByProviderID(ctx context.Context, providerID str
 	instanceID, err := KubernetesInstanceID(providerID).MapToAWSInstanceID()
 	if err != nil {
 		return false, err
+	}
+
+	if isFargateNode(string(instanceID)) {
+		eni, err := c.describeNetworkInterfaces(string(instanceID))
+		return eni != nil, err
 	}
 
 	request := &ec2.DescribeInstancesInput{
@@ -1730,6 +1775,10 @@ func (c *Cloud) InstanceTypeByProviderID(ctx context.Context, providerID string)
 	instanceID, err := KubernetesInstanceID(providerID).MapToAWSInstanceID()
 	if err != nil {
 		return "", err
+	}
+
+	if isFargateNode(string(instanceID)) {
+		return "", nil
 	}
 
 	instance, err := describeInstance(c.ec2, instanceID)
@@ -1836,6 +1885,13 @@ func (c *Cloud) GetZoneByProviderID(ctx context.Context, providerID string) (clo
 	if err != nil {
 		return cloudprovider.Zone{}, err
 	}
+
+	if isFargateNode(string(instanceID)) {
+		return cloudprovider.Zone{
+			Region: c.region,
+		}, nil
+	}
+
 	instance, err := c.getInstanceByID(string(instanceID))
 	if err != nil {
 		return cloudprovider.Zone{}, err
@@ -4981,6 +5037,11 @@ func (c *Cloud) getFullInstance(nodeName types.NodeName) (*awsInstance, *ec2.Ins
 	return awsInstance, instance, err
 }
 
+// isFargateNode returns true if given node runs on Fargate compute
+func isFargateNode(nodeName string) bool {
+	return strings.HasPrefix(nodeName, fargateNodeNamePrefix)
+}
+
 func (c *Cloud) nodeNameToProviderID(nodeName types.NodeName) (InstanceID, error) {
 	if len(nodeName) == 0 {
 		return "", fmt.Errorf("no nodeName provided")
@@ -5033,4 +5094,37 @@ func getInitialAttachDetachDelay(status string) time.Duration {
 		return volumeDetachmentStatusInitialDelay
 	}
 	return volumeAttachmentStatusInitialDelay
+}
+
+// describeNetworkInterfaces returns network interface information for the given DNS name.
+func (c *Cloud) describeNetworkInterfaces(nodeName string) (*ec2.NetworkInterface, error) {
+	eniEndpoint := strings.TrimPrefix(nodeName, fargateNodeNamePrefix)
+
+	filters := []*ec2.Filter{
+		newEc2Filter("attachment.status", "attached"),
+		newEc2Filter("vpc-id", c.vpcID),
+	}
+
+	if strings.HasPrefix(eniEndpoint, privateDNSNamePrefix) {
+		filters = append(filters, newEc2Filter("private-dns-name", eniEndpoint))
+	} else {
+		filters = append(filters, newEc2Filter("private-ip-address", eniEndpoint))
+	}
+
+	request := &ec2.DescribeNetworkInterfacesInput{
+		Filters: filters,
+	}
+
+	eni, err := c.ec2.DescribeNetworkInterfaces(request)
+	if err != nil {
+		return nil, err
+	}
+	if len(eni.NetworkInterfaces) == 0 {
+		return nil, nil
+	}
+	if len(eni.NetworkInterfaces) != 1 {
+		// This should not be possible - ids should be unique
+		return nil, fmt.Errorf("multiple interfaces found with same id %q", eni.NetworkInterfaces)
+	}
+	return eni.NetworkInterfaces[0], nil
 }

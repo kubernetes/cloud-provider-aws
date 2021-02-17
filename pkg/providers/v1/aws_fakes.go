@@ -684,3 +684,32 @@ func contains(haystack []*string, needle string) bool {
 	}
 	return false
 }
+
+// DescribeNetworkInterfaces returns list of ENIs for testing
+func (ec2i *FakeEC2Impl) DescribeNetworkInterfaces(input *ec2.DescribeNetworkInterfacesInput) (*ec2.DescribeNetworkInterfacesOutput, error) {
+	for _, filter := range input.Filters {
+		if *filter.Name == "private-dns-name" {
+			if strings.HasPrefix(*filter.Values[0], fargateNodeNamePrefix) {
+				panic("Invalid privateDNSName specified for DescribeNetworkInterface call")
+			}
+		}
+	}
+	networkInterface := []*ec2.NetworkInterface{
+		{
+			PrivateIpAddress: aws.String("1.2.3.4"),
+			AvailabilityZone: aws.String("us-west-2b"),
+			VpcId:            aws.String("vpc-123456"),
+			SubnetId:         aws.String("subnet-123456"),
+		},
+	}
+	for _, filter := range input.Filters {
+		// if filter contains privateDnsName then add privateDNSName to output
+		if *filter.Name == "private-dns-name" {
+			networkInterface[0].PrivateDnsName = aws.String("ip-1-2-3-4.compute.amazon.com")
+		}
+	}
+
+	return &ec2.DescribeNetworkInterfacesOutput{
+		NetworkInterfaces: networkInterface,
+	}, nil
+}

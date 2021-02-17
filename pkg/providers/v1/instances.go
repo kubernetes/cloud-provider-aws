@@ -73,17 +73,13 @@ func (name KubernetesInstanceID) MapToAWSInstanceID() (InstanceID, error) {
 
 	awsID := ""
 	tokens := strings.Split(strings.Trim(url.Path, "/"), "/")
-	if len(tokens) == 1 {
-		// instanceId
-		awsID = tokens[0]
-	} else if len(tokens) == 2 {
-		// az/instanceId
-		awsID = tokens[1]
+	if len(tokens) > 0 {
+		awsID = tokens[len(tokens)-1]
 	}
 
 	// We sanity check the resulting volume; the two known formats are
 	// i-12345678 and i-12345678abcdef01
-	if awsID == "" || !awsInstanceRegMatch.MatchString(awsID) {
+	if awsID == "" || !(awsInstanceRegMatch.MatchString(awsID) || isFargateNode(awsID)) {
 		return "", fmt.Errorf("Invalid format for AWS instance (%s)", name)
 	}
 
