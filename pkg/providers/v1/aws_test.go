@@ -3516,3 +3516,85 @@ func Test_parseStringSliceAnnotation(t *testing.T) {
 		})
 	}
 }
+
+func TestNodeAddressesForFargate(t *testing.T) {
+	awsServices := newMockedFakeAWSServices(TestClusterID)
+	c, _ := newAWSCloud(CloudConfig{}, awsServices)
+
+	nodeAddresses, _ := c.NodeAddressesByProviderID(context.TODO(), "aws:///us-west-2c/1abc-2def/fargate-ip-192.168.164.88")
+	verifyNodeAddressesForFargate(t, true, nodeAddresses)
+}
+
+func TestNodeAddressesForFargatePrivateIP(t *testing.T) {
+	awsServices := newMockedFakeAWSServices(TestClusterID)
+	c, _ := newAWSCloud(CloudConfig{}, awsServices)
+
+	nodeAddresses, _ := c.NodeAddressesByProviderID(context.TODO(), "aws:///us-west-2c/1abc-2def/fargate-192.168.164.88")
+	verifyNodeAddressesForFargate(t, false, nodeAddresses)
+}
+
+func verifyNodeAddressesForFargate(t *testing.T, verifyPublicIP bool, nodeAddresses []v1.NodeAddress) {
+	if verifyPublicIP {
+		assert.Equal(t, 2, len(nodeAddresses))
+		assert.Equal(t, "ip-1-2-3-4.compute.amazon.com", nodeAddresses[1].Address)
+		assert.Equal(t, v1.NodeInternalDNS, nodeAddresses[1].Type)
+	} else {
+		assert.Equal(t, 1, len(nodeAddresses))
+	}
+	assert.Equal(t, "1.2.3.4", nodeAddresses[0].Address)
+	assert.Equal(t, v1.NodeInternalIP, nodeAddresses[0].Type)
+}
+
+func TestInstanceExistsByProviderIDForFargate(t *testing.T) {
+	awsServices := newMockedFakeAWSServices(TestClusterID)
+	c, _ := newAWSCloud(CloudConfig{}, awsServices)
+
+	instanceExist, err := c.InstanceExistsByProviderID(context.TODO(), "aws:///us-west-2c/1abc-2def/fargate-192.168.164.88")
+	assert.Nil(t, err)
+	assert.True(t, instanceExist)
+}
+
+func TestInstanceNotExistsByProviderIDForFargate(t *testing.T) {
+	awsServices := newMockedFakeAWSServices(TestClusterID)
+	c, _ := newAWSCloud(CloudConfig{}, awsServices)
+
+	instanceExist, err := c.InstanceExistsByProviderID(context.TODO(), "aws:///us-west-2c/1abc-2def/fargate-not-found")
+	assert.Nil(t, err)
+	assert.False(t, instanceExist)
+}
+
+func TestInstanceShutdownByProviderIDForFargate(t *testing.T) {
+	awsServices := newMockedFakeAWSServices(TestClusterID)
+	c, _ := newAWSCloud(CloudConfig{}, awsServices)
+
+	instanceExist, err := c.InstanceShutdownByProviderID(context.TODO(), "aws:///us-west-2c/1abc-2def/fargate-192.168.164.88")
+	assert.Nil(t, err)
+	assert.True(t, instanceExist)
+}
+
+func TestInstanceShutdownNotExistsByProviderIDForFargate(t *testing.T) {
+	awsServices := newMockedFakeAWSServices(TestClusterID)
+	c, _ := newAWSCloud(CloudConfig{}, awsServices)
+
+	instanceExist, err := c.InstanceShutdownByProviderID(context.TODO(), "aws:///us-west-2c/1abc-2def/fargate-not-found")
+	assert.Nil(t, err)
+	assert.False(t, instanceExist)
+}
+
+func TestInstanceTypeByProviderIDForFargate(t *testing.T) {
+	awsServices := newMockedFakeAWSServices(TestClusterID)
+	c, _ := newAWSCloud(CloudConfig{}, awsServices)
+
+	instanceType, err := c.InstanceTypeByProviderID(context.TODO(), "aws:///us-west-2c/1abc-2def/fargate-not-found")
+	assert.Nil(t, err)
+	assert.Equal(t, "", instanceType)
+}
+
+func TestGetZoneByProviderIDForFargate(t *testing.T) {
+	awsServices := newMockedFakeAWSServices(TestClusterID)
+	c, _ := newAWSCloud(CloudConfig{}, awsServices)
+
+	zoneDetails, err := c.GetZoneByProviderID(context.TODO(), "aws:///us-west-2c/1abc-2def/fargate-192.168.164.88")
+	assert.Nil(t, err)
+	assert.Equal(t, "us-west-2c", zoneDetails.FailureDomain)
+}
