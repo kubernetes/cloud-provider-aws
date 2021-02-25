@@ -25,6 +25,6 @@ jobs:
             Example manifests to deploy the external cloud provider can be found [here](https://github.com/kubernetes/cloud-provider-aws/tree/master/manifests).
 
             ## CHANGELOG
-            See [CHANGELOG](https://github.com/kubernetes/cloud-provider-aws/blob/master/CHANGELOG.md) for full list of changes.
+            See [CHANGELOG](https://github.com/kubernetes/cloud-provider-aws/blob/master/docs/CHANGELOG.md) for full list of changes.
           draft: false
           prerelease: false
