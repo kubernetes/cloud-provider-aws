@@ -3,10 +3,19 @@ docs_dir: ./docs
 site_description: Documentation for AWS Cloud Provider for Kubernetes
 repo_name: kubernetes/cloud-provider-aws/
 repo_url: https://github.com/kubernetes/cloud-provider-aws/
-theme: material
 nav:
-  - README.md
-  - prerequisites.md
-  - credential_provider.md
-  - getting_started.md
-  - development.md
+  - 'Home': README.md
+  - 'User Guide':
+    - prerequisites.md
+    - credential_provider.md
+    - getting_started.md
+  - 'Development':
+    - 'Running the Cloud Provider': development.md
+    - 'Release Process': RELEASE.md
+  - Changelog: CHANGELOG.md
+
+theme:
+  name: material
+  features:
+    - navigation.tabs
+    - navigation.sections
