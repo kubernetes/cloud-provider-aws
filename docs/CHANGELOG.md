@@ -1,4 +1,4 @@
-## v1.20.0-alpha.1
+## v1.20.0-alpha.0
 * Add release github workflow ([#178](https://github.com/kubernetes/cloud-provider-aws/pull/178), @ayberk)
 * Add script to generate changelog ([#179](https://github.com/kubernetes/cloud-provider-aws/pull/179), @ayberk)
 * Replace book homepage with README ([#176](https://github.com/kubernetes/cloud-provider-aws/pull/176), @ayberk)
