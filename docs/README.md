@@ -38,7 +38,7 @@
 The AWS cloud provider provides the interface between a Kubernetes cluster and AWS service APIs. This project allows a Kubernetes cluster to provision, monitor and remove AWS resources necessary for operation of the cluster.
 
 <p align="center">
-    <strong><a href="https://kubernetes.github.io/cloud-provider-aws/">See the online documentation here</a></strong>
+    <strong><a href="https://cloud-provider-aws.sigs.k8s.io/">See the online documentation here</a></strong>
 </p>
 
 ## Compatibility with Kubernetes
