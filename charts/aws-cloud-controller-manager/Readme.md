@@ -5,7 +5,7 @@ Installs the [aws cloud-controller-manager ](https://github.com/kubernetes/cloud
 ## Get Repo Info
 
 ```console
-helm repo add aws-cloud-controller-manager https://github.com/kubernetes/cloud-provider-aws
+helm repo add aws-cloud-controller-manager https://kubernetes.github.io/cloud-provider-aws
 helm repo update
 ```
 
@@ -15,7 +15,7 @@ _See [helm repo](https://helm.sh/docs/helm/helm_repo/) for command documentation
 
 ```console
 # Helm 3
-$ helm install [RELEASE_NAME] cloud-provider-aws/charts/aws-cloud-controller-manager [flags]
+$ helm upgrade --install aws-cloud-controller-manager aws-cloud-controller-manager/aws-cloud-controller-manager
 
 ```
 
