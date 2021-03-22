@@ -239,6 +239,9 @@ const volumeAttachmentStuck = "VolumeAttachmentStuck"
 // Indicates that a node has volumes stuck in attaching state and hence it is not fit for scheduling more pods
 const nodeWithImpairedVolumes = "NodeWithImpairedVolumes"
 
+// Allows the user to control the load balancer name from an annotation
+const ServiceAnnotationLoadBalancerName = "service.beta.kubernetes.io/aws-load-balancer-name"
+
 const (
 	// volumeAttachmentConsecutiveErrorLimit is the number of consecutive errors we will ignore when waiting for a volume to attach/detach
 	volumeAttachmentStatusConsecutiveErrorLimit = 10
@@ -4209,9 +4212,20 @@ func (c *Cloud) GetLoadBalancer(ctx context.Context, clusterName string, service
 	return status, true, nil
 }
 
+var inValidLBName = regexp.MustCompile(`[^a-zA-Z0-9-]`)
+
 // GetLoadBalancerName is an implementation of LoadBalancer.GetLoadBalancerName
 func (c *Cloud) GetLoadBalancerName(ctx context.Context, clusterName string, service *v1.Service) string {
-	// TODO: replace DefaultLoadBalancerName to generate more meaningful loadbalancer names.
+	if name, ok := service.Annotations[ServiceAnnotationLoadBalancerName]; ok {
+		if len(name) > 32 {
+			name = name[:32]
+			klog.Warningf("Load balancer name is over 32 characters, truncating: %s\n", name)
+		}
+		sanitised := inValidLBName.ReplaceAllString(name, "")
+		klog.Infof("Using sanitised load balancer name from annotations: %s\n", sanitised)
+		return sanitised
+
+	}
 	return cloudprovider.DefaultLoadBalancerName(service)
 }
 
