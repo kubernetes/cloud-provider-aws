@@ -5,6 +5,7 @@ approvers:
 - leakingtapan
 - andrewsykim
 - wongma7
+- ayberk
 reviewers:
 - justinsb
 - nckturner
@@ -12,6 +13,7 @@ reviewers:
 - leakingtapan
 - andrewsykim
 - wongma7
+- ayberk
 emeritus_approvers:
 - zmerlynn
 - gnufied
