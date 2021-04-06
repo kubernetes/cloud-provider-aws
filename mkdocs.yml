@@ -5,6 +5,8 @@ repo_name: kubernetes/cloud-provider-aws/
 repo_url: https://github.com/kubernetes/cloud-provider-aws/
 nav:
   - 'Home': README.md
+  - 'Components':
+    - 'Service Controller': service_controller.md
   - 'User Guide':
     - prerequisites.md
     - credential_provider.md
