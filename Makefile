@@ -75,3 +75,10 @@ docs:
 .PHONY: publish-docs
 publish-docs:
 	./hack/publish-docs.sh
+
+.PHONY: test-e2e
+test-e2e:
+	AWS_REGION=us-west-2 \
+	TEST_PATH=./tests/e2e/... \
+	GINKGO_FOCUS="\[cloud-provider-aws-e2e\]" \
+	./hack/e2e/run.sh
