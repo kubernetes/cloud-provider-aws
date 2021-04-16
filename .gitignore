@@ -6,3 +6,5 @@
 
 docs/book/_book/
 site/
+
+hack/e2e/cloud-provider-test-artifacts
