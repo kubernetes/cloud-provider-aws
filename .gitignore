@@ -1,5 +1,6 @@
 /aws-cloud-controller-manager
 /ecr-credential-provider
+/ecr-credential-provider.exe
 /cloudconfig
 
 .vscode/
