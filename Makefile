@@ -26,10 +26,16 @@ aws-cloud-controller-manager: $(SOURCES)
 		-o=aws-cloud-controller-manager \
 		cmd/aws-cloud-controller-manager/main.go
 
-ecr-credential-provider:  $(shell find ./cmd/ecr-credential-provider -name '*.go')
+ecr-credential-provider: $(shell find ./cmd/ecr-credential-provider -name '*.go')
 	 GO111MODULE=on CGO_ENABLED=0 GOOS=$(GOOS) GOPROXY=$(GOPROXY) go build \
 		-ldflags="-w -s -X 'main.version=$(VERSION)'" \
 		-o=ecr-credential-provider \
+		cmd/ecr-credential-provider/*.go
+
+ecr-credential-provider.exe: $(wildcard ./cmd/ecr-credential-provider/*.go)
+	 GO111MODULE=on CGO_ENABLED=0 GOOS=windows GOPROXY=$(GOPROXY) go build \
+		-ldflags="-w -s -X 'main.version=$(VERSION)'" \
+		-o=ecr-credential-provider.exe \
 		cmd/ecr-credential-provider/*.go
 
 .PHONY: docker-build
