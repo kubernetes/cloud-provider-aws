@@ -12,6 +12,7 @@ Follow these steps when upgrading an existing cluster by launching the aws-cloud
 1. Add the `--cloud-provider=external` to the kube-controller-manager config.
 1. Add the `--cloud-provider=external` to the kube-apiserver config.
 1. Add the `--cloud-provider=external` to each the kubelet's config.
+1. Add the tag kubernetes.io/cluster/your_cluster_id=owned (if resources are owned and managed by the cluster) or kubernetes.io/cluster/your_cluster_id=shared (if resources are shared between clusters, and should not be destroyed if the cluster is destroyed) to your instances.
 1. Deploy the required RBAC to your cluster:
     `kubectl apply -f https://raw.githubusercontent.com/kubernetes/cloud-provider-aws/master/manifests/rbac.yaml`
 1. Deploy the cloud-controller-manager to your cluster:
