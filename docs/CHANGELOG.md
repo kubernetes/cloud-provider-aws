@@ -1,3 +1,19 @@
+## v1.21.0-alpha.0
+* Add permission for service account token creation ([#214](https://github.com/kubernetes/cloud-provider-aws/pull/214), @nckturner)
+* A missing item ([#204](https://github.com/kubernetes/cloud-provider-aws/pull/204), @oguzhanun)
+* Cherry-pick: additional subnet configuration for AWS ELB (#97431) ([#210](https://github.com/kubernetes/cloud-provider-aws/pull/210), @nckturner)
+* Cherry-pick: delete leaked volume if driver don't know the volume status -- aws (#99664) ([#212](https://github.com/kubernetes/cloud-provider-aws/pull/212), @nckturner)
+* Cherry-pick: Use GA topoogy labels for EBS (#99130) ([#211](https://github.com/kubernetes/cloud-provider-aws/pull/211), @nckturner)
+* Add Makefile target for windows binary ([#207](https://github.com/kubernetes/cloud-provider-aws/pull/207), @ayberk)
+* Bump dependencies to v1.21.0 ([#205](https://github.com/kubernetes/cloud-provider-aws/pull/205), @nckturner)
+* Automate helm chart release ([#191](https://github.com/kubernetes/cloud-provider-aws/pull/191), @ayberk)
+* Add a docs page for the service controller ([#197](https://github.com/kubernetes/cloud-provider-aws/pull/197), @nckturner)
+* Add self to OWNERS ([#194](https://github.com/kubernetes/cloud-provider-aws/pull/194), @ayberk)
+* Fixing broken KEP link ([#193](https://github.com/kubernetes/cloud-provider-aws/pull/193), @pmmalinov01)
+* Remove docs publish gh workflow ([#190](https://github.com/kubernetes/cloud-provider-aws/pull/190), @ayberk)
+* Fix version ([#189](https://github.com/kubernetes/cloud-provider-aws/pull/189), @ayberk)
+* Release v1.20.0-alpha.1 ([#186](https://github.com/kubernetes/cloud-provider-aws/pull/186), @ayberk)
+
 ## v1.20.0-alpha.0
 * Add release github workflow ([#178](https://github.com/kubernetes/cloud-provider-aws/pull/178), @ayberk)
 * Add script to generate changelog ([#179](https://github.com/kubernetes/cloud-provider-aws/pull/179), @ayberk)
