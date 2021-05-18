@@ -28,10 +28,14 @@ spec:
       serviceAccountName: cloud-controller-manager
       containers:
         - name: aws-cloud-controller-manager
-          image: gcr.io/k8s-staging-provider-aws/cloud-controller-manager:v1.20.0-alpha.0
+          image: gcr.io/k8s-staging-provider-aws/cloud-controller-manager:v1.21.0-alpha.0
           args:
             - --v=2
             - --cloud-provider=aws
+            # Use the superset-role overlay if you don't want a token per controller
+            - --use-service-account-credentials=true
+            # Set --configure-cloud-routes=true if required by your CNI
+            - --configure-cloud-routes=false
           resources:
             requests:
               cpu: 200m
