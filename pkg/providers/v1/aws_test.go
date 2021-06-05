@@ -589,7 +589,7 @@ func testHasNodeAddress(t *testing.T, addrs []v1.NodeAddress, addressType v1.Nod
 	t.Errorf("Did not find expected address: %s:%s in %v", addressType, address, addrs)
 }
 
-func makeInstance(num int, privateIP, publicIP, privateDNSName, publicDNSName string, setNetInterface bool) ec2.Instance {
+func makeInstance(num int, privateIP, publicIP, privateDNSName, publicDNSName string, ipv6s []string, setNetInterface bool) ec2.Instance {
 	var tag ec2.Tag
 	tag.Key = aws.String(TagNameKubernetesClusterLegacy)
 	tag.Value = aws.String(TestClusterID)
@@ -619,6 +619,13 @@ func makeInstance(num int, privateIP, publicIP, privateDNSName, publicDNSName st
 				},
 			},
 		}
+		if len(ipv6s) > 0 {
+			instance.NetworkInterfaces[0].Ipv6Addresses = []*ec2.InstanceIpv6Address{
+				{
+					Ipv6Address: aws.String(ipv6s[0]),
+				},
+			}
+		}
 	}
 	return instance
 }
@@ -626,10 +633,11 @@ func makeInstance(num int, privateIP, publicIP, privateDNSName, publicDNSName st
 func TestNodeAddresses(t *testing.T) {
 	// Note instance0 and instance1 have the same name
 	// (we test that this produces an error)
-	instance0 := makeInstance(0, "192.168.0.1", "1.2.3.4", "instance-same.ec2.internal", "instance-same.ec2.external", true)
-	instance1 := makeInstance(1, "192.168.0.2", "", "instance-same.ec2.internal", "", false)
-	instance2 := makeInstance(2, "192.168.0.1", "1.2.3.4", "instance-other.ec2.internal", "", false)
-	instances := []*ec2.Instance{&instance0, &instance1, &instance2}
+	instance0 := makeInstance(0, "192.168.0.1", "1.2.3.4", "instance-same.ec2.internal", "instance-same.ec2.external", nil, true)
+	instance1 := makeInstance(1, "192.168.0.2", "", "instance-same.ec2.internal", "", nil, false)
+	instance2 := makeInstance(2, "192.168.0.1", "1.2.3.4", "instance-other.ec2.internal", "", nil, false)
+	instance3 := makeInstance(3, "192.168.0.3", "", "instance-ipv6.ec2.internal", "", []string{"2a05:d014:aa7:911:fc7e:1600:fc4d:ab2", "2a05:d014:aa7:911:9f44:e737:1aa0:6489"}, true)
+	instances := []*ec2.Instance{&instance0, &instance1, &instance2, &instance3}
 
 	aws1, _ := mockInstancesResp(&instance0, []*ec2.Instance{&instance0})
 	_, err1 := aws1.NodeAddresses(context.TODO(), "instance-mismatch.ec2.internal")
@@ -658,10 +666,25 @@ func TestNodeAddresses(t *testing.T) {
 	testHasNodeAddress(t, addrs3, v1.NodeExternalDNS, "instance-same.ec2.external")
 	testHasNodeAddress(t, addrs3, v1.NodeInternalDNS, "instance-same.ec2.internal")
 	testHasNodeAddress(t, addrs3, v1.NodeHostName, "instance-same.ec2.internal")
+
+	aws4, _ := mockInstancesResp(&instance3, instances)
+	// change node name so it uses the instance instead of metadata
+	aws4.selfAWSInstance.nodeName = "foo"
+	addrs4, err4 := aws4.NodeAddresses(context.TODO(), "instance-ipv6.ec2.internal")
+	if err4 != nil {
+		t.Errorf("Should not error when instance found")
+	}
+	if len(addrs4) != 4 {
+		t.Errorf("Should return exactly 4 NodeAddresses")
+	}
+	testHasNodeAddress(t, addrs4, v1.NodeInternalIP, "192.168.0.3")
+	testHasNodeAddress(t, addrs4, v1.NodeInternalIP, "2a05:d014:aa7:911:fc7e:1600:fc4d:ab2")
+	testHasNodeAddress(t, addrs4, v1.NodeInternalDNS, "instance-ipv6.ec2.internal")
+	testHasNodeAddress(t, addrs4, v1.NodeHostName, "instance-ipv6.ec2.internal")
 }
 
 func TestNodeAddressesWithMetadata(t *testing.T) {
-	instance := makeInstance(0, "", "2.3.4.5", "instance.ec2.internal", "", false)
+	instance := makeInstance(0, "", "2.3.4.5", "instance.ec2.internal", "", nil, false)
 	instances := []*ec2.Instance{&instance}
 	awsCloud, awsServices := mockInstancesResp(&instance, instances)
 
