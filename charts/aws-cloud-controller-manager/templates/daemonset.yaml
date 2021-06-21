@@ -32,6 +32,9 @@ spec:
           args:
             - --v=2
             - --cloud-provider=aws
+            {{- range $key, $value := .Values.extraArgs }}
+            - --{{$key}}={{$value}}
+            {{- end }}
           resources:
           {{- toYaml .Values.resources | nindent 12 }}
 
