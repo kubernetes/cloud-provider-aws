@@ -24,6 +24,7 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"os"
 	"path"
 	"regexp"
 	"sort"
@@ -1193,7 +1194,16 @@ func init() {
 		}
 
 		var provider credentials.Provider
-		if cfg.Global.RoleARN == "" {
+		if os.Getenv("AWS_WEB_IDENTITY_TOKEN_FILE") != "" {
+			klog.Infof("Using web identity with ARN %q", os.Getenv("AWS_ROLE_ARN"))
+
+			provider = stscreds.NewWebIdentityRoleProvider(
+				sts.New(sess),
+				os.Getenv("AWS_ROLE_ARN"),
+				"",
+				os.Getenv("AWS_WEB_IDENTITY_TOKEN_FILE"),
+			)
+		} else if cfg.Global.RoleARN == "" {
 			provider = &ec2rolecreds.EC2RoleProvider{
 				Client: ec2metadata.New(sess),
 			}
