@@ -26,9 +26,10 @@ export KUBE_ROOT="$GOPATH/src/k8s.io/kubernetes"
 export NODE_ROLE_ARN=${NODE_ROLE_ARN:-""}
 export CLOUD_PROVIDER=aws
 export EXTERNAL_CLOUD_PROVIDER=true
-export CLOUD_CONFIG=$(pwd)/cloudconfig
+export CLOUD_CONFIG=${CLOUD_PROVIDER_ROOT}/cloudconfig
 export EXTERNAL_CLOUD_PROVIDER_BINARY="$GOPATH/src/k8s.io/cloud-provider-aws/aws-cloud-controller-manager"
 export NODE_ZONE=${AWS_NODE_ZONE:-"us-west-2a"}
+export CONFIGURE_CLOUD_ROUTES="${CONFIGURE_CLOUD_ROUTES:-false}"
 
 # Stop right away if the build fails
 set -e
