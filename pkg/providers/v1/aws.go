@@ -24,6 +24,7 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"net/http"
 	"path"
 	"regexp"
 	"sort"
@@ -1466,6 +1467,17 @@ func (c *Cloud) HasClusterID() bool {
 	return len(c.tagging.clusterID()) > 0
 }
 
+// isAWSNotFound returns true if the error was caused by an AWS API 404 response.
+func isAWSNotFound(err error) bool {
+	if err != nil {
+		var aerr awserr.RequestFailure
+		if errors.As(err, &aerr) {
+			return aerr.StatusCode() == http.StatusNotFound
+		}
+	}
+	return false
+}
+
 // NodeAddresses is an implementation of Instances.NodeAddresses.
 func (c *Cloud) NodeAddresses(ctx context.Context, name types.NodeName) ([]v1.NodeAddress, error) {
 	if c.selfAWSInstance.nodeName == name || len(name) == 0 {
@@ -1517,6 +1529,25 @@ func (c *Cloud) NodeAddresses(ctx context.Context, name types.NodeName) ([]v1.No
 					continue
 				}
 				addresses = append(addresses, v1.NodeAddress{Type: v1.NodeInternalIP, Address: internalIP})
+			}
+		}
+
+		for _, macID := range macIDs {
+			ipv6Path := path.Join("network/interfaces/macs/", macID, "ipv6s")
+			internalIPv6s, err := c.metadata.GetMetadata(ipv6Path)
+			if isAWSNotFound(err) {
+				// 404 -> no IPv6 addresses
+				continue
+			} else if err != nil {
+				return nil, fmt.Errorf("error querying AWS metadata for %q: %q", ipv6Path, err)
+			}
+			// return only the "first" address for each ENI
+			for _, internalIPv6 := range strings.Split(internalIPv6s, "\n") {
+				if internalIPv6 == "" {
+					continue
+				}
+				addresses = append(addresses, v1.NodeAddress{Type: v1.NodeInternalIP, Address: internalIPv6})
+				break
 			}
 		}
 
@@ -1607,6 +1638,22 @@ func extractNodeAddresses(instance *ec2.Instance) ([]v1.NodeAddress, error) {
 				addresses = append(addresses, v1.NodeAddress{Type: v1.NodeInternalIP, Address: ip.String()})
 			}
 		}
+	}
+
+	// handle internal network interfaces with IPv6 addresses
+	for _, networkInterface := range instance.NetworkInterfaces {
+		// skip network interfaces that are not currently in use
+		if aws.StringValue(networkInterface.Status) != ec2.NetworkInterfaceStatusInUse || len(networkInterface.Ipv6Addresses) == 0 {
+			continue
+		}
+
+		// return only the "first" address for each ENI
+		internalIPv6 := aws.StringValue(networkInterface.Ipv6Addresses[0].Ipv6Address)
+		ip := net.ParseIP(internalIPv6)
+		if ip == nil {
+			return nil, fmt.Errorf("EC2 instance had invalid IPv6 address: %s (%q)", aws.StringValue(instance.InstanceId), internalIPv6)
+		}
+		addresses = append(addresses, v1.NodeAddress{Type: v1.NodeInternalIP, Address: ip.String()})
 	}
 
 	// TODO: Other IP addresses (multiple ips)?
