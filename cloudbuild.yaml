@@ -1,5 +1,6 @@
 images:
   - 'gcr.io/$PROJECT_ID/cloud-controller-manager:$_GIT_TAG'
+  - 'gcr.io/$PROJECT_ID/cloud-controller-manager:$_PULL_BASE_REF'
   - 'gcr.io/$PROJECT_ID/cloud-controller-manager:latest'
 options:
   substitution_option: ALLOW_LOOSE
@@ -8,6 +9,7 @@ steps:
     args:
     - build
     - --tag=gcr.io/$PROJECT_ID/cloud-controller-manager:$_GIT_TAG
+    - --tag=gcr.io/$PROJECT_ID/cloud-controller-manager:$_PULL_BASE_REF
     - --tag=gcr.io/$PROJECT_ID/cloud-controller-manager:latest
     - --build-arg=VERSION=$_GIT_TAG
     - .
