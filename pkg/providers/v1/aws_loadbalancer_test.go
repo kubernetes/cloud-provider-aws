@@ -1,5 +1,3 @@
-// +build !providerless
-
 /*
 Copyright 2017 The Kubernetes Authors.
 
@@ -19,14 +17,14 @@ limitations under the License.
 package aws
 
 import (
-	"k8s.io/apimachinery/pkg/types"
 	"testing"
+
+	v1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/types"
 
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/service/elb"
 	"github.com/stretchr/testify/assert"
-
-	"k8s.io/api/core/v1"
 )
 
 func TestElbProtocolsAreEqual(t *testing.T) {

@@ -38,21 +38,23 @@ commit_author=$(git log -1 --pretty=format:'%an <%ae>' ${UPSTREAM_SHA})
 commit_body=$(git log -1 --pretty=format:'%B' ${UPSTREAM_SHA})
 
 patch_file=$(mktemp)
-git diff "${UPSTREAM_SHA}^" "${UPSTREAM_SHA}" -- ${LEGACY_PROVIDER_PATH} > ${patch_file}
+git diff -U10 "${UPSTREAM_SHA}^" "${UPSTREAM_SHA}" -- ${LEGACY_PROVIDER_PATH} > ${patch_file}
 echo "Saving diff to ${patch_file}"
 popd > /dev/null
 
-echo "Modifying paths in patch..."
-sed -i "s|staging/src/k8s.io/legacy-cloud-providers/aws|pkg/providers/v1|g" "${patch_file}"
-
 printf "Applying patch file...\n\n"
-cat ${patch_file} | git apply -
+cat ${patch_file} | git apply --3way --ignore-whitespace --directory="${REWRITE_PATH}" -p6 - || true
 
 status=$(git status)
 printf "Status of ${CLOUD_PROVIDER_AWS_DIR}:\n-----------------------------------------------\n${status}\n-----------------------------------------------\n\n"
 
-echo_color "\nTo finish the cherry-pick:\n"
-echo_color "git add -A"
-echo_color "git commit --author ${commit_author} --message=\"$commit_body\"\n"
+echo_color "\nThis should have resulted in a 3-way merge of the patch.  This means if there were conflicts, you can (and must) fix them by editing the conflicting files."
+echo_color "To cancel the merge, try:"
+echo "git reset --merge"
+
+echo_color "\nTo finish applying the patch (after fixing any conflicts):"
+echo "git add -A"
+echo "git commit --author \"${commit_author}\" --message=\"$commit_body\""
+
 
 popd > /dev/null

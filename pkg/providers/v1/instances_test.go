@@ -1,5 +1,3 @@
-// +build !providerless
-
 /*
 Copyright 2017 The Kubernetes Authors.
 
@@ -25,8 +23,7 @@ import (
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/service/ec2"
 	"github.com/stretchr/testify/assert"
-
-	"k8s.io/api/core/v1"
+	v1 "k8s.io/api/core/v1"
 )
 
 func TestMapToAWSInstanceIDs(t *testing.T) {
