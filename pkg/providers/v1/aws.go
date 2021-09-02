@@ -639,6 +639,9 @@ type CloudConfig struct {
 		//yourself in an non-AWS cloud and open an issue, please indicate that in the
 		//issue body.
 		DisableStrictZoneCheck bool
+
+		// NodeIPFamilies determines which IP addresses are added to node objects and their ordering.
+		NodeIPFamilies []string
 	}
 	// [ServiceOverride "1"]
 	//  Service = s3
@@ -1386,6 +1389,12 @@ func newAWSCloud(cfg CloudConfig, awsServices Services) (*Cloud, error) {
 			return nil, err
 		}
 	}
+
+	if len(cfg.Global.NodeIPFamilies) == 0 {
+		cfg.Global.NodeIPFamilies = []string{"ipv4"}
+	}
+	klog.Infof("The following IP families will be added to nodes: %v", cfg.Global.NodeIPFamilies)
+
 	return awsCloud, nil
 }
 
@@ -1487,116 +1496,196 @@ func isAWSNotFound(err error) bool {
 
 // NodeAddresses is an implementation of Instances.NodeAddresses.
 func (c *Cloud) NodeAddresses(ctx context.Context, name types.NodeName) ([]v1.NodeAddress, error) {
-	if c.selfAWSInstance.nodeName == name || len(name) == 0 {
-		addresses := []v1.NodeAddress{}
+	addresses := []v1.NodeAddress{}
 
-		macs, err := c.metadata.GetMetadata("network/interfaces/macs/")
-		if err != nil {
-			return nil, fmt.Errorf("error querying AWS metadata for %q: %q", "network/interfaces/macs", err)
-		}
-
-		// We want the IPs to end up in order by interface (in particular, we want eth0's
-		// IPs first), but macs isn't necessarily sorted in that order so we have to
-		// explicitly order by device-number (device-number == the "0" in "eth0").
-
-		var macIDs []string
-		macDevNum := make(map[string]int)
-		for _, macID := range strings.Split(macs, "\n") {
-			if macID == "" {
-				continue
-			}
-			numPath := path.Join("network/interfaces/macs/", macID, "device-number")
-			numStr, err := c.metadata.GetMetadata(numPath)
-			if err != nil {
-				return nil, fmt.Errorf("error querying AWS metadata for %q: %q", numPath, err)
-			}
-			num, err := strconv.Atoi(strings.TrimSpace(numStr))
-			if err != nil {
-				klog.Warningf("Bad device-number %q for interface %s\n", numStr, macID)
-				continue
-			}
-			macIDs = append(macIDs, macID)
-			macDevNum[macID] = num
-		}
-
-		// Sort macIDs by interface device-number
-		sort.Slice(macIDs, func(i, j int) bool {
-			return macDevNum[macIDs[i]] < macDevNum[macIDs[j]]
-		})
-
-		for _, macID := range macIDs {
-			ipPath := path.Join("network/interfaces/macs/", macID, "local-ipv4s")
-			internalIPs, err := c.metadata.GetMetadata(ipPath)
-			if err != nil {
-				return nil, fmt.Errorf("error querying AWS metadata for %q: %q", ipPath, err)
-			}
-
-			for _, internalIP := range strings.Split(internalIPs, "\n") {
-				if internalIP == "" {
-					continue
+	for _, family := range c.cfg.Global.NodeIPFamilies {
+		switch family {
+		case "ipv4":
+			if c.selfAWSInstance.nodeName == name || len(name) == 0 {
+				addrs, err := c.ipv4AddressesFromMetadata()
+				if err != nil {
+					return nil, err
 				}
-				addresses = append(addresses, v1.NodeAddress{Type: v1.NodeInternalIP, Address: internalIP})
-			}
-		}
-
-		for _, macID := range macIDs {
-			ipv6Path := path.Join("network/interfaces/macs/", macID, "ipv6s")
-			internalIPv6s, err := c.metadata.GetMetadata(ipv6Path)
-			if isAWSNotFound(err) {
-				// 404 -> no IPv6 addresses
-				continue
-			} else if err != nil {
-				return nil, fmt.Errorf("error querying AWS metadata for %q: %q", ipv6Path, err)
-			}
-			// return only the "first" address for each ENI
-			for _, internalIPv6 := range strings.Split(internalIPv6s, "\n") {
-				if internalIPv6 == "" {
-					continue
+				addresses = append(addresses, addrs...)
+			} else {
+				instance, err := c.getInstanceByNodeName(name)
+				if err != nil {
+					return nil, fmt.Errorf("getInstanceByNodeName failed for %q with %q", name, err)
 				}
-				addresses = append(addresses, v1.NodeAddress{Type: v1.NodeInternalIP, Address: internalIPv6})
-				break
+
+				addrs, err := extractIPv4NodeAddresses(instance)
+				if err != nil {
+					return nil, fmt.Errorf("getInstanceByNodeName failed for %q with %q", name, err)
+				}
+				addresses = append(addresses, addrs...)
+			}
+		case "ipv6":
+			if c.selfAWSInstance.nodeName == name || len(name) == 0 {
+				addrs, err := c.ipv6AddressesFromMetadata()
+				if err != nil {
+					return nil, err
+				}
+				addresses = append(addresses, addrs...)
+			} else {
+				instance, err := c.getInstanceByNodeName(name)
+				if err != nil {
+					return nil, fmt.Errorf("getInstanceByNodeName failed for %q with %q", name, err)
+				}
+
+				addrs, err := extractIPv6NodeAddresses(instance)
+				if err != nil {
+					return nil, fmt.Errorf("getInstanceByNodeName failed for %q with %q", name, err)
+				}
+				addresses = append(addresses, addrs...)
 			}
 		}
-
-		externalIP, err := c.metadata.GetMetadata("public-ipv4")
-		if err != nil {
-			//TODO: It would be nice to be able to determine the reason for the failure,
-			// but the AWS client masks all failures with the same error description.
-			klog.V(4).Info("Could not determine public IP from AWS metadata.")
-		} else {
-			addresses = append(addresses, v1.NodeAddress{Type: v1.NodeExternalIP, Address: externalIP})
-		}
-
-		localHostname, err := c.metadata.GetMetadata("local-hostname")
-		if err != nil || len(localHostname) == 0 {
-			//TODO: It would be nice to be able to determine the reason for the failure,
-			// but the AWS client masks all failures with the same error description.
-			klog.V(4).Info("Could not determine private DNS from AWS metadata.")
-		} else {
-			hostname, internalDNS := parseMetadataLocalHostname(localHostname)
-			addresses = append(addresses, v1.NodeAddress{Type: v1.NodeHostName, Address: hostname})
-			for _, d := range internalDNS {
-				addresses = append(addresses, v1.NodeAddress{Type: v1.NodeInternalDNS, Address: d})
-			}
-		}
-
-		externalDNS, err := c.metadata.GetMetadata("public-hostname")
-		if err != nil || len(externalDNS) == 0 {
-			//TODO: It would be nice to be able to determine the reason for the failure,
-			// but the AWS client masks all failures with the same error description.
-			klog.V(4).Info("Could not determine public DNS from AWS metadata.")
-		} else {
-			addresses = append(addresses, v1.NodeAddress{Type: v1.NodeExternalDNS, Address: externalDNS})
-		}
-
-		return addresses, nil
 	}
+	return addresses, nil
+}
 
-	instance, err := c.getInstanceByNodeName(name)
+func (c *Cloud) ipv4AddressesFromMetadata() ([]v1.NodeAddress, error) {
+	addresses := []v1.NodeAddress{}
+
+	macs, err := c.metadata.GetMetadata("network/interfaces/macs/")
 	if err != nil {
-		return nil, fmt.Errorf("getInstanceByNodeName failed for %q with %q", name, err)
+		return nil, fmt.Errorf("error querying AWS metadata for %q: %q", "network/interfaces/macs", err)
 	}
-	return extractNodeAddresses(instance)
+
+	// We want the IPs to end up in order by interface (in particular, we want eth0's
+	// IPs first), but macs isn't necessarily sorted in that order so we have to
+	// explicitly order by device-number (device-number == the "0" in "eth0").
+
+	var macIDs []string
+	macDevNum := make(map[string]int)
+	for _, macID := range strings.Split(macs, "\n") {
+		if macID == "" {
+			continue
+		}
+		numPath := path.Join("network/interfaces/macs/", macID, "device-number")
+		numStr, err := c.metadata.GetMetadata(numPath)
+		if err != nil {
+			return nil, fmt.Errorf("error querying AWS metadata for %q: %q", numPath, err)
+		}
+		num, err := strconv.Atoi(strings.TrimSpace(numStr))
+		if err != nil {
+			klog.Warningf("Bad device-number %q for interface %s\n", numStr, macID)
+			continue
+		}
+		macIDs = append(macIDs, macID)
+		macDevNum[macID] = num
+	}
+
+	// Sort macIDs by interface device-number
+	sort.Slice(macIDs, func(i, j int) bool {
+		return macDevNum[macIDs[i]] < macDevNum[macIDs[j]]
+	})
+
+	for _, macID := range macIDs {
+		ipPath := path.Join("network/interfaces/macs/", macID, "local-ipv4s")
+		internalIPs, err := c.metadata.GetMetadata(ipPath)
+		if err != nil {
+			return nil, fmt.Errorf("error querying AWS metadata for %q: %q", ipPath, err)
+		}
+
+		for _, internalIP := range strings.Split(internalIPs, "\n") {
+			if internalIP == "" {
+				continue
+			}
+			addresses = append(addresses, v1.NodeAddress{Type: v1.NodeInternalIP, Address: internalIP})
+		}
+	}
+
+	externalIP, err := c.metadata.GetMetadata("public-ipv4")
+	if err != nil {
+		//TODO: It would be nice to be able to determine the reason for the failure,
+		// but the AWS client masks all failures with the same error description.
+		klog.V(4).Info("Could not determine public IP from AWS metadata.")
+	} else {
+		addresses = append(addresses, v1.NodeAddress{Type: v1.NodeExternalIP, Address: externalIP})
+	}
+
+	localHostname, err := c.metadata.GetMetadata("local-hostname")
+	if err != nil || len(localHostname) == 0 {
+		//TODO: It would be nice to be able to determine the reason for the failure,
+		// but the AWS client masks all failures with the same error description.
+		klog.V(4).Info("Could not determine private DNS from AWS metadata.")
+	} else {
+		hostname, internalDNS := parseMetadataLocalHostname(localHostname)
+		addresses = append(addresses, v1.NodeAddress{Type: v1.NodeHostName, Address: hostname})
+		for _, d := range internalDNS {
+			addresses = append(addresses, v1.NodeAddress{Type: v1.NodeInternalDNS, Address: d})
+		}
+	}
+
+	externalDNS, err := c.metadata.GetMetadata("public-hostname")
+	if err != nil || len(externalDNS) == 0 {
+		//TODO: It would be nice to be able to determine the reason for the failure,
+		// but the AWS client masks all failures with the same error description.
+		klog.V(4).Info("Could not determine public DNS from AWS metadata.")
+	} else {
+		addresses = append(addresses, v1.NodeAddress{Type: v1.NodeExternalDNS, Address: externalDNS})
+	}
+
+	return addresses, nil
+}
+
+func (c *Cloud) ipv6AddressesFromMetadata() ([]v1.NodeAddress, error) {
+	addresses := []v1.NodeAddress{}
+
+	macs, err := c.metadata.GetMetadata("network/interfaces/macs/")
+	if err != nil {
+		return nil, fmt.Errorf("error querying AWS metadata for %q: %q", "network/interfaces/macs", err)
+	}
+
+	// We want the IPs to end up in order by interface (in particular, we want eth0's
+	// IPs first), but macs isn't necessarily sorted in that order so we have to
+	// explicitly order by device-number (device-number == the "0" in "eth0").
+
+	var macIDs []string
+	macDevNum := make(map[string]int)
+	for _, macID := range strings.Split(macs, "\n") {
+		if macID == "" {
+			continue
+		}
+		numPath := path.Join("network/interfaces/macs/", macID, "device-number")
+		numStr, err := c.metadata.GetMetadata(numPath)
+		if err != nil {
+			return nil, fmt.Errorf("error querying AWS metadata for %q: %q", numPath, err)
+		}
+		num, err := strconv.Atoi(strings.TrimSpace(numStr))
+		if err != nil {
+			klog.Warningf("Bad device-number %q for interface %s\n", numStr, macID)
+			continue
+		}
+		macIDs = append(macIDs, macID)
+		macDevNum[macID] = num
+	}
+
+	// Sort macIDs by interface device-number
+	sort.Slice(macIDs, func(i, j int) bool {
+		return macDevNum[macIDs[i]] < macDevNum[macIDs[j]]
+	})
+
+	for _, macID := range macIDs {
+		ipv6Path := path.Join("network/interfaces/macs/", macID, "ipv6s")
+		internalIPv6s, err := c.metadata.GetMetadata(ipv6Path)
+		if isAWSNotFound(err) {
+			// 404 -> no IPv6 addresses
+			continue
+		} else if err != nil {
+			return nil, fmt.Errorf("error querying AWS metadata for %q: %q", ipv6Path, err)
+		}
+		// return only the "first" address for each ENI
+		for _, internalIPv6 := range strings.Split(internalIPv6s, "\n") {
+			if internalIPv6 == "" {
+				continue
+			}
+			addresses = append(addresses, v1.NodeAddress{Type: v1.NodeInternalIP, Address: internalIPv6})
+			break
+		}
+	}
+
+	return addresses, nil
 }
 
 // parseMetadataLocalHostname parses the output of "local-hostname" metadata.
@@ -1619,8 +1708,9 @@ func parseMetadataLocalHostname(metadata string) (string, []string) {
 	return hostname, internalDNS
 }
 
-// extractNodeAddresses maps the instance information from EC2 to an array of NodeAddresses
-func extractNodeAddresses(instance *ec2.Instance) ([]v1.NodeAddress, error) {
+// extractIPv4NodeAddresses maps the instance information from EC2 to an array of NodeAddresses.
+// This function will extract private and public IP addresses and their corresponding DNS names.
+func extractIPv4NodeAddresses(instance *ec2.Instance) ([]v1.NodeAddress, error) {
 	// Not clear if the order matters here, but we might as well indicate a sensible preference order
 
 	if instance == nil {
@@ -1647,22 +1737,6 @@ func extractNodeAddresses(instance *ec2.Instance) ([]v1.NodeAddress, error) {
 		}
 	}
 
-	// handle internal network interfaces with IPv6 addresses
-	for _, networkInterface := range instance.NetworkInterfaces {
-		// skip network interfaces that are not currently in use
-		if aws.StringValue(networkInterface.Status) != ec2.NetworkInterfaceStatusInUse || len(networkInterface.Ipv6Addresses) == 0 {
-			continue
-		}
-
-		// return only the "first" address for each ENI
-		internalIPv6 := aws.StringValue(networkInterface.Ipv6Addresses[0].Ipv6Address)
-		ip := net.ParseIP(internalIPv6)
-		if ip == nil {
-			return nil, fmt.Errorf("EC2 instance had invalid IPv6 address: %s (%q)", aws.StringValue(instance.InstanceId), internalIPv6)
-		}
-		addresses = append(addresses, v1.NodeAddress{Type: v1.NodeInternalIP, Address: ip.String()})
-	}
-
 	// TODO: Other IP addresses (multiple ips)?
 	publicIPAddress := aws.StringValue(instance.PublicIpAddress)
 	if publicIPAddress != "" {
@@ -1682,6 +1756,36 @@ func extractNodeAddresses(instance *ec2.Instance) ([]v1.NodeAddress, error) {
 	publicDNSName := aws.StringValue(instance.PublicDnsName)
 	if publicDNSName != "" {
 		addresses = append(addresses, v1.NodeAddress{Type: v1.NodeExternalDNS, Address: publicDNSName})
+	}
+
+	return addresses, nil
+}
+
+// extractIPv6NodeAddresses maps the instance information from EC2 to an array of NodeAddresses
+// All IPv6 addresses are considered internal even if they are publicly routable. There are no instance DNS names associated with IPv6.
+func extractIPv6NodeAddresses(instance *ec2.Instance) ([]v1.NodeAddress, error) {
+	// Not clear if the order matters here, but we might as well indicate a sensible preference order
+
+	if instance == nil {
+		return nil, fmt.Errorf("nil instance passed to extractNodeAddresses")
+	}
+
+	addresses := []v1.NodeAddress{}
+
+	// handle internal network interfaces with IPv6 addresses
+	for _, networkInterface := range instance.NetworkInterfaces {
+		// skip network interfaces that are not currently in use
+		if aws.StringValue(networkInterface.Status) != ec2.NetworkInterfaceStatusInUse || len(networkInterface.Ipv6Addresses) == 0 {
+			continue
+		}
+
+		// return only the "first" address for each ENI
+		internalIPv6 := aws.StringValue(networkInterface.Ipv6Addresses[0].Ipv6Address)
+		ip := net.ParseIP(internalIPv6)
+		if ip == nil {
+			return nil, fmt.Errorf("EC2 instance had invalid IPv6 address: %s (%q)", aws.StringValue(instance.InstanceId), internalIPv6)
+		}
+		addresses = append(addresses, v1.NodeAddress{Type: v1.NodeInternalIP, Address: ip.String()})
 	}
 
 	return addresses, nil
@@ -1719,7 +1823,26 @@ func (c *Cloud) NodeAddressesByProviderID(ctx context.Context, providerID string
 		return nil, err
 	}
 
-	return extractNodeAddresses(instance)
+	var addresses []v1.NodeAddress
+
+	for _, family := range c.cfg.Global.NodeIPFamilies {
+		switch family {
+		case "ipv4":
+			ipv4addr, err := extractIPv4NodeAddresses(instance)
+			if err != nil {
+				return nil, err
+			}
+			addresses = append(addresses, ipv4addr...)
+		case "ipv6":
+			ipv6addr, err := extractIPv6NodeAddresses(instance)
+			if err != nil {
+				return nil, err
+			}
+			addresses = append(addresses, ipv6addr...)
+		}
+	}
+
+	return addresses, nil
 }
 
 // InstanceExistsByProviderID returns true if the instance with the given provider id still exists.
