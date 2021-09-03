@@ -2,18 +2,16 @@ approvers:
 - justinsb
 - nckturner
 - M00nF1sh
-- leakingtapan
 - andrewsykim
 - wongma7
-- ayberk
+- jaypipes
 reviewers:
 - justinsb
 - nckturner
 - M00nF1sh
-- leakingtapan
 - andrewsykim
 - wongma7
-- ayberk
+- jaypipes
 emeritus_approvers:
 - zmerlynn
 - gnufied
@@ -22,3 +20,5 @@ emeritus_approvers:
 - mcrute
 - gyuho
 - d-nishi
+- leakingtapan
+- ayberk
