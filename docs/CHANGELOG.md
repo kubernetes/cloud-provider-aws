@@ -1,3 +1,19 @@
+## v1.22.0-alpha.0
+* Add a unit test for sets_ippermissions ([#265](https://github.com/kubernetes/cloud-provider-aws/pull/265), @nckturner)
+* Remove inactive and add jaypipes ([#266](https://github.com/kubernetes/cloud-provider-aws/pull/266), @nckturner)
+* Fix copy/paste error in IPPermissionSet.Ungroup ([#250](https://github.com/kubernetes/cloud-provider-aws/pull/250), @JoelSpeed)
+* Make Node IP families configurable ([#251](https://github.com/kubernetes/cloud-provider-aws/pull/251), @olemarkus)
+* run hack/update-netparse-cve.sh ([#261](https://github.com/kubernetes/cloud-provider-aws/pull/261), @aojea)
+* Set EC2 instance cache max age to 10 mins ([#259](https://github.com/kubernetes/cloud-provider-aws/pull/259), @kishorj)
+* chunk target operatation for aws targetGroup ([#256](https://github.com/kubernetes/cloud-provider-aws/pull/256), @M00nF1sh)
+* Remove providerless build option ([#257](https://github.com/kubernetes/cloud-provider-aws/pull/257), @nckturner)
+* Add script to facilitate cherry-picking from k/k ([#253](https://github.com/kubernetes/cloud-provider-aws/pull/253), @nckturner)
+* Bump k8s dependencies to 1.22 and go to 1.16 ([#248](https://github.com/kubernetes/cloud-provider-aws/pull/248), @rifelpet)
+* Add support for consuming web identity credentials ([#238](https://github.com/kubernetes/cloud-provider-aws/pull/238), @olemarkus)
+* Add support for returning IPv6 node addresses ([#230](https://github.com/kubernetes/cloud-provider-aws/pull/230), @hakman)
+* Add ENI support for nodes(for Fargate nodes) ([#223](https://github.com/kubernetes/cloud-provider-aws/pull/223), @SaranBalaji90)
+* Use kustomize for example manifest ([#221](https://github.com/kubernetes/cloud-provider-aws/pull/221), @nckturner)
+
 ## v1.21.0-alpha.0
 * Add permission for service account token creation ([#214](https://github.com/kubernetes/cloud-provider-aws/pull/214), @nckturner)
 * A missing item ([#204](https://github.com/kubernetes/cloud-provider-aws/pull/204), @oguzhanun)
