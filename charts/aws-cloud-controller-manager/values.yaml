@@ -2,16 +2,14 @@ namespace: "kube-system"
 
 extraArgs: {}
 
-
 image:
-    repository: gcr.io/k8s-staging-provider-aws/cloud-controller-manager
-    tag:  v1.21.0-alpha.0
+    repository: us.gcr.io/k8s-artifacts-prod/provider-aws/cloud-controller-manager
+    tag: v1.22.0-alpha.0
 
-# nameOverride -- String to partially override `aws-cloud-controller-manager.fullname`
+# nameOverride overrides `cloud-controller-manager.fullname`
 nameOverride: "aws-cloud-controller-manager"
 
 # nodeSelector -- Node labels for pod assignment. Ref: https://kubernetes.io/docs/user-guide/node-selection/.
-
 nodeSelector:
   node-role.kubernetes.io/master: ""
 
