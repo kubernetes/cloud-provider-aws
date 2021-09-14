@@ -155,7 +155,15 @@ func (c *instanceCache) describeAllInstancesUncached() (*allInstancesSnapshot, e
 
 	klog.V(4).Infof("EC2 DescribeInstances - fetching all instances")
 
-	var filters []*ec2.Filter
+	filters := make([]*ec2.Filter, 0)
+	if c.cloud.HasClusterID() {
+		filters = append(filters,
+			&ec2.Filter{
+				Name:   aws.String("tag-key"),
+				Values: []*string{aws.String(c.cloud.tagging.clusterTagKey())},
+			},
+		)
+	}
 	instances, err := c.cloud.describeInstances(filters)
 	if err != nil {
 		return nil, err
