@@ -73,9 +73,14 @@ func NewFakeAWSServices(clusterID string) *FakeAWSServices {
 	s.instances = []*ec2.Instance{selfInstance}
 
 	var tag ec2.Tag
-	tag.Key = aws.String(TagNameKubernetesClusterLegacy)
-	tag.Value = aws.String(clusterID)
-	selfInstance.Tags = []*ec2.Tag{&tag}
+	tag.Key = aws.String(fmt.Sprintf("%s%s", TagNameKubernetesClusterPrefix, clusterID))
+	tag.Value = aws.String("owned")
+
+	var legacyTag ec2.Tag
+	legacyTag.Key = aws.String(TagNameKubernetesClusterLegacy)
+	legacyTag.Value = aws.String(clusterID)
+
+	selfInstance.Tags = []*ec2.Tag{&tag, &legacyTag}
 
 	return s
 }
