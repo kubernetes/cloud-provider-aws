@@ -44,6 +44,7 @@ import (
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/autoscaling"
 	"github.com/aws/aws-sdk-go/service/ec2"
+	"github.com/aws/aws-sdk-go/service/ec2/ec2iface"
 	"github.com/aws/aws-sdk-go/service/elb"
 	"github.com/aws/aws-sdk-go/service/elbv2"
 	"github.com/aws/aws-sdk-go/service/kms"
@@ -734,7 +735,7 @@ func (cfg *CloudConfig) getResolver() endpoints.ResolverFunc {
 
 // awsSdkEC2 is an implementation of the EC2 interface, backed by aws-sdk-go
 type awsSdkEC2 struct {
-	ec2 *ec2.EC2
+	ec2 ec2iface.EC2API
 }
 
 // Interface to make the CloudConfig immutable for awsSDKProvider
@@ -972,6 +973,13 @@ func (s *awsSdkEC2) DescribeInstances(request *ec2.DescribeInstancesInput) ([]*e
 	results := []*ec2.Instance{}
 	var nextToken *string
 	requestTime := time.Now()
+
+	if request.MaxResults == nil && len(request.InstanceIds) == 0 {
+		// MaxResults must be set in order for pagination to work
+		// MaxResults cannot be set with InstanceIds
+		request.MaxResults = aws.Int64(1000)
+	}
+
 	for {
 		response, err := s.ec2.DescribeInstances(request)
 		if err != nil {
