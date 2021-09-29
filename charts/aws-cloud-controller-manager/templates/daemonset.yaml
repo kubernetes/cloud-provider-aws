@@ -30,8 +30,9 @@ spec:
         - name: {{ .Chart.Name }}
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
           args:
-            - --v=2
-            - --cloud-provider=aws
+            {{- range .Values.args }}
+            - {{ . }}
+            {{- end }}
           resources:
           {{- toYaml .Values.resources | nindent 12 }}
 

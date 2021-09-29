@@ -1,6 +1,8 @@
 namespace: "kube-system"
 
-extraArgs: {}
+args:
+  - --v=2
+  - --cloud-provider=aws
 
 image:
     repository: us.gcr.io/k8s-artifacts-prod/provider-aws/cloud-controller-manager
