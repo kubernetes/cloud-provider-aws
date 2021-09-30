@@ -30,6 +30,7 @@ import (
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/awserr"
 	"github.com/aws/aws-sdk-go/service/ec2"
+	"github.com/aws/aws-sdk-go/service/ec2/ec2iface"
 	"github.com/aws/aws-sdk-go/service/elb"
 	"github.com/aws/aws-sdk-go/service/elbv2"
 	"github.com/stretchr/testify/assert"
@@ -3740,4 +3741,106 @@ func TestGetZoneByProviderIDForFargate(t *testing.T) {
 	zoneDetails, err := c.GetZoneByProviderID(context.TODO(), "aws:///us-west-2c/1abc-2def/fargate-192.168.164.88")
 	assert.Nil(t, err)
 	assert.Equal(t, "us-west-2c", zoneDetails.FailureDomain)
+}
+
+type MockedEC2API struct {
+	ec2iface.EC2API
+	mock.Mock
+}
+
+func (m *MockedEC2API) DescribeInstances(input *ec2.DescribeInstancesInput) (*ec2.DescribeInstancesOutput, error) {
+	args := m.Called(input)
+	return args.Get(0).(*ec2.DescribeInstancesOutput), args.Error(1)
+}
+
+func newMockedEC2API() *MockedEC2API {
+	return &MockedEC2API{}
+}
+
+func TestDescribeInstances(t *testing.T) {
+	tests := []struct {
+		name    string
+		input   *ec2.DescribeInstancesInput
+		expect  func(ec2iface.EC2API)
+		isError bool
+	}{
+		{
+			"MaxResults set on empty DescribeInstancesInput and NextToken respected.",
+			&ec2.DescribeInstancesInput{},
+			func(mockedEc2 ec2iface.EC2API) {
+				m := mockedEc2.(*MockedEC2API)
+				m.On("DescribeInstances",
+					&ec2.DescribeInstancesInput{
+						MaxResults: aws.Int64(1000),
+					},
+				).Return(
+					&ec2.DescribeInstancesOutput{
+						NextToken: aws.String("asdf"),
+					},
+					nil,
+				)
+				m.On("DescribeInstances",
+					&ec2.DescribeInstancesInput{
+						MaxResults: aws.Int64(1000),
+						NextToken:  aws.String("asdf"),
+					},
+				).Return(
+					&ec2.DescribeInstancesOutput{},
+					nil,
+				)
+			},
+			false,
+		},
+		{
+			"MaxResults only set if empty DescribeInstancesInput",
+			&ec2.DescribeInstancesInput{
+				MaxResults: aws.Int64(3),
+			},
+			func(mockedEc2 ec2iface.EC2API) {
+				m := mockedEc2.(*MockedEC2API)
+				m.On("DescribeInstances",
+					&ec2.DescribeInstancesInput{
+						MaxResults: aws.Int64(3),
+					},
+				).Return(
+					&ec2.DescribeInstancesOutput{},
+					nil,
+				)
+			},
+			false,
+		},
+		{
+			"MaxResults not set if instance IDs are provided",
+			&ec2.DescribeInstancesInput{
+				InstanceIds: []*string{aws.String("i-1234")},
+			},
+			func(mockedEc2 ec2iface.EC2API) {
+				m := mockedEc2.(*MockedEC2API)
+				m.On("DescribeInstances",
+					&ec2.DescribeInstancesInput{
+						InstanceIds: []*string{aws.String("i-1234")},
+					},
+				).Return(
+					&ec2.DescribeInstancesOutput{},
+					nil,
+				)
+			},
+			false,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			mockedEC2API := newMockedEC2API()
+			test.expect(mockedEC2API)
+			fakeEC2 := awsSdkEC2{
+				ec2: mockedEC2API,
+			}
+			_, err := fakeEC2.DescribeInstances(test.input)
+			if !test.isError {
+				assert.NoError(t, err)
+			}
+			mockedEC2API.AssertExpectations(t)
+		})
+	}
 }
