@@ -2,8 +2,9 @@
 /ecr-credential-provider
 /ecr-credential-provider.exe
 /cloudconfig
-
-.vscode/
-
+_output/
+/kops-example
 docs/book/_book/
 site/
+
+.vscode/

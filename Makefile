@@ -13,12 +13,15 @@
 # limitations under the License.
 #
 
+.EXPORT_ALL_VARIABLES:
+
 SOURCES := $(shell find . -name '*.go')
 GOOS ?= $(shell go env GOOS)
 GOPROXY ?= $(shell go env GOPROXY)
 GIT_VERSION := $(shell git describe --match=$(git rev-parse --short=8 HEAD) --always --dirty --abbrev=8)
 VERSION ?= $(GIT_VERSION)
 IMAGE := amazon/cloud-controller-manager:$(VERSION)
+OUTPUT ?= _output
 
 aws-cloud-controller-manager: $(SOURCES)
 	 GO111MODULE=on CGO_ENABLED=0 GOOS=$(GOOS) GOPROXY=$(GOPROXY) go build \
@@ -81,3 +84,7 @@ docs:
 .PHONY: publish-docs
 publish-docs:
 	./hack/publish-docs.sh
+
+.PHONY: kops-example
+kops-example:
+	./hack/kops-example.sh
