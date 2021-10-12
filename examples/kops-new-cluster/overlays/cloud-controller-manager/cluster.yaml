@@ -1,0 +1,17 @@
+apiVersion: kops.k8s.io/v1alpha2
+kind: Cluster
+metadata:
+  name: aws-external-cloud-provider-example.k8s.local
+spec:
+  cloudControllerManager:
+    cloudProvider: aws
+    configureCloudRoutes: false
+    useServiceAccountCredentials: true
+  kubeControllerManager:
+    externalCloudVolumePlugin: aws
+  cloudProvider: aws
+  kubeAPIServer:
+    cloudProvider: external
+  kubelet:
+    cloudProvider: aws
+  kubernetesVersion: 1.21.0

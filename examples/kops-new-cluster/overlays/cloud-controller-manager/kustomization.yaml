@@ -1,0 +1,5 @@
+resources:
+- ../../base
+
+patches:
+- cluster.yaml
