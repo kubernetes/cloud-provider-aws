@@ -22,6 +22,7 @@ import (
 	"fmt"
 	"io"
 	"math/rand"
+	"os"
 	"reflect"
 	"sort"
 	"strings"
@@ -29,6 +30,7 @@ import (
 
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/awserr"
+	"github.com/aws/aws-sdk-go/aws/endpoints"
 	"github.com/aws/aws-sdk-go/service/ec2"
 	"github.com/aws/aws-sdk-go/service/ec2/ec2iface"
 	"github.com/aws/aws-sdk-go/service/elb"
@@ -3843,4 +3845,41 @@ func TestDescribeInstances(t *testing.T) {
 			mockedEC2API.AssertExpectations(t)
 		})
 	}
+}
+
+func TestRegionalSession(t *testing.T) {
+	tests := []struct {
+		name           string
+		useRegionalSts string
+		expectRegion   string
+		expectEndpoint endpoints.STSRegionalEndpoint
+	}{
+		{
+			name:           "sts regional endpoint is set",
+			useRegionalSts: "true",
+			expectRegion:   "us-east-1",
+			expectEndpoint: endpoints.RegionalSTSEndpoint,
+		},
+		{
+			name:           "sts regional endpoint is unset",
+			useRegionalSts: "",
+			expectRegion:   "",
+			expectEndpoint: endpoints.UnsetSTSEndpoint,
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			os.Setenv(useRegionalSts, test.useRegionalSts)
+			defer os.Setenv(useRegionalSts, "")
+			session, err := getSessionConfig(newMockedFakeAWSServices(TestClusterID))
+			assert.NoError(t, err)
+			gotRegion := ""
+			if session.Region != nil {
+				gotRegion = *session.Region
+			}
+			assert.Equal(t, test.expectRegion, gotRegion)
+			assert.Equal(t, test.expectEndpoint, session.STSRegionalEndpoint)
+		})
+	}
+
 }

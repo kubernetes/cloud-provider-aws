@@ -23,6 +23,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"os"
 	"path"
 	"regexp"
 	"sort"
@@ -287,6 +288,10 @@ const (
 
 	// privateDNSNamePrefix is the prefix added to ENI Private DNS Name.
 	privateDNSNamePrefix = "ip-"
+
+	// Environment Variable to create sts session with regional endpoint
+	// If unset or false, uses global sts endpoint
+	useRegionalSts = "USE_REGIONAL_STS"
 )
 
 const (
@@ -1208,8 +1213,12 @@ func init() {
 			return nil, fmt.Errorf("unable to validate custom endpoint overrides: %v", err)
 		}
 
+		awsSessionConfig, err := getSessionConfig(&awsSDKProvider{cfg: cfg})
+		if err != nil {
+			return nil, fmt.Errorf("unable to create aws session: %v", err)
+		}
 		sess, err := session.NewSessionWithOptions(session.Options{
-			Config:            aws.Config{},
+			Config:            *awsSessionConfig,
 			SharedConfigState: session.SharedConfigEnable,
 		})
 		if err != nil {
@@ -5318,4 +5327,27 @@ func (c *Cloud) describeNetworkInterfaces(nodeName string) (*ec2.NetworkInterfac
 		return nil, fmt.Errorf("multiple interfaces found with same id %q", eni.NetworkInterfaces)
 	}
 	return eni.NetworkInterfaces[0], nil
+}
+
+func getSessionConfig(awsServices Services) (*aws.Config, error) {
+	metadata, err := awsServices.Metadata()
+	if err != nil {
+		return nil, fmt.Errorf("error creating AWS metadata client: %q", err)
+	}
+	az, err := getAvailabilityZone(metadata)
+	if err != nil {
+		return nil, fmt.Errorf("error creating retrieving AZ from metadata: %q", err)
+	}
+	region, err := azToRegion(az)
+	if err != nil {
+		return nil, fmt.Errorf("error getting region from AZ: %q", err)
+	}
+
+	useRegionalSts, _ := strconv.ParseBool(os.Getenv(useRegionalSts))
+	awsSessionConfig := &aws.Config{}
+	if useRegionalSts {
+		klog.Infof("Using Regional STS")
+		awsSessionConfig = aws.NewConfig().WithRegion(region).WithSTSRegionalEndpoint(endpoints.RegionalSTSEndpoint)
+	}
+	return awsSessionConfig, nil
 }
