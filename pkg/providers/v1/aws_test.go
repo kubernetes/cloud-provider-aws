@@ -3881,5 +3881,4 @@ func TestRegionalSession(t *testing.T) {
 			assert.Equal(t, test.expectEndpoint, session.STSRegionalEndpoint)
 		})
 	}
-
 }
