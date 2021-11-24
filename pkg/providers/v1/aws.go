@@ -287,6 +287,9 @@ const (
 
 	// privateDNSNamePrefix is the prefix added to ENI Private DNS Name.
 	privateDNSNamePrefix = "ip-"
+
+	// rbnNamePrefix is the prefix added to ENI Private DNS Name with RBN.
+	rbnNamePrefix = "i-"
 )
 
 const (
@@ -5233,6 +5236,9 @@ func isFargateNode(nodeName string) bool {
 }
 
 func (c *Cloud) nodeNameToProviderID(nodeName types.NodeName) (InstanceID, error) {
+	if strings.HasPrefix(string(nodeName), rbnNamePrefix) {
+		return InstanceID(nodeName), nil
+	}
 	if len(nodeName) == 0 {
 		return "", fmt.Errorf("no nodeName provided")
 	}
