@@ -14,7 +14,7 @@
 ##                               BUILD ARGS                                   ##
 ################################################################################
 # This build arg allows the specification of a custom Golang image.
-ARG GOLANG_IMAGE=golang:1.16.7
+ARG GOLANG_IMAGE=golang:1.17.4
 
 # The distroless image on which the CPI manager image is built.
 #
@@ -23,24 +23,27 @@ ARG GOLANG_IMAGE=golang:1.16.7
 # the fully-qualified image can be obtained by entering
 # "gcr.io/distroless/static:latest" in a browser and then copying the
 # fully-qualified image from the web page.
-ARG DISTROLESS_IMAGE=gcr.io/distroless/static@sha256:c6d5981545ce1406d33e61434c61e9452dad93ecd8397c41e89036ef977a88f4
+ARG DISTROLESS_IMAGE=gcr.io/distroless/static@sha256:1cc74da80bbf80d89c94e0c7fe22830aa617f47643f2db73f66c8bd5bf510b25
 
 ################################################################################
 ##                              BUILD STAGE                                   ##
 ################################################################################
 # Build the manager as a statically compiled binary so it has no dependencies
 # libc, muscl, etc.
-FROM ${GOLANG_IMAGE} as builder
+FROM --platform=linux/amd64 ${GOLANG_IMAGE} as builder
 
 ARG VERSION
 ARG GOPROXY=https://goproxy.io,direct
-ARG GOOS=linux
+ARG TARGETOS
+ARG TARGETARCH
 
 WORKDIR /build
 COPY go.mod go.sum ./
 COPY cmd/ cmd/
 COPY pkg/ pkg/
-RUN GO111MODULE=on CGO_ENABLED=0 GOOS=${GOOS} GOPROXY=${GOPROXY} go build \
+RUN GO111MODULE=on CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} GOPROXY=${GOPROXY} \
+		go build \
+		-trimpath \
 		-ldflags="-w -s -X 'main.version=${VERSION}'" \
 		-o=aws-cloud-controller-manager \
 		cmd/aws-cloud-controller-manager/main.go
@@ -49,6 +52,6 @@ RUN GO111MODULE=on CGO_ENABLED=0 GOOS=${GOOS} GOPROXY=${GOPROXY} go build \
 ##                               MAIN STAGE                                   ##
 ################################################################################
 # Copy the manager into the distroless image.
-FROM ${DISTROLESS_IMAGE}
+FROM --platform=${TARGETPLATFORM} ${DISTROLESS_IMAGE}
 COPY --from=builder /build/aws-cloud-controller-manager /bin/aws-cloud-controller-manager
 ENTRYPOINT [ "/bin/aws-cloud-controller-manager" ]
