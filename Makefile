@@ -17,6 +17,7 @@
 
 SOURCES := $(shell find . -name '*.go')
 GOOS ?= $(shell go env GOOS)
+GOARCH ?= $(shell go env GOARCH)
 GOPROXY ?= $(shell go env GOPROXY)
 GIT_VERSION := $(shell git describe --match=$(git rev-parse --short=8 HEAD) --always --dirty --abbrev=8)
 VERSION ?= $(GIT_VERSION)
@@ -24,13 +25,13 @@ IMAGE := amazon/cloud-controller-manager:$(VERSION)
 OUTPUT ?= _output
 
 aws-cloud-controller-manager: $(SOURCES)
-	 GO111MODULE=on CGO_ENABLED=0 GOOS=$(GOOS) GOPROXY=$(GOPROXY) go build \
+	 GO111MODULE=on CGO_ENABLED=0 GOOS=$(GOOS) GOARCH=$(GOARCH) GOPROXY=$(GOPROXY) go build \
 		-ldflags="-w -s -X 'main.version=$(VERSION)'" \
 		-o=aws-cloud-controller-manager \
 		cmd/aws-cloud-controller-manager/main.go
 
 ecr-credential-provider: $(shell find ./cmd/ecr-credential-provider -name '*.go')
-	 GO111MODULE=on CGO_ENABLED=0 GOOS=$(GOOS) GOPROXY=$(GOPROXY) go build \
+	 GO111MODULE=on CGO_ENABLED=0 GOOS=$(GOOS) GOARCH=$(GOARCH) GOPROXY=$(GOPROXY) go build \
 		-ldflags="-w -s -X 'main.version=$(VERSION)'" \
 		-o=ecr-credential-provider \
 		cmd/ecr-credential-provider/*.go
@@ -41,12 +42,28 @@ ecr-credential-provider.exe: $(wildcard ./cmd/ecr-credential-provider/*.go)
 		-o=ecr-credential-provider.exe \
 		cmd/ecr-credential-provider/*.go
 
+.PHONY: docker-build-amd64
+docker-build-amd64:
+	docker buildx build --output=type=docker \
+		--build-arg VERSION=$(VERSION) \
+		--build-arg GOPROXY=$(GOPROXY) \
+		--platform linux/amd64 \
+		--tag $(IMAGE) .
+
+.PHONY: docker-build-arm64
+docker-build-arm64:
+	docker buildx build --output=type=docker \
+		--build-arg VERSION=$(VERSION) \
+		--build-arg GOPROXY=$(GOPROXY) \
+		--platform linux/arm64 \
+		--tag $(IMAGE) .
+
 .PHONY: docker-build
 docker-build:
-	docker build \
+	docker buildx build --output=type=registry \
 		--build-arg VERSION=$(VERSION) \
-		--build-arg GOOS=$(GOOS) \
 		--build-arg GOPROXY=$(GOPROXY) \
+		--platform linux/amd64,linux/arm64 \
 		--tag $(IMAGE) .
 
 .PHONY: check

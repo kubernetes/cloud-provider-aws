@@ -1,14 +1,18 @@
-images:
-  - 'gcr.io/$PROJECT_ID/cloud-controller-manager:$_GIT_TAG'
-  - 'gcr.io/$PROJECT_ID/cloud-controller-manager:latest'
+# See https://cloud.google.com/cloud-build/docs/build-config
 options:
   substitution_option: ALLOW_LOOSE
+  machineType: 'N1_HIGHCPU_8'
 steps:
-  - name: gcr.io/cloud-builders/docker
+  - name: gcr.io/k8s-testimages/gcb-docker-gcloud
+    entrypoint: /buildx-entrypoint
     args:
     - build
     - --tag=gcr.io/$PROJECT_ID/cloud-controller-manager:$_GIT_TAG
     - --tag=gcr.io/$PROJECT_ID/cloud-controller-manager:latest
     - --build-arg=VERSION=$_GIT_TAG
+    - --output=type=registry
+    - --platform=linux/amd64,linux/arm64
     - .
+substitutions:
+  _GIT_TAG: '12345'
 timeout: 1200s
