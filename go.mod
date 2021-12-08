@@ -3,7 +3,7 @@ module k8s.io/cloud-provider-aws
 go 1.17
 
 require (
-	github.com/aws/aws-sdk-go v1.38.49
+	github.com/aws/aws-sdk-go v1.42.20
 	github.com/golang/mock v1.5.0
 	github.com/google/go-cmp v0.5.5
 	github.com/stretchr/testify v1.7.0
