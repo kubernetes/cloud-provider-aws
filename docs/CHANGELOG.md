@@ -1,3 +1,31 @@
+## v1.23.0-alpha.0
+* Tag on create ([#293](https://github.com/kubernetes/cloud-provider-aws/pull/293), @olemarkus)
+* Use go-runner as base image ([#295](https://github.com/kubernetes/cloud-provider-aws/pull/295), @wongma7)
+* Update aws-sdk-go to v1.42.20 ([#292](https://github.com/kubernetes/cloud-provider-aws/pull/292), @hakman)
+* Update k8s dependencies to v1.23.0 ([#291](https://github.com/kubernetes/cloud-provider-aws/pull/291), @hakman)
+* Add support for ARM64 builds ([#289](https://github.com/kubernetes/cloud-provider-aws/pull/289), @hakman)
+* Update go to v1.17.4 ([#290](https://github.com/kubernetes/cloud-provider-aws/pull/290), @hakman)
+* Add support for RBN-based node names ([#286](https://github.com/kubernetes/cloud-provider-aws/pull/286), @olemarkus)
+* validate service with mixed protocols ([#287](https://github.com/kubernetes/cloud-provider-aws/pull/287), @nckturner)
+* Add a kops example with easy setup script ([#279](https://github.com/kubernetes/cloud-provider-aws/pull/279), @nckturner)
+* Add 1.22.0-alpha to README table and helm chart appVersion ([#278](https://github.com/kubernetes/cloud-provider-aws/pull/278), @nckturner)
+* Add test for DescribeInstances ([#277](https://github.com/kubernetes/cloud-provider-aws/pull/277), @nckturner)
+* [helm] Command line flags can be overridden ([#273](https://github.com/kubernetes/cloud-provider-aws/pull/273), @nckturner)
+* Set MaxResults if it is not set ([#274](https://github.com/kubernetes/cloud-provider-aws/pull/274), @nckturner)
+* Use promoted images ([#267](https://github.com/kubernetes/cloud-provider-aws/pull/267), @nckturner)
+
+## v1.22.0-alpha.1
+* Add support for ARM64 builds ([#289](https://github.com/kubernetes/cloud-provider-aws/pull/289), @hakman)
+* Update go to v1.17.4 ([#290](https://github.com/kubernetes/cloud-provider-aws/pull/290), @hakman)
+* Add support for RBN-based node names ([#286](https://github.com/kubernetes/cloud-provider-aws/pull/286), @olemarkus)
+* validate service with mixed protocols ([#287](https://github.com/kubernetes/cloud-provider-aws/pull/287), @nckturner)
+* Add a kops example with easy setup script ([#279](https://github.com/kubernetes/cloud-provider-aws/pull/279), @nckturner)
+* Add 1.22.0-alpha to README table and helm chart appVersion ([#278](https://github.com/kubernetes/cloud-provider-aws/pull/278), @nckturner)
+* Add test for DescribeInstances ([#277](https://github.com/kubernetes/cloud-provider-aws/pull/277), @nckturner)
+* [helm] Command line flags can be overridden ([#273](https://github.com/kubernetes/cloud-provider-aws/pull/273), @nckturner)
+* Set MaxResults if it is not set ([#274](https://github.com/kubernetes/cloud-provider-aws/pull/274), @nckturner)
+* Use promoted images ([#267](https://github.com/kubernetes/cloud-provider-aws/pull/267), @nckturner)
+
 ## v1.22.0-alpha.0
 * Add a unit test for sets_ippermissions ([#265](https://github.com/kubernetes/cloud-provider-aws/pull/265), @nckturner)
 * Remove inactive and add jaypipes ([#266](https://github.com/kubernetes/cloud-provider-aws/pull/266), @nckturner)
