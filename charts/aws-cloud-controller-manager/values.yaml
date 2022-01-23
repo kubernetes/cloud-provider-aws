@@ -6,7 +6,7 @@ args:
 
 image:
     repository: us.gcr.io/k8s-artifacts-prod/provider-aws/cloud-controller-manager
-    tag: v1.22.0-alpha.0
+    tag: v1.23.0-alpha.0
 
 # nameOverride overrides `cloud-controller-manager.fullname`
 nameOverride: "aws-cloud-controller-manager"
