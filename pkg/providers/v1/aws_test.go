@@ -831,6 +831,21 @@ func TestNodeAddressesWithMetadata(t *testing.T) {
 	}
 }
 
+func TestNodeAddressesWithIPv6Metadata(t *testing.T) {
+	instance := makeInstance(0, "", "2.3.4.5", "instance.ec2.internal", "", nil, false)
+	instances := []*ec2.Instance{&instance}
+	awsCloud, awsServices := mockInstancesResp(&instance, instances)
+	awsCloud.cfg.Global.NodeIPFamilies = []string{"ipv6"}
+
+	awsServices.networkInterfacesMacs = []string{"0a:26:64:c4:6a:48"}
+	awsServices.networkInterfacesPrivateIPs = [][]string{{"2600:1f14:1d4:d101:0:0:0:ba3d"}}
+	addrs, err := awsCloud.NodeAddresses(context.TODO(), "")
+	if err != nil {
+		t.Errorf("unexpected error: %v", err)
+	}
+	testHasNodeAddress(t, addrs, v1.NodeInternalIP, "2600:1f14:1d4:d101::ba3d")
+}
+
 func TestParseMetadataLocalHostname(t *testing.T) {
 	tests := []struct {
 		name        string

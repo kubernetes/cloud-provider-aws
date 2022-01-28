@@ -373,6 +373,14 @@ func (m *FakeMetadata) GetMetadata(key string) (string, error) {
 			}
 		}
 
+		if len(keySplit) == 5 && keySplit[4] == "ipv6s" {
+			for i, macElem := range m.aws.networkInterfacesMacs {
+				if macParam == macElem {
+					return strings.Join(m.aws.networkInterfacesPrivateIPs[i], "/\n"), nil
+				}
+			}
+		}
+
 		return "", nil
 	}
 

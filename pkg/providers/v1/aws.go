@@ -1691,7 +1691,7 @@ func (c *Cloud) ipv6AddressesFromMetadata() ([]v1.NodeAddress, error) {
 			if internalIPv6 == "" {
 				continue
 			}
-			addresses = append(addresses, v1.NodeAddress{Type: v1.NodeInternalIP, Address: internalIPv6})
+			addresses = append(addresses, v1.NodeAddress{Type: v1.NodeInternalIP, Address: net.ParseIP(internalIPv6).String()})
 			break
 		}
 	}
