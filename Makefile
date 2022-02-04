@@ -15,6 +15,7 @@
 
 .EXPORT_ALL_VARIABLES:
 
+SHELL := /bin/bash
 SOURCES := $(shell find . -name '*.go')
 GOOS ?= $(shell go env GOOS)
 GOARCH ?= $(shell go env GOARCH)
@@ -66,6 +67,11 @@ docker-build:
 		--platform linux/amd64,linux/arm64 \
 		--tag $(IMAGE) .
 
+e2e.test:
+	pushd tests/e2e > /dev/null && \
+		go test -c && popd
+	mv tests/e2e/e2e.test e2e.test
+
 .PHONY: check
 check: verify-fmt verify-lint vet
 
@@ -105,3 +111,23 @@ publish-docs:
 .PHONY: kops-example
 kops-example:
 	./hack/kops-example.sh
+
+.PHONY: test-e2e
+test-e2e: e2e.test docker-build-amd64
+	AWS_REGION=us-west-2 \
+	TEST_PATH=./tests/e2e/... \
+	MAKE_IMAGE=$(IMAGE) \
+	MAKE_VERSION=$(VERSION) \
+	GINKGO_FOCUS="\[cloud-provider-aws-e2e\]" \
+	./hack/e2e/run.sh
+
+# Use `make install-e2e-tools KOPS_ROOT=<local-kops-installation>`
+# to skip the kops download, test local changes to the kubetest2-kops
+# deployer, etc.
+.PHONY: install-e2e-tools
+install-e2e-tools:
+	./hack/install-e2e-tools.sh
+
+.PHONY: print-image-tag
+print-image-tag:
+	@echo $(IMAGE)
