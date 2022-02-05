@@ -734,24 +734,15 @@ func TestNodeAddressesByProviderID(t *testing.T) {
 }
 
 func TestNodeAddresses(t *testing.T) {
-	// Note instance0 and instance1 have the same name
-	// (we test that this produces an error)
 	instance0 := makeInstance(0, "192.168.0.1", "1.2.3.4", "instance-same.ec2.internal", "instance-same.ec2.external", nil, true)
-	instance1 := makeInstance(1, "192.168.0.2", "", "instance-same.ec2.internal", "", nil, false)
 	instance2 := makeInstance(2, "192.168.0.1", "1.2.3.4", "instance-other.ec2.internal", "", nil, false)
 	instance3 := makeInstance(3, "192.168.0.3", "", "instance-ipv6.ec2.internal", "", []string{"2a05:d014:aa7:911:fc7e:1600:fc4d:ab2", "2a05:d014:aa7:911:9f44:e737:1aa0:6489"}, true)
-	instances := []*ec2.Instance{&instance0, &instance1, &instance2, &instance3}
+	instances := []*ec2.Instance{&instance0, &instance2, &instance3}
 
 	aws1, _ := mockInstancesResp(&instance0, []*ec2.Instance{&instance0})
 	_, err1 := aws1.NodeAddresses(context.TODO(), "instance-mismatch.ec2.internal")
 	if err1 == nil {
 		t.Errorf("Should error when no instance found")
-	}
-
-	aws2, _ := mockInstancesResp(&instance2, instances)
-	_, err2 := aws2.NodeAddresses(context.TODO(), "instance-same.ec2.internal")
-	if err2 == nil {
-		t.Errorf("Should error when multiple instances found")
 	}
 
 	aws3, _ := mockInstancesResp(&instance0, instances[0:1])
