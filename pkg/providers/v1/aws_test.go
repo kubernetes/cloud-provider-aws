@@ -608,6 +608,20 @@ func mockInstancesResp(selfInstance *ec2.Instance, instances []*ec2.Instance) (*
 		panic(err)
 	}
 	awsCloud.kubeClient = fake.NewSimpleClientset()
+	fakeInformerFactory := informers.NewSharedInformerFactory(awsCloud.kubeClient, 0)
+	awsCloud.SetInformers(fakeInformerFactory)
+	for _, instance := range instances {
+		node := &v1.Node{
+			ObjectMeta: metav1.ObjectMeta{
+				Name: *instance.PrivateDnsName,
+			},
+			Spec: v1.NodeSpec{
+				ProviderID: *instance.InstanceId,
+			},
+		}
+		awsCloud.nodeInformer.Informer().GetStore().Add(node)
+	}
+	awsCloud.nodeInformerHasSynced = informerSynced
 	return awsCloud, awsServices
 }
 
