@@ -1501,26 +1501,6 @@ func (c *Cloud) NodeAddresses(ctx context.Context, name types.NodeName) ([]v1.No
 	return c.NodeAddressesByProviderID(ctx, string(providerID))
 }
 
-// parseMetadataLocalHostname parses the output of "local-hostname" metadata.
-// If a DHCP option set is configured for a VPC and it has multiple domain names, GetMetadata
-// returns a string containing first the hostname followed by additional domain names,
-// space-separated. For example, if the DHCP option set has:
-// domain-name = us-west-2.compute.internal a.a b.b c.c d.d;
-// $ curl http://169.254.169.254/latest/meta-data/local-hostname
-// ip-192-168-111-51.us-west-2.compute.internal a.a b.b c.c d.d
-func parseMetadataLocalHostname(metadata string) (string, []string) {
-	localHostnames := strings.Fields(metadata)
-	hostname := localHostnames[0]
-	internalDNS := []string{hostname}
-
-	privateAddress := strings.Split(hostname, ".")[0]
-	for _, h := range localHostnames[1:] {
-		internalDNSAddress := privateAddress + "." + h
-		internalDNS = append(internalDNS, internalDNSAddress)
-	}
-	return hostname, internalDNS
-}
-
 // extractIPv4NodeAddresses maps the instance information from EC2 to an array of NodeAddresses.
 // This function will extract private and public IP addresses and their corresponding DNS names.
 func extractIPv4NodeAddresses(instance *ec2.Instance) ([]v1.NodeAddress, error) {
