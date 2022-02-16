@@ -608,6 +608,20 @@ func mockInstancesResp(selfInstance *ec2.Instance, instances []*ec2.Instance) (*
 		panic(err)
 	}
 	awsCloud.kubeClient = fake.NewSimpleClientset()
+	fakeInformerFactory := informers.NewSharedInformerFactory(awsCloud.kubeClient, 0)
+	awsCloud.SetInformers(fakeInformerFactory)
+	for _, instance := range instances {
+		node := &v1.Node{
+			ObjectMeta: metav1.ObjectMeta{
+				Name: *instance.PrivateDnsName,
+			},
+			Spec: v1.NodeSpec{
+				ProviderID: *instance.InstanceId,
+			},
+		}
+		awsCloud.nodeInformer.Informer().GetStore().Add(node)
+	}
+	awsCloud.nodeInformerHasSynced = informerSynced
 	return awsCloud, awsServices
 }
 
@@ -734,24 +748,15 @@ func TestNodeAddressesByProviderID(t *testing.T) {
 }
 
 func TestNodeAddresses(t *testing.T) {
-	// Note instance0 and instance1 have the same name
-	// (we test that this produces an error)
 	instance0 := makeInstance(0, "192.168.0.1", "1.2.3.4", "instance-same.ec2.internal", "instance-same.ec2.external", nil, true)
-	instance1 := makeInstance(1, "192.168.0.2", "", "instance-same.ec2.internal", "", nil, false)
 	instance2 := makeInstance(2, "192.168.0.1", "1.2.3.4", "instance-other.ec2.internal", "", nil, false)
 	instance3 := makeInstance(3, "192.168.0.3", "", "instance-ipv6.ec2.internal", "", []string{"2a05:d014:aa7:911:fc7e:1600:fc4d:ab2", "2a05:d014:aa7:911:9f44:e737:1aa0:6489"}, true)
-	instances := []*ec2.Instance{&instance0, &instance1, &instance2, &instance3}
+	instances := []*ec2.Instance{&instance0, &instance2, &instance3}
 
 	aws1, _ := mockInstancesResp(&instance0, []*ec2.Instance{&instance0})
 	_, err1 := aws1.NodeAddresses(context.TODO(), "instance-mismatch.ec2.internal")
 	if err1 == nil {
 		t.Errorf("Should error when no instance found")
-	}
-
-	aws2, _ := mockInstancesResp(&instance2, instances)
-	_, err2 := aws2.NodeAddresses(context.TODO(), "instance-same.ec2.internal")
-	if err2 == nil {
-		t.Errorf("Should error when multiple instances found")
 	}
 
 	aws3, _ := mockInstancesResp(&instance0, instances[0:1])
@@ -799,71 +804,6 @@ func TestNodeAddresses(t *testing.T) {
 	}
 	testHasNodeAddress(t, addrs5, v1.NodeInternalIP, "2a05:d014:aa7:911:fc7e:1600:fc4d:ab2")
 
-}
-
-func TestNodeAddressesWithMetadata(t *testing.T) {
-	instance := makeInstance(0, "", "2.3.4.5", "instance.ec2.internal", "", nil, false)
-	instances := []*ec2.Instance{&instance}
-	awsCloud, awsServices := mockInstancesResp(&instance, instances)
-
-	awsServices.networkInterfacesMacs = []string{"0a:77:89:f3:9c:f6", "0a:26:64:c4:6a:48"}
-	awsServices.networkInterfacesPrivateIPs = [][]string{{"192.168.0.1"}, {"192.168.0.2"}}
-	addrs, err := awsCloud.NodeAddresses(context.TODO(), "")
-	if err != nil {
-		t.Errorf("unexpected error: %v", err)
-	}
-	testHasNodeAddress(t, addrs, v1.NodeInternalIP, "192.168.0.1")
-	testHasNodeAddress(t, addrs, v1.NodeInternalIP, "192.168.0.2")
-	testHasNodeAddress(t, addrs, v1.NodeExternalIP, "2.3.4.5")
-	if len(addrs) != 5 {
-		t.Errorf("should return exactly 5 addresses, got %v", addrs)
-	}
-	var index1, index2 int
-	for i, addr := range addrs {
-		if addr.Type == v1.NodeInternalIP && addr.Address == "192.168.0.1" {
-			index1 = i
-		} else if addr.Type == v1.NodeInternalIP && addr.Address == "192.168.0.2" {
-			index2 = i
-		}
-	}
-	if index1 > index2 {
-		t.Errorf("Addresses in incorrect order: %v", addrs)
-	}
-}
-
-func TestParseMetadataLocalHostname(t *testing.T) {
-	tests := []struct {
-		name        string
-		metadata    string
-		hostname    string
-		internalDNS []string
-	}{
-		{
-			"single hostname",
-			"ip-172-31-16-168.us-west-2.compute.internal",
-			"ip-172-31-16-168.us-west-2.compute.internal",
-			[]string{"ip-172-31-16-168.us-west-2.compute.internal"},
-		},
-		{
-			"dhcp options set with three additional domain names",
-			"ip-172-31-16-168.us-west-2.compute.internal example.com example.ca example.org",
-			"ip-172-31-16-168.us-west-2.compute.internal",
-			[]string{"ip-172-31-16-168.us-west-2.compute.internal", "ip-172-31-16-168.example.com", "ip-172-31-16-168.example.ca", "ip-172-31-16-168.example.org"},
-		},
-	}
-	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			hostname, internalDNS := parseMetadataLocalHostname(test.metadata)
-			if hostname != test.hostname {
-				t.Errorf("got hostname %v, expected %v", hostname, test.hostname)
-			}
-			for i, v := range internalDNS {
-				if v != test.internalDNS[i] {
-					t.Errorf("got an internalDNS %v, expected %v", v, test.internalDNS[i])
-				}
-			}
-		})
-	}
 }
 
 func TestGetRegion(t *testing.T) {
