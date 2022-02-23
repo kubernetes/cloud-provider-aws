@@ -29,7 +29,7 @@ func BuildControllerInitializers() map[string]app.ControllerInitFuncConstructor 
 	return controllerInitializers
 }
 
-// StartCloudNodeControllerWrapper is used to take cloud cofig as input and start cloud node controller
+// StartTaggingControllerWrapper is used to take cloud config as input and start tagging controller
 func startTaggingControllerWrapper(initContext app.ControllerInitContext, completedConfig *cloudcontrollerconfig.CompletedConfig, cloud cloudprovider.Interface) app.InitFunc {
 	return func(ctx context.Context, controllerContext genericcontrollermanager.ControllerContext) (controller.Interface, bool, error) {
 		return startTaggingController(ctx, initContext, completedConfig, cloud)
@@ -37,7 +37,7 @@ func startTaggingControllerWrapper(initContext app.ControllerInitContext, comple
 }
 
 func startTaggingController(ctx context.Context, initContext app.ControllerInitContext, completedConfig *cloudcontrollerconfig.CompletedConfig, cloud cloudprovider.Interface) (controller.Interface, bool, error) {
-	// Start the CloudNodeController
+	// Start the TaggingController
 	taggingcontroller, err := taggingcontroller.NewTaggingController()
 	if err != nil {
 		klog.Warningf("failed to start tagging controller: %s", err)
