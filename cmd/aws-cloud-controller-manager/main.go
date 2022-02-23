@@ -45,7 +45,7 @@ import (
 
 	cloudcontrollerconfig "k8s.io/cloud-provider/app/config"
 
-	acm "k8s.io/cloud-provider-aws/pkg/providers/v1/controllers"
+	acm "k8s.io/cloud-provider-aws/cmd/aws-cloud-controller-manager/controllers"
 )
 
 const (

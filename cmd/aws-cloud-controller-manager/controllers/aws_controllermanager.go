@@ -5,11 +5,11 @@ import (
 	"k8s.io/klog/v2"
 
 	cloudprovider "k8s.io/cloud-provider"
+	taggingcontroller "k8s.io/cloud-provider-aws/cmd/aws-cloud-controller-manager/controllers/tagging"
 	"k8s.io/cloud-provider/app"
 	cloudcontrollerconfig "k8s.io/cloud-provider/app/config"
-	"k8s.io/controller-manager/controller"
 	genericcontrollermanager "k8s.io/controller-manager/app"
-	taggingcontroller "k8s.io/cloud-provider-aws/pkg/providers/v1/controllers/tagging"
+	"k8s.io/controller-manager/controller"
 )
 
 // BuildControllerInitializers is used to add new controllers built in this package to
