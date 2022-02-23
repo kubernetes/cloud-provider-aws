@@ -65,7 +65,10 @@ func main() {
 		klog.Fatalf("unable to initialize command options: %v", err)
 	}
 
+	klog.Info("Nguyen about to add tagging.")
 	controllerInitializers := acm.BuildControllerInitializers()
+
+	klog.Info("Nguyen tagging added.")
 	fss := cliflag.NamedFlagSets{}
 	command := app.NewCloudControllerManagerCommand(opts, cloudInitializer, controllerInitializers, fss, wait.NeverStop)
 
