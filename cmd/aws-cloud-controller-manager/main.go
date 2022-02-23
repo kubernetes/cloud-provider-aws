@@ -44,6 +44,8 @@ import (
 	awsv2 "k8s.io/cloud-provider-aws/pkg/providers/v2"
 
 	cloudcontrollerconfig "k8s.io/cloud-provider/app/config"
+
+	acm "k8s.io/cloud-provider-aws/pkg/providers/v1/controllers"
 )
 
 const (
@@ -63,7 +65,7 @@ func main() {
 		klog.Fatalf("unable to initialize command options: %v", err)
 	}
 
-	controllerInitializers := app.DefaultInitFuncConstructors
+	controllerInitializers := acm.BuildControllerInitializers()
 	fss := cliflag.NamedFlagSets{}
 	command := app.NewCloudControllerManagerCommand(opts, cloudInitializer, controllerInitializers, fss, wait.NeverStop)
 
