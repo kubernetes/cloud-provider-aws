@@ -31,13 +31,15 @@ func NewTaggingController() (*TaggingController, error) {
 	tc := &TaggingController{
 	}
 
+	klog.Infof("Starting the TaggingController")
+
 	return tc, nil
 }
 
 // Run will start the controller to tag resources attached to a cluster
-// at any point in time
+// and untag resources detached from a cluster.
 func (tc *TaggingController) Run(stopCh <-chan struct{}) {
-	klog.Infof("Starting the TaggingController, eksResourceTagPrefix is %s.", eksResourceTagPrefix)
+	klog.Infof("Running the TaggingController, eksResourceTagPrefix is %s.", eksResourceTagPrefix)
 
 	<-stopCh
 }
