@@ -15,6 +15,7 @@ package tagging
 
 import (
 	"k8s.io/klog/v2"
+	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 )
 
 // eksResourceTagPrefix is the prefix for tag to group resources that are used by eks
@@ -31,14 +32,13 @@ func NewTaggingController() (*TaggingController, error) {
 	tc := &TaggingController{
 	}
 
-	klog.Infof("Starting the TaggingController")
-
 	return tc, nil
 }
 
 // Run will start the controller to tag resources attached to a cluster
 // and untag resources detached from a cluster.
 func (tc *TaggingController) Run(stopCh <-chan struct{}) {
+	defer utilruntime.HandleCrash()
 	klog.Infof("Running the TaggingController, eksResourceTagPrefix is %s.", eksResourceTagPrefix)
 
 	<-stopCh
