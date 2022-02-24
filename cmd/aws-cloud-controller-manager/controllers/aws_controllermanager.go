@@ -26,6 +26,9 @@ func BuildControllerInitializers() map[string]app.ControllerInitFuncConstructor 
 
 	controllerInitializers["tagging"] = taggingControllerInitFuncConstrustor
 
+	// for testing only, remove when raise a PR
+	delete(controllerInitializers, "route")
+
 	return controllerInitializers
 }
 
