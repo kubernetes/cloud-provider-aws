@@ -26,13 +26,10 @@ func BuildControllerInitializers() map[string]app.ControllerInitFuncConstructor 
 
 	controllerInitializers["tagging"] = taggingControllerInitFuncConstrustor
 
-	// for testing only, remove when raise a PR
-	delete(controllerInitializers, "route")
-
 	return controllerInitializers
 }
 
-// StartTaggingControllerWrapper is used to take cloud config as input and start tagging controller
+// StartTaggingControllerWrapper is used to take cloud config as input and start the tagging controller
 func startTaggingControllerWrapper(initContext app.ControllerInitContext, completedConfig *cloudcontrollerconfig.CompletedConfig, cloud cloudprovider.Interface) app.InitFunc {
 	return func(ctx context.Context, controllerContext genericcontrollermanager.ControllerContext) (controller.Interface, bool, error) {
 		return startTaggingController(ctx, initContext, completedConfig, cloud)
