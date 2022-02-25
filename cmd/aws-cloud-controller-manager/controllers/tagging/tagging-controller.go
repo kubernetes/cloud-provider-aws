@@ -14,17 +14,51 @@ limitations under the License.
 package tagging
 
 import (
+	"context"
+	"k8s.io/apimachinery/pkg/labels"
+	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/klog/v2"
+	"time"
+
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
+	coreinformers "k8s.io/client-go/informers/core/v1"
+	clientset "k8s.io/client-go/kubernetes"
+	v1lister "k8s.io/client-go/listers/core/v1"
+	cloudprovider "k8s.io/cloud-provider"
 )
 
-// TaggingController is the controller implementation for tagging cluster resources
+const (
+	deleteNodeEvent = "DeletingNode"
+	createNodeEvent = "CreatingNode"
+)
+
+// TaggingController is the controller implementation for tagging cluster resources.
+// It periodically check for Node events (creating/deleting) to apply appropriate
+// tags to resources.
 type TaggingController struct {
+	kubeClient clientset.Interface
+	nodeLister v1lister.NodeLister
+
+	cloud cloudprovider.Interface
+
+	// Value controlling NodeController monitoring period, i.e. how often does NodeController
+	// check node status posted from kubelet. This value should be lower than nodeMonitorGracePeriod
+	// set in controller-manager
+	nodeMonitorPeriod time.Duration
 }
 
 // NewTaggingController creates a NewTaggingController object
-func NewTaggingController() (*TaggingController, error) {
+func NewTaggingController(
+	nodeInformer coreinformers.NodeInformer,
+	kubeClient clientset.Interface,
+	cloud cloudprovider.Interface,
+	nodeMonitorPeriod time.Duration) (*TaggingController, error) {
+
 	tc := &TaggingController{
+		kubeClient:        kubeClient,
+		nodeLister:        nodeInformer.Lister(),
+		cloud:             cloud,
+		nodeMonitorPeriod: nodeMonitorPeriod,
 	}
 
 	return tc, nil
@@ -32,9 +66,20 @@ func NewTaggingController() (*TaggingController, error) {
 
 // Run will start the controller to tag resources attached to a cluster
 // and untag resources detached from a cluster.
-func (tc *TaggingController) Run(stopCh <-chan struct{}) {
+func (tc *TaggingController) Run(ctx context.Context) {
 	defer utilruntime.HandleCrash()
-	klog.Infof("Running the TaggingController")
 
-	<-stopCh
+	wait.UntilWithContext(ctx, tc.MonitorNodes, tc.nodeMonitorPeriod)
+}
+
+func (c *TaggingController) MonitorNodes(ctx context.Context) {
+	nodes, err := c.nodeLister.List(labels.Everything())
+	if err != nil {
+		klog.Errorf("error listing nodes from cache: %s", err)
+		return
+	}
+
+	for _, node := range nodes {
+		klog.Infof("NGUYEN %s", node.ClusterName)
+	}
 }

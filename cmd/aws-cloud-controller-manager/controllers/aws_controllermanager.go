@@ -54,13 +54,18 @@ func startTaggingControllerWrapper(initContext app.ControllerInitContext, comple
 
 func startTaggingController(ctx context.Context, initContext app.ControllerInitContext, completedConfig *cloudcontrollerconfig.CompletedConfig, cloud cloudprovider.Interface) (controller.Interface, bool, error) {
 	// Start the TaggingController
-	taggingcontroller, err := taggingcontroller.NewTaggingController()
+	taggingcontroller, err := taggingcontroller.NewTaggingController(
+		completedConfig.SharedInformers.Core().V1().Nodes(),
+		// cloud node lifecycle controller uses existing cluster role from node-controller
+		completedConfig.ClientBuilder.ClientOrDie(initContext.ClientName),
+		cloud,
+		completedConfig.ComponentConfig.KubeCloudShared.NodeMonitorPeriod.Duration)
 	if err != nil {
 		klog.Warningf("failed to start tagging controller: %s", err)
 		return nil, false, nil
 	}
 
-	go taggingcontroller.Run(ctx.Done())
+	go taggingcontroller.Run(ctx)
 
 	return nil, true, nil
 }
