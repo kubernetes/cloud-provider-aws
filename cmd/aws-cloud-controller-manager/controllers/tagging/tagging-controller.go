@@ -15,6 +15,7 @@ package tagging
 
 import (
 	"context"
+	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/klog/v2"
@@ -25,11 +26,6 @@ import (
 	clientset "k8s.io/client-go/kubernetes"
 	v1lister "k8s.io/client-go/listers/core/v1"
 	cloudprovider "k8s.io/cloud-provider"
-)
-
-const (
-	deleteNodeEvent = "DeletingNode"
-	createNodeEvent = "CreatingNode"
 )
 
 // TaggingController is the controller implementation for tagging cluster resources.
@@ -45,6 +41,9 @@ type TaggingController struct {
 	// check node status posted from kubelet. This value should be lower than nodeMonitorGracePeriod
 	// set in controller-manager
 	nodeMonitorPeriod time.Duration
+
+	// A map presenting the node and whether it is tagged
+	taggedNodes map[*v1.Node]bool
 }
 
 // NewTaggingController creates a NewTaggingController object
@@ -59,6 +58,7 @@ func NewTaggingController(
 		nodeLister:        nodeInformer.Lister(),
 		cloud:             cloud,
 		nodeMonitorPeriod: nodeMonitorPeriod,
+		taggedNodes:       make(map[*v1.Node]bool),
 	}
 
 	return tc, nil
@@ -72,14 +72,21 @@ func (tc *TaggingController) Run(ctx context.Context) {
 	wait.UntilWithContext(ctx, tc.MonitorNodes, tc.nodeMonitorPeriod)
 }
 
-func (c *TaggingController) MonitorNodes(ctx context.Context) {
-	nodes, err := c.nodeLister.List(labels.Everything())
+func (tc *TaggingController) MonitorNodes(ctx context.Context) {
+	nodes, err := tc.nodeLister.List(labels.Everything())
 	if err != nil {
 		klog.Errorf("error listing nodes from cache: %s", err)
 		return
 	}
 
 	for _, node := range nodes {
-		klog.Infof("NGUYEN %s", node.ClusterName)
+		if _, ok := tc.taggedNodes[node]; !ok {
+			tc.taggedNodes[node] = false
+		}
+
+		if !tc.taggedNodes[node] {
+			klog.Infof("NGUYEN, tagging %s", node.Name)
+			tc.taggedNodes[node] = true
+		}
 	}
 }
