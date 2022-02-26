@@ -81,10 +81,6 @@ func (tc *TaggingController) MonitorNodes(ctx context.Context) {
 
 	for _, node := range nodes {
 		if _, ok := tc.taggedNodes[node]; !ok {
-			tc.taggedNodes[node] = false
-		}
-
-		if !tc.taggedNodes[node] {
 			klog.Infof("NGUYEN, tagging %s", node.Name)
 			tc.taggedNodes[node] = true
 		}
