@@ -83,8 +83,12 @@ func (tc *TaggingController) MonitorNodes(ctx context.Context) {
 
 	for _, node := range nodes {
 		if _, ok := tc.taggedNodes[node]; !ok {
-			klog.Infof("NGUYEN, tagging %s", node.Name)
+			klog.Infof("NGUYEN, tagging %s", node.GetClusterName())
 			tc.taggedNodes[node] = true
 		}
+	}
+
+	for key, element := range tc.taggedNodes {
+		klog.Infof("Key: %s => Element: %s", key.GetName(), element)
 	}
 }
