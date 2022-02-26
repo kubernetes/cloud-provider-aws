@@ -101,7 +101,7 @@ func (tc *TaggingController) syncDeletedNodes() {
 	for k, v := range tc.taggedNodes {
 		if v == false {
 			delete(tc.taggedNodes, k)
+			klog.Infof("NGUYEN, deleted %s", k)
 		}
-		klog.Infof("NGUYEN, deleted %s", k)
 	}
 }
