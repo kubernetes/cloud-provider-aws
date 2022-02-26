@@ -15,7 +15,6 @@ package tagging
 
 import (
 	"context"
-	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/klog/v2"
@@ -43,7 +42,7 @@ type TaggingController struct {
 	nodeMonitorPeriod time.Duration
 
 	// A map presenting the node and whether it is tagged
-	taggedNodes map[*v1.Node]bool
+	taggedNodes map[string]bool
 }
 
 // NewTaggingController creates a NewTaggingController object
@@ -58,7 +57,7 @@ func NewTaggingController(
 		nodeLister:        nodeInformer.Lister(),
 		cloud:             cloud,
 		nodeMonitorPeriod: nodeMonitorPeriod,
-		taggedNodes:       make(map[*v1.Node]bool),
+		taggedNodes:       make(map[string]bool),
 	}
 
 	return tc, nil
@@ -82,13 +81,13 @@ func (tc *TaggingController) MonitorNodes(ctx context.Context) {
 	klog.Infof("Nguyen, taggedNodes size %d", len(tc.taggedNodes))
 
 	for _, node := range nodes {
-		if _, ok := tc.taggedNodes[node]; !ok {
+		if _, ok := tc.taggedNodes[node.GetName()]; !ok {
 			klog.Infof("NGUYEN, tagging %s", node.GetClusterName())
-			tc.taggedNodes[node] = true
+			tc.taggedNodes[node.GetName()] = true
 		}
 	}
 
 	for key, element := range tc.taggedNodes {
-		klog.Infof("Key: %s => Element: %s", key.GetName(), element)
+		klog.Infof("Key: %s => Element: %s", key, element)
 	}
 }
