@@ -68,26 +68,40 @@ func NewTaggingController(
 func (tc *TaggingController) Run(ctx context.Context) {
 	defer utilruntime.HandleCrash()
 
-	wait.UntilWithContext(ctx, tc.MonitorNodes, tc.nodeMonitorPeriod)
+	wait.UntilWithContext(ctx, tc.monitorNodes, tc.nodeMonitorPeriod)
 }
 
-func (tc *TaggingController) MonitorNodes(ctx context.Context) {
+func (tc *TaggingController) monitorNodes(ctx context.Context) {
 	nodes, err := tc.nodeLister.List(labels.Everything())
 	if err != nil {
 		klog.Errorf("error listing nodes from cache: %s", err)
 		return
 	}
 
-	klog.Infof("Nguyen, taggedNodes size %d", len(tc.taggedNodes))
+	// Set all elements to be false
+	// to sync taggedNodes with nodes
+	for k := range tc.taggedNodes {
+		tc.taggedNodes[k] = false
+	}
 
 	for _, node := range nodes {
 		if _, ok := tc.taggedNodes[node.GetName()]; !ok {
 			klog.Infof("NGUYEN, tagging %s", node.GetClusterName())
-			tc.taggedNodes[node.GetName()] = true
 		}
+
+		tc.taggedNodes[node.GetName()] = true
 	}
 
-	for key, element := range tc.taggedNodes {
-		klog.Infof("Key: %s => Element: %s", key, element)
+	tc.syncDeletedNodes()
+}
+
+// syncDeletedNodes delete (k, v) from taggedNodes
+// if it doesn't exist
+func (tc *TaggingController) syncDeletedNodes() {
+	for k, v := range tc.taggedNodes {
+		if v == false {
+			delete(tc.taggedNodes, k)
+		}
+		klog.Infof("NGUYEN, deleted %s", k)
 	}
 }
