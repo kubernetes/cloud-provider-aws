@@ -102,6 +102,10 @@ const TagNameSubnetPublicELB = "kubernetes.io/role/elb"
 // value is "nlb"
 const ServiceAnnotationLoadBalancerType = "service.beta.kubernetes.io/aws-load-balancer-type"
 
+// ServiceAnnotationLoadBalancerName is the annotation used on the service
+// to indicate the name of Load Balancer. Size should be 32 character max.
+const ServiceAnnotationLoadBalancerName = "service.beta.kubernetes.io/aws-load-balancer-name"
+
 // ServiceAnnotationLoadBalancerInternal is the annotation used on the service
 // to indicate that we want an internal ELB.
 const ServiceAnnotationLoadBalancerInternal = "service.beta.kubernetes.io/aws-load-balancer-internal"
@@ -4371,8 +4375,24 @@ func (c *Cloud) GetLoadBalancer(ctx context.Context, clusterName string, service
 
 // GetLoadBalancerName is an implementation of LoadBalancer.GetLoadBalancerName
 func (c *Cloud) GetLoadBalancerName(ctx context.Context, clusterName string, service *v1.Service) string {
-	// TODO: replace DefaultLoadBalancerName to generate more meaningful loadbalancer names.
-	return cloudprovider.DefaultLoadBalancerName(service)
+	if val := service.Annotations[ServiceAnnotationLoadBalancerName]; val != nil {
+		r := regexp.MustCompile(`^[a-zA-Z0-9-]{0,32}`)
+		if r.MatchString(val) && val[0:1] != "-" && val[len(val)-1:] != "-" {
+			return val
+		} else {
+			klog.Error("Error : AWS load balancer name, a maximum of 32 alphanumeric characters including hyphens are allowed, but the name must not begin or end with an hyphen.")
+		}
+		return val
+	}
+
+	//AWS requires that the name of a load balancer is shorter than 32 bytes.
+	//Default implementation, currently deprecated
+	ret := "a" + string(service.UID)
+	ret = strings.Replace(ret, "-", "", -1)
+	if len(ret) > 32 {
+		ret = ret[:32]
+	}
+	return ret
 }
 
 func toStatus(lb *elb.LoadBalancerDescription) *v1.LoadBalancerStatus {
