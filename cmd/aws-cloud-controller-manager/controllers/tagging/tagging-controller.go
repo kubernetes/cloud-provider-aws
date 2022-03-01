@@ -14,12 +14,14 @@ limitations under the License.
 package tagging
 
 import (
+	"container/list"
 	"context"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/klog/v2"
 	"time"
 
+	v1 "k8s.io/api/core/v1"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	coreinformers "k8s.io/client-go/informers/core/v1"
 	clientset "k8s.io/client-go/kubernetes"
@@ -36,12 +38,12 @@ type TaggingController struct {
 
 	cloud cloudprovider.Interface
 
-	// Value controlling NodeController monitoring period, i.e. how often does NodeController
-	// check node status posted from kubelet. This value should be lower than nodeMonitorGracePeriod
+	// Value controlling TaggingController monitoring period, i.e. how often does TaggingController
+	// check node list. This value should be lower than nodeMonitorGracePeriod
 	// set in controller-manager
 	nodeMonitorPeriod time.Duration
 
-	// A map presenting the node and whether it is tagged
+	// A map presenting the node and whether it currently exists
 	taggedNodes map[string]bool
 }
 
@@ -84,24 +86,35 @@ func (tc *TaggingController) monitorNodes(ctx context.Context) {
 		tc.taggedNodes[k] = false
 	}
 
+	nodeList := list.New()
 	for _, node := range nodes {
 		if _, ok := tc.taggedNodes[node.GetName()]; !ok {
-			klog.Infof("NGUYEN, tagging %s", node.GetClusterName())
+			nodeList.PushBack(node)
 		}
 
 		tc.taggedNodes[node.GetName()] = true
 	}
 
-	tc.syncDeletedNodes()
+	tc.tagNodesResources(nodeList)
+
+	tc.syncDeletedNodesToTaggedNodes()
+}
+
+// tagNodesResources tag node resources from a list of node
+func (tc *TaggingController) tagNodesResources(nodes []*v1.Node) {
+	tc.tagEc2Instances(nodes)
 }
 
 // syncDeletedNodes delete (k, v) from taggedNodes
 // if it doesn't exist
-func (tc *TaggingController) syncDeletedNodes() {
+func (tc *TaggingController) syncDeletedNodesToTaggedNodes() {
 	for k, v := range tc.taggedNodes {
 		if v == false {
 			delete(tc.taggedNodes, k)
-			klog.Infof("NGUYEN, deleted %s", k)
 		}
 	}
+}
+
+func (tc *TaggingController) tagEc2Instances(nodes []*v1.Node) {
+	
 }
