@@ -14,8 +14,8 @@ limitations under the License.
 package tagging
 
 import (
-	"k8s.io/klog/v2"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
+	"k8s.io/klog/v2"
 )
 
 // TaggingController is the controller implementation for tagging cluster resources
