@@ -95,7 +95,7 @@ func (tc *TaggingController) monitorNodes(ctx context.Context) {
 		tc.taggedNodes[node.GetName()] = true
 	}
 
-	tc.tagNodesResources(nodeList)
+	//tc.tagNodesResources(nodeList)
 
 	tc.syncDeletedNodesToTaggedNodes()
 }
