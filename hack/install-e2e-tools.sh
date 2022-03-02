@@ -18,15 +18,31 @@ set -o errexit
 set -o nounset
 set -o pipefail
 
+GINKGO_VERSION="${GINKGO_VERSION:-v1.14.0}"
 KOPS_ROOT="${KOPS_ROOT:-}"
 export GO111MODULE=on
 
+if [[ -n ${INSTALL_PATH} ]]; then
+    export GOBIN="${INSTALL_PATH}"
+fi
+
+cd $(mktemp -d) > /dev/null
+
+echo " + Installing kubetest2"
+go install "sigs.k8s.io/kubetest2@latest"
+
+echo " + Installing ginkgo"
+go install "github.com/onsi/ginkgo/ginkgo@${GINKGO_VERSION}"
+
 if [[ -z "${KOPS_ROOT}" ]]; then
-    cd $(mktemp -d) > /dev/null
     git clone https://github.com/kubernetes/kops.git
-    KOPS_ROOT="$(cwd)/kops"
+    KOPS_ROOT="$(pwd)/kops"
 fi
 
 cd "${KOPS_ROOT}/tests/e2e" > /dev/null
+
+echo " + Installing kubetest2-tester-kops"
 go install ./kubetest2-tester-kops
+
+echo " + Installing kubetest2-kops"
 go install ./kubetest2-kops
