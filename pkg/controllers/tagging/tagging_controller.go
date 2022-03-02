@@ -14,10 +14,10 @@ limitations under the License.
 package tagging
 
 import (
-	"container/list"
 	"context"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/util/wait"
+	awsv1 "k8s.io/cloud-provider-aws/pkg/providers/v1"
 	"k8s.io/klog/v2"
 	"time"
 
@@ -86,23 +86,29 @@ func (tc *TaggingController) monitorNodes(ctx context.Context) {
 		tc.taggedNodes[k] = false
 	}
 
-	nodeList := list.New()
+	var nodesToTag []*v1.Node
 	for _, node := range nodes {
 		if _, ok := tc.taggedNodes[node.GetName()]; !ok {
-			nodeList.PushBack(node)
+			nodesToTag = append(nodesToTag, node)
 		}
 
 		tc.taggedNodes[node.GetName()] = true
 	}
 
-	//tc.tagNodesResources(nodeList)
-
+	tc.tagNodesResources(nodesToTag)
 	tc.syncDeletedNodesToTaggedNodes()
 }
 
 // tagNodesResources tag node resources from a list of node
+// If we want to tag more resources, modify this function appropriately
 func (tc *TaggingController) tagNodesResources(nodes []*v1.Node) {
 	tc.tagEc2Instances(nodes)
+}
+
+// tagEc2Instances applies the provided tags to each EC2 instances in
+// the cluster.
+func (tc *TaggingController) tagEc2Instances(nodes []*v1.Node) {
+	klog.Infof("Nguyen %s", awsv1.MapToAWSInstanceIDsTolerant(nodes))
 }
 
 // syncDeletedNodes delete (k, v) from taggedNodes
@@ -113,8 +119,4 @@ func (tc *TaggingController) syncDeletedNodesToTaggedNodes() {
 			delete(tc.taggedNodes, k)
 		}
 	}
-}
-
-func (tc *TaggingController) tagEc2Instances(nodes []*v1.Node) {
-	
 }
