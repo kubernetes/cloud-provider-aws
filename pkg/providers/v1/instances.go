@@ -103,7 +103,7 @@ func mapToAWSInstanceIDs(nodes []*v1.Node) ([]InstanceID, error) {
 }
 
 // mapToAWSInstanceIDsTolerant extracts the InstanceIDs from the Nodes, skipping Nodes that cannot be mapped
-func MapToAWSInstanceIDsTolerant(nodes []*v1.Node) []InstanceID {
+func mapToAWSInstanceIDsTolerant(nodes []*v1.Node) []InstanceID {
 	var instanceIDs []InstanceID
 	for _, node := range nodes {
 		if node.Spec.ProviderID == "" {
