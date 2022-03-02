@@ -120,7 +120,7 @@ func TestMapToAWSInstanceIDs(t *testing.T) {
 			}
 		}
 
-		awsInstanceIds = mapToAWSInstanceIDsTolerant([]*v1.Node{node})
+		awsInstanceIds = MapToAWSInstanceIDsTolerant([]*v1.Node{node})
 		if test.ExpectError {
 			if len(awsInstanceIds) != 0 {
 				t.Errorf("unexpected results parsing %s: %s", test.Kubernetes, awsInstanceIds)

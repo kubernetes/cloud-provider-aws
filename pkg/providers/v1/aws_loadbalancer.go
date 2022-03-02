@@ -1603,7 +1603,7 @@ func (c *Cloud) findInstancesForELB(nodes []*v1.Node, annotations map[string]str
 	targetNodes := filterTargetNodes(nodes, annotations)
 
 	// Map to instance ids ignoring Nodes where we cannot find the id (but logging)
-	instanceIDs := mapToAWSInstanceIDsTolerant(targetNodes)
+	instanceIDs := MapToAWSInstanceIDsTolerant(targetNodes)
 
 	cacheCriteria := cacheCriteria{
 		MaxAge:       defaultEC2InstanceCacheMaxAge,

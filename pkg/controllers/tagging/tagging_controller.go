@@ -108,7 +108,10 @@ func (tc *TaggingController) tagNodesResources(nodes []*v1.Node) {
 // tagEc2Instances applies the provided tags to each EC2 instances in
 // the cluster.
 func (tc *TaggingController) tagEc2Instances(nodes []*v1.Node) {
-	klog.Infof("Nguyen %s", awsv1.MapToAWSInstanceIDsTolerant(nodes))
+	for _, node := range nodes {
+		name, _ := awsv1.KubernetesInstanceID(node.Spec.ProviderID).MapToAWSInstanceID()
+		klog.Infof("Nguyen %s", name)
+	}
 }
 
 // syncDeletedNodes delete (k, v) from taggedNodes
