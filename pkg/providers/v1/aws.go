@@ -1315,6 +1315,9 @@ func newAWSCloud(cfg CloudConfig, awsServices Services) (*Cloud, error) {
 	}
 
 	regionName, zone, err := getRegionFromMetadata(cfg, metadata)
+	if err != nil {
+		return nil, err
+	}
 
 	if !cfg.Global.DisableStrictZoneCheck {
 		if !isRegionValid(regionName, metadata) {
