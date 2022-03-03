@@ -1187,7 +1187,15 @@ func init() {
 			return nil, fmt.Errorf("unable to validate custom endpoint overrides: %v", err)
 		}
 
-		sess, err := session.NewSession(&aws.Config{})
+		regionName, err := getRegionFromMetadata(cfg)
+		if err != nil {
+			return nil, err
+		}
+		sess, err := session.NewSessionWithOptions(session.Options{
+			Config:            *aws.NewConfig().WithRegion(regionName).WithSTSRegionalEndpoint(endpoints.RegionalSTSEndpoint),
+			SharedConfigState: session.SharedConfigEnable,
+		})
+
 		if err != nil {
 			return nil, fmt.Errorf("unable to initialize AWS session: %v", err)
 		}
@@ -5029,4 +5037,29 @@ func (c *Cloud) describeNetworkInterfaces(nodeName string) (*ec2.NetworkInterfac
 		return nil, fmt.Errorf("multiple interfaces found with same id %q", eni.NetworkInterfaces)
 	}
 	return eni.NetworkInterfaces[0], nil
+}
+
+func getRegionFromMetadata(cfg *CloudConfig) (string, error) {
+	klog.Infof("Get AWS region from metadata client")
+	metadata, err := newAWSSDKProvider(nil, cfg).Metadata()
+	if err != nil {
+		return "", fmt.Errorf("error creating AWS metadata client: %q", err)
+	}
+
+	err = updateConfigZone(cfg, metadata)
+	if err != nil {
+		return "", fmt.Errorf("unable to determine AWS zone from cloud provider config or EC2 instance metadata: %v", err)
+	}
+
+	zone := cfg.Global.Zone
+	if len(zone) <= 1 {
+		return "", fmt.Errorf("invalid AWS zone in config file: %s", zone)
+	}
+
+	regionName, err := azToRegion(zone)
+	if err != nil {
+		return "", err
+	}
+
+	return regionName, nil
 }
