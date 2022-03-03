@@ -23,7 +23,8 @@ GOPROXY ?= $(shell go env GOPROXY)
 GIT_VERSION := $(shell git describe --match=$(git rev-parse --short=8 HEAD) --always --dirty --abbrev=8)
 VERSION ?= $(GIT_VERSION)
 IMAGE := amazon/cloud-controller-manager:$(VERSION)
-OUTPUT ?= _output
+OUTPUT ?= $(shell pwd)/_output
+INSTALL_PATH ?= $(OUTPUT)/bin
 
 aws-cloud-controller-manager: $(SOURCES)
 	 GO111MODULE=on CGO_ENABLED=0 GOOS=$(GOOS) GOARCH=$(GOARCH) GOPROXY=$(GOPROXY) go build \
@@ -113,11 +114,12 @@ kops-example:
 	./hack/kops-example.sh
 
 .PHONY: test-e2e
-test-e2e: e2e.test docker-build-amd64
+test-e2e: e2e.test docker-build-amd64 install-e2e-tools
 	AWS_REGION=us-west-2 \
 	TEST_PATH=./tests/e2e/... \
-	MAKE_IMAGE=$(IMAGE) \
-	MAKE_VERSION=$(VERSION) \
+	BUILD_IMAGE=$(IMAGE) \
+	BUILD_VERSION=$(VERSION) \
+	INSTALL_PATH=$(INSTALL_PATH) \
 	GINKGO_FOCUS="\[cloud-provider-aws-e2e\]" \
 	./hack/e2e/run.sh
 
@@ -126,6 +128,8 @@ test-e2e: e2e.test docker-build-amd64
 # deployer, etc.
 .PHONY: install-e2e-tools
 install-e2e-tools:
+	mkdir -p $(INSTALL_PATH)
+	INSTALL_PATH=$(INSTALL_PATH) \
 	./hack/install-e2e-tools.sh
 
 .PHONY: print-image-tag
