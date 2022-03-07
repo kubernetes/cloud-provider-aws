@@ -32,9 +32,11 @@ ARG DISTROLESS_IMAGE=gcr.io/distroless/static@sha256:c6d5981545ce1406d33e61434c6
 # libc, muscl, etc.
 FROM ${GOLANG_IMAGE} as builder
 
-ARG VERSION
 ARG GOPROXY=https://goproxy.io,direct
 ARG GOOS=linux
+ARG TARGETOS
+ARG TARGETARCH
+ARG VERSION
 
 WORKDIR /build
 COPY go.mod go.sum ./
@@ -42,6 +44,12 @@ COPY cmd/ cmd/
 COPY pkg/ pkg/
 RUN GO111MODULE=on CGO_ENABLED=0 GOOS=${GOOS} GOPROXY=${GOPROXY} go build \
 		-ldflags="-w -s -X 'main.version=${VERSION}'" \
+=======
+RUN GO111MODULE=on CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} GOPROXY=${GOPROXY} \
+		go build \
+		-trimpath \
+		-ldflags="-w -s -X k8s.io/component-base/version.gitVersion=${VERSION}" \
+>>>>>>> Fix version
 		-o=aws-cloud-controller-manager \
 		cmd/aws-cloud-controller-manager/main.go
 
