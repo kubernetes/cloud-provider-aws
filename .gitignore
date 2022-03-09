@@ -6,5 +6,5 @@ _output/
 /kops-example
 docs/book/_book/
 site/
-
 .vscode/
+e2e.test

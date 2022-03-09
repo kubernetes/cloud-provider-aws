@@ -50,8 +50,6 @@ const (
 	enableAlphaV2EnvVar = "ENABLE_ALPHA_V2"
 )
 
-var version string
-
 func main() {
 	rand.Seed(time.Now().UTC().UnixNano())
 
