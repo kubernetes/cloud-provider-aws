@@ -31,28 +31,24 @@ import (
 	"time"
 
 	"k8s.io/apimachinery/pkg/util/wait"
+	cloudprovider "k8s.io/cloud-provider"
+	awsv1 "k8s.io/cloud-provider-aws/pkg/providers/v1"
+	awsv2 "k8s.io/cloud-provider-aws/pkg/providers/v2"
 	"k8s.io/cloud-provider/app"
 	"k8s.io/cloud-provider/options"
 	cliflag "k8s.io/component-base/cli/flag"
 	"k8s.io/component-base/logs"
 	_ "k8s.io/component-base/metrics/prometheus/clientgo" // for client metric registration
 	_ "k8s.io/component-base/metrics/prometheus/version"  // for version metric registration
-	"k8s.io/klog/v2"
-
-	cloudprovider "k8s.io/cloud-provider"
-	awsv1 "k8s.io/cloud-provider-aws/pkg/providers/v1"
-	awsv2 "k8s.io/cloud-provider-aws/pkg/providers/v2"
 
 	cloudcontrollerconfig "k8s.io/cloud-provider/app/config"
 
-	acm "k8s.io/cloud-provider-aws/pkg/controllers"
+	awscontrollers "k8s.io/cloud-provider-aws/pkg/controllers"
 )
 
 const (
 	enableAlphaV2EnvVar = "ENABLE_ALPHA_V2"
 )
-
-var version string
 
 func main() {
 	rand.Seed(time.Now().UTC().UnixNano())
@@ -65,13 +61,12 @@ func main() {
 		klog.Fatalf("unable to initialize command options: %v", err)
 	}
 
-	controllerInitializers := acm.BuildControllerInitializers()
+	controllerInitializers := awscontrollers.BuildControllerInitializers()
 	fss := cliflag.NamedFlagSets{}
 	command := app.NewCloudControllerManagerCommand(opts, cloudInitializer, controllerInitializers, fss, wait.NeverStop)
 
 	if err := command.Execute(); err != nil {
 		klog.Fatalf("unable to execute command: %v", err)
-		os.Exit(1)
 	}
 }
 

@@ -15,8 +15,6 @@ package controllers
 
 import (
 	"context"
-	"k8s.io/klog/v2"
-
 	cloudprovider "k8s.io/cloud-provider"
 	taggingcontroller "k8s.io/cloud-provider-aws/pkg/controllers/tagging"
 	"k8s.io/cloud-provider/app"
@@ -35,14 +33,14 @@ const (
 func BuildControllerInitializers() map[string]app.ControllerInitFuncConstructor {
 	controllerInitializers := app.DefaultInitFuncConstructors
 
-	taggingControllerInitFuncConstrustor :=  app.ControllerInitFuncConstructor{
+	taggingControllerConstructor := app.ControllerInitFuncConstructor{
 		InitContext: app.ControllerInitContext{
 			ClientName: TaggingControllerClientName,
 		},
 		Constructor: startTaggingControllerWrapper,
 	}
 
-	controllerInitializers[TaggingControllerKey] = taggingControllerInitFuncConstrustor
+	controllerInitializers[TaggingControllerKey] = taggingControllerConstructor
 
 	// TODO: remove the following line to enable the route controller
 	delete(controllerInitializers, "route")
