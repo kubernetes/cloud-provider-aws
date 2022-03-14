@@ -15,18 +15,19 @@ package tagging
 
 import (
 	"context"
-	"k8s.io/apimachinery/pkg/labels"
-	"k8s.io/apimachinery/pkg/util/wait"
-	awsv1 "k8s.io/cloud-provider-aws/pkg/providers/v1"
-	"k8s.io/klog/v2"
-	"time"
-
+	"github.com/aws/aws-sdk-go/aws"
+	ec2 "github.com/aws/aws-sdk-go/service/ec2"
 	v1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/labels"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
+	"k8s.io/apimachinery/pkg/util/wait"
 	coreinformers "k8s.io/client-go/informers/core/v1"
 	clientset "k8s.io/client-go/kubernetes"
 	v1lister "k8s.io/client-go/listers/core/v1"
 	cloudprovider "k8s.io/cloud-provider"
+	awsv1 "k8s.io/cloud-provider-aws/pkg/providers/v1"
+	"k8s.io/klog/v2"
+	"time"
 )
 
 // TaggingController is the controller implementation for tagging cluster resources.
@@ -109,9 +110,29 @@ func (tc *TaggingController) tagNodesResources(nodes []*v1.Node) {
 // the cluster.
 func (tc *TaggingController) tagEc2Instances(nodes []*v1.Node) {
 	for _, node := range nodes {
-		name, _ := awsv1.KubernetesInstanceID(node.Spec.ProviderID).MapToAWSInstanceID()
-		klog.Infof("Nguyen %s", name)
+		instanceId, _ := awsv1.KubernetesInstanceID(node.Spec.ProviderID).MapToAWSInstanceID()
+		klog.Infof("Nguyen %s", instanceId)
+		request := &ec2.CreateTagsInput{}
+		request.Resources = []*string{aws.String(string(instanceId))}
+		request.Tags = tc.getTagsFromInputs()
+
+		_, err := awsv1.EC2.CreateTags(request)
+
+		if err != nil {
+			klog.Infof("NGUYEN error: ", err)
+		}
 	}
+}
+
+func (tc *TaggingController) getTagsFromInputs() []*ec2.Tag {
+	var awsTags []*ec2.Tag
+	tag := &ec2.Tag{
+		Key:   aws.String("Sample Key"),
+		Value: aws.String("Sample value"),
+	}
+	awsTags = append(awsTags, tag)
+
+	return awsTags
 }
 
 // syncDeletedNodes delete (k, v) from taggedNodes

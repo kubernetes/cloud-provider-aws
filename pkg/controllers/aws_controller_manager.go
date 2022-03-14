@@ -21,6 +21,7 @@ import (
 	cloudcontrollerconfig "k8s.io/cloud-provider/app/config"
 	genericcontrollermanager "k8s.io/controller-manager/app"
 	"k8s.io/controller-manager/controller"
+	"k8s.io/klog/v2"
 )
 
 const (
