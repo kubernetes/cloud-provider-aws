@@ -40,6 +40,7 @@ import (
 	"k8s.io/component-base/logs"
 	_ "k8s.io/component-base/metrics/prometheus/clientgo" // for client metric registration
 	_ "k8s.io/component-base/metrics/prometheus/version"  // for version metric registration
+	"k8s.io/klog/v2"
 
 	cloudcontrollerconfig "k8s.io/cloud-provider/app/config"
 
