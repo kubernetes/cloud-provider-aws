@@ -60,7 +60,6 @@ func startTaggingController(ctx context.Context, initContext app.ControllerInitC
 	// Start the TaggingController
 	taggingcontroller, err := taggingcontroller.NewTaggingController(
 		completedConfig.SharedInformers.Core().V1().Nodes(),
-		// cloud node lifecycle controller uses existing cluster role from node-controller
 		completedConfig.ClientBuilder.ClientOrDie(initContext.ClientName),
 		cloud,
 		completedConfig.ComponentConfig.KubeCloudShared.NodeMonitorPeriod.Duration)
