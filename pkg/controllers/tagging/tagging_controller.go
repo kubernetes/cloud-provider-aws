@@ -63,7 +63,6 @@ func NewTaggingController(
 		taggedNodes:       make(map[string]bool),
 		nodeMap:           make(map[string]*v1.Node),
 	}
-
 	return tc, nil
 }
 
@@ -77,6 +76,7 @@ func (tc *TaggingController) Run(ctx context.Context) {
 
 func (tc *TaggingController) monitorNodes(ctx context.Context) {
 	nodes, err := tc.nodeLister.List(labels.Everything())
+	klog.Infof("NGUYEN running the tagging controller")
 	if err != nil {
 		klog.Errorf("error listing nodes from cache: %s", err)
 		return
