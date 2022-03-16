@@ -15,6 +15,8 @@ package tagging
 
 import (
 	"context"
+	"github.com/aws/aws-sdk-go/aws"
+	"github.com/aws/aws-sdk-go/service/ec2"
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
@@ -23,6 +25,7 @@ import (
 	clientset "k8s.io/client-go/kubernetes"
 	v1lister "k8s.io/client-go/listers/core/v1"
 	cloudprovider "k8s.io/cloud-provider"
+	awsv1 "k8s.io/cloud-provider-aws/pkg/providers/v1"
 	"k8s.io/klog/v2"
 	"time"
 )
@@ -44,8 +47,11 @@ type TaggingController struct {
 	// A map presenting the node and whether it currently exists
 	taggedNodes map[string]bool
 
-	// A map representing the nodes that were ever in the cluster
+	// A map representing nodes that were part of the cluster at any point in time
 	nodeMap map[string]*v1.Node
+
+	// Representing the user input for tags
+	tags string
 }
 
 // NewTaggingController creates a NewTaggingController object
@@ -53,7 +59,8 @@ func NewTaggingController(
 	nodeInformer coreinformers.NodeInformer,
 	kubeClient clientset.Interface,
 	cloud cloudprovider.Interface,
-	nodeMonitorPeriod time.Duration) (*TaggingController, error) {
+	nodeMonitorPeriod time.Duration,
+	tags string) (*TaggingController, error) {
 
 	tc := &TaggingController{
 		kubeClient:        kubeClient,
@@ -62,6 +69,7 @@ func NewTaggingController(
 		nodeMonitorPeriod: nodeMonitorPeriod,
 		taggedNodes:       make(map[string]bool),
 		nodeMap:           make(map[string]*v1.Node),
+		tags:              tags,
 	}
 	return tc, nil
 }
@@ -76,9 +84,8 @@ func (tc *TaggingController) Run(ctx context.Context) {
 
 func (tc *TaggingController) monitorNodes(ctx context.Context) {
 	nodes, err := tc.nodeLister.List(labels.Everything())
-	klog.Infof("NGUYEN running the tagging controller")
 	if err != nil {
-		klog.Errorf("error listing nodes from cache: %s", err)
+		klog.Errorf("error listing nodes: %s", err)
 		return
 	}
 
@@ -112,13 +119,13 @@ func (tc *TaggingController) monitorNodes(ctx context.Context) {
 // If we want to tag more resources, modify this function appropriately
 func (tc *TaggingController) tagNodesResources(nodes []*v1.Node) {
 	for _, node := range nodes {
-		klog.Infof("Tagging resources for node %s.", node.GetName())
+		klog.Infof("Tagging resources for node %s with %s.", node.GetName(), tc.tags)
 	}
 }
 
 func (tc *TaggingController) untagNodeResources(nodes []*v1.Node) {
 	for _, node := range nodes {
-		klog.Infof("Untagging resources for node %s.", node.GetName())
+		klog.Infof("Untagging resources for node %s with %s.", node.GetName(), tc.tags)
 	}
 }
 
@@ -132,40 +139,39 @@ func (tc *TaggingController) syncDeletedNodesToTaggedNodes() {
 	}
 }
 
-//// tagEc2Instances applies the provided tags to each EC2 instances in
-//// the cluster.
-//func (tc *TaggingController) tagEc2Instances(nodes []*v1.Node) {
-//	var instanceIds []*string
-//	for _, node := range nodes {
-//		instanceId, _ := awsv1.KubernetesInstanceID(node.Spec.ProviderID).MapToAWSInstanceID()
-//		instanceIds = append(instanceIds, aws.String(string(instanceId)))
-//	}
-//
-//	tc.tagResources(instanceIds)
-//}
+// tagEc2Instances applies the provided tags to each EC2 instances in
+// the cluster.
+func (tc *TaggingController) tagEc2Instances(nodes []*v1.Node) {
+	var instanceIds []*string
+	for _, node := range nodes {
+		instanceId, _ := awsv1.KubernetesInstanceID(node.Spec.ProviderID).MapToAWSInstanceID()
+		instanceIds = append(instanceIds, aws.String(string(instanceId)))
+	}
 
-//func (tc *TaggingController) tagResources(resourceIds []*string) {
-//	request := &ec2.CreateTagsInput{
-//		Resources: resourceIds,
-//		Tags:      tc.getTagsFromInputs(),
-//	}
-//
-//	_, error := awsv1.awsSdkEC2.CreateTags(request)
-//	awsv1.Cloud.TagResoures(request)
-//
-//	if error != nil {
-//		klog.Errorf("Error occurred trying to tag resources, %s", error)
-//	}
-//}
-//
-//// Sample function demonstrating that we'll get the tag list from user
-//func (tc *TaggingController) getTagsFromInputs() []*ec2.Tag {
-//	var awsTags []*ec2.Tag
-//	tag := &ec2.Tag{
-//		Key:   aws.String("Sample Key"),
-//		Value: aws.String("Sample value"),
-//	}
-//	awsTags = append(awsTags, tag)
-//
-//	return awsTags
-//}
+	tc.tagResources(instanceIds)
+}
+
+func (tc *TaggingController) tagResources(resourceIds []*string) {
+	//request := &ec2.CreateTagsInput{
+	//	Resources: resourceIds,
+	//	Tags:      tc.getTagsFromInputs(),
+	//}
+	//
+	//_, error := awsv1.AwsSdkEC2.CreateTags(request)
+	//
+	//if error != nil {
+	//	klog.Errorf("Error occurred trying to tag resources, %s", error)
+	//}
+}
+
+// Sample function demonstrating that we'll get the tag list from user
+func (tc *TaggingController) getTagsFromInputs() []*ec2.Tag {
+	var awsTags []*ec2.Tag
+	tag := &ec2.Tag{
+		Key:   aws.String("Sample Key"),
+		Value: aws.String("Sample value"),
+	}
+	awsTags = append(awsTags, tag)
+
+	return awsTags
+}
