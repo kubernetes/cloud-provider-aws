@@ -71,6 +71,8 @@ func main() {
 		klog.Fatalf("unable to execute command: %v", err)
 	}
 
+	klog.Info("NGUYEN stops here")
+
 	if err := conf.ControllerCFG.LoadControllerConfig(); err != nil {
 		klog.Errorf("Unable to load controller config: %v", err)
 	}
