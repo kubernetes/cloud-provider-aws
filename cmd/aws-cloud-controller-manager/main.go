@@ -26,13 +26,13 @@ limitations under the License.
 package main
 
 import (
+	conf "k8s.io/cloud-provider-aws/pkg/config"
 	"math/rand"
 	"os"
 	"time"
 
 	"k8s.io/apimachinery/pkg/util/wait"
 	cloudprovider "k8s.io/cloud-provider"
-	conf "k8s.io/cloud-provider-aws/pkg/config"
 	awsv1 "k8s.io/cloud-provider-aws/pkg/providers/v1"
 	awsv2 "k8s.io/cloud-provider-aws/pkg/providers/v2"
 	"k8s.io/cloud-provider/app"
@@ -58,6 +58,12 @@ func main() {
 	logs.InitLogs()
 	defer logs.FlushLogs()
 
+	klog.Info("NGUYEN gets flags first")
+
+	if err := conf.ControllerCFG.LoadControllerConfig(); err != nil {
+		klog.Errorf("Unable to load controller config: %v", err)
+	}
+
 	opts, err := options.NewCloudControllerManagerOptions()
 	if err != nil {
 		klog.Fatalf("unable to initialize command options: %v", err)
@@ -70,13 +76,6 @@ func main() {
 	if err := command.Execute(); err != nil {
 		klog.Fatalf("unable to execute command: %v", err)
 	}
-
-	klog.Info("NGUYEN stops here")
-
-	if err := conf.ControllerCFG.LoadControllerConfig(); err != nil {
-		klog.Errorf("Unable to load controller config: %v", err)
-	}
-
 }
 
 func cloudInitializer(config *cloudcontrollerconfig.CompletedConfig) cloudprovider.Interface {
