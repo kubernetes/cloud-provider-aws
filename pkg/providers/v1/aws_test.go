@@ -2597,7 +2597,7 @@ func TestRegionIsValid(t *testing.T) {
 	assert.False(t, isRegionValid("pl-fake-991a", fake.metadata), "expected region 'pl-fake-991' to be invalid but it was not")
 }
 
-func TestNodeNameToProviderID(t *testing.T) {
+func TestNodeNameToInstanceID(t *testing.T) {
 	testNodeName := types.NodeName("ip-10-0-0-1.ec2.internal")
 	testProviderID := "aws:///us-east-1c/i-02bce90670bb0c7cd"
 	fakeAWS := newMockedFakeAWSServices(TestClusterID)
@@ -2609,17 +2609,17 @@ func TestNodeNameToProviderID(t *testing.T) {
 	c.SetInformers(fakeInformerFactory)
 
 	// no node name
-	_, err = c.nodeNameToProviderID("")
+	_, err = c.nodeNameToInstanceID("")
 	assert.Error(t, err)
 
 	// informer has not synced
 	c.nodeInformerHasSynced = informerNotSynced
-	_, err = c.nodeNameToProviderID(testNodeName)
+	_, err = c.nodeNameToInstanceID(testNodeName)
 	assert.Error(t, err)
 
 	// informer has synced but node not found
 	c.nodeInformerHasSynced = informerSynced
-	_, err = c.nodeNameToProviderID(testNodeName)
+	_, err = c.nodeNameToInstanceID(testNodeName)
 	assert.Error(t, err)
 
 	// we are able to find the node in cache
@@ -2632,7 +2632,7 @@ func TestNodeNameToProviderID(t *testing.T) {
 		},
 	})
 	assert.NoError(t, err)
-	_, err = c.nodeNameToProviderID(testNodeName)
+	_, err = c.nodeNameToInstanceID(testNodeName)
 	assert.NoError(t, err)
 }
 

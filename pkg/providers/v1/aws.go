@@ -1515,11 +1515,11 @@ func (c *Cloud) HasClusterID() bool {
 
 // NodeAddresses is an implementation of Instances.NodeAddresses.
 func (c *Cloud) NodeAddresses(ctx context.Context, name types.NodeName) ([]v1.NodeAddress, error) {
-	providerID, err := c.nodeNameToProviderID(name)
+	instanceID, err := c.nodeNameToInstanceID(name)
 	if err != nil {
-		return nil, fmt.Errorf("could not look up provider ID for node %q: %v", name, err)
+		return nil, fmt.Errorf("could not look up instance ID for node %q: %v", name, err)
 	}
-	return c.NodeAddressesByProviderID(ctx, string(providerID))
+	return c.NodeAddressesByProviderID(ctx, string(instanceID))
 }
 
 // extractIPv4NodeAddresses maps the instance information from EC2 to an array of NodeAddresses.
@@ -5014,10 +5014,10 @@ func (c *Cloud) findInstanceByNodeName(nodeName types.NodeName) (*ec2.Instance, 
 func (c *Cloud) getInstanceByNodeName(nodeName types.NodeName) (*ec2.Instance, error) {
 	var instance *ec2.Instance
 
-	// we leverage node cache to try to retrieve node's provider id first, as
-	// get instance by provider id is way more efficient than by filters in
+	// we leverage node cache to try to retrieve node's instance id first, as
+	// get instance by instance id is way more efficient than by filters in
 	// aws context
-	awsID, err := c.nodeNameToProviderID(nodeName)
+	awsID, err := c.nodeNameToInstanceID(nodeName)
 	if err != nil {
 		klog.V(3).Infof("Unable to convert node name %q to aws instanceID, fall back to findInstanceByNodeName: %v", nodeName, err)
 		instance, err = c.findInstanceByNodeName(nodeName)
@@ -5048,7 +5048,7 @@ func isFargateNode(nodeName string) bool {
 	return strings.HasPrefix(nodeName, fargateNodeNamePrefix)
 }
 
-func (c *Cloud) nodeNameToProviderID(nodeName types.NodeName) (InstanceID, error) {
+func (c *Cloud) nodeNameToInstanceID(nodeName types.NodeName) (InstanceID, error) {
 	if strings.HasPrefix(string(nodeName), rbnNamePrefix) {
 		return InstanceID(nodeName), nil
 	}
