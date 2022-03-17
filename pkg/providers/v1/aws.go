@@ -818,12 +818,32 @@ func (p *awsSDKProvider) getCrossRequestRetryDelay(regionName string) *CrossRequ
 	return delayer
 }
 
+// InstanceIDIndexFunc indexes based on a Node's instance ID found in its spec.providerID
+func InstanceIDIndexFunc(obj interface{}) ([]string, error) {
+	node, ok := obj.(*v1.Node)
+	if !ok {
+		return []string{""}, fmt.Errorf("%+v is not a Node", obj)
+	}
+	if node.Spec.ProviderID == "" {
+		// provider ID hasn't been populated yet
+		return []string{""}, nil
+	}
+	instanceID, err := KubernetesInstanceID(node.Spec.ProviderID).MapToAWSInstanceID()
+	if err != nil {
+		return []string{""}, fmt.Errorf("error mapping node %q's provider ID %q to instance ID: %v", node.Name, node.Spec.ProviderID, err)
+	}
+	return []string{string(instanceID)}, nil
+}
+
 // SetInformers implements InformerUser interface by setting up informer-fed caches for aws lib to
 // leverage Kubernetes API for caching
 func (c *Cloud) SetInformers(informerFactory informers.SharedInformerFactory) {
 	klog.Infof("Setting up informers for Cloud")
 	c.nodeInformer = informerFactory.Core().V1().Nodes()
 	c.nodeInformerHasSynced = c.nodeInformer.Informer().HasSynced
+	c.nodeInformer.Informer().AddIndexers(cache.Indexers{
+		"instanceID": InstanceIDIndexFunc,
+	})
 }
 
 func (p *awsSDKProvider) Compute(regionName string) (EC2, error) {
@@ -5049,6 +5069,32 @@ func (c *Cloud) nodeNameToProviderID(nodeName types.NodeName) (InstanceID, error
 	}
 
 	return KubernetesInstanceID(node.Spec.ProviderID).MapToAWSInstanceID()
+}
+
+func (c *Cloud) instanceIDToNodeName(instanceID InstanceID) (types.NodeName, error) {
+	if len(instanceID) == 0 {
+		return "", fmt.Errorf("no instanceID provided")
+	}
+
+	if c.nodeInformerHasSynced == nil || !c.nodeInformerHasSynced() {
+		return "", fmt.Errorf("node informer has not synced yet")
+	}
+
+	_, err := c.nodeInformer.Lister().Get(string(instanceID))
+	if err == nil {
+		return types.NodeName(instanceID), nil
+	}
+
+	nodes, err := c.nodeInformer.Informer().GetIndexer().IndexKeys("instanceID", string(instanceID))
+	if err != nil {
+		return "", fmt.Errorf("error getting node with instanceID %q: %v", string(instanceID), err)
+	} else if len(nodes) == 0 {
+		return "", fmt.Errorf("node with instanceID %q not found", string(instanceID))
+	} else if len(nodes) > 1 {
+		return "", fmt.Errorf("multiple nodes with instanceID %q found: %v", string(instanceID), nodes)
+	}
+
+	return types.NodeName(nodes[0]), nil
 }
 
 func checkMixedProtocol(ports []v1.ServicePort) error {
