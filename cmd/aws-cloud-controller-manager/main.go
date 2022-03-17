@@ -26,7 +26,6 @@ limitations under the License.
 package main
 
 import (
-	conf "k8s.io/cloud-provider-aws/pkg/config"
 	"math/rand"
 	"os"
 	"time"
@@ -57,12 +56,6 @@ func main() {
 
 	logs.InitLogs()
 	defer logs.FlushLogs()
-
-	klog.Info("NGUYEN gets flags first")
-
-	if err := conf.ControllerCFG.LoadControllerConfig(); err != nil {
-		klog.Errorf("Unable to load controller config: %v", err)
-	}
 
 	opts, err := options.NewCloudControllerManagerOptions()
 	if err != nil {
