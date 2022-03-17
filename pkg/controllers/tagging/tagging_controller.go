@@ -25,6 +25,7 @@ import (
 	clientset "k8s.io/client-go/kubernetes"
 	v1lister "k8s.io/client-go/listers/core/v1"
 	cloudprovider "k8s.io/cloud-provider"
+	conf "k8s.io/cloud-provider-aws/pkg/config"
 	awsv1 "k8s.io/cloud-provider-aws/pkg/providers/v1"
 	"k8s.io/klog/v2"
 	"time"
@@ -52,6 +53,9 @@ type TaggingController struct {
 
 	// Representing the user input for tags
 	tags string
+
+	// Representing the resources to tag
+	resources string
 }
 
 // NewTaggingController creates a NewTaggingController object
@@ -59,8 +63,7 @@ func NewTaggingController(
 	nodeInformer coreinformers.NodeInformer,
 	kubeClient clientset.Interface,
 	cloud cloudprovider.Interface,
-	nodeMonitorPeriod time.Duration,
-	tags string) (*TaggingController, error) {
+	nodeMonitorPeriod time.Duration) (*TaggingController, error) {
 
 	tc := &TaggingController{
 		kubeClient:        kubeClient,
@@ -69,7 +72,8 @@ func NewTaggingController(
 		nodeMonitorPeriod: nodeMonitorPeriod,
 		taggedNodes:       make(map[string]bool),
 		nodeMap:           make(map[string]*v1.Node),
-		tags:              tags,
+		tags:              conf.ControllerCFG.ResourceTags,
+		resources:         conf.ControllerCFG.TaggingResources,
 	}
 	return tc, nil
 }
@@ -121,6 +125,8 @@ func (tc *TaggingController) tagNodesResources(nodes []*v1.Node) {
 	for _, node := range nodes {
 		klog.Infof("Tagging resources for node %s with %s.", node.GetName(), tc.tags)
 	}
+
+	//awsv1.EC2.CreateTags()
 }
 
 func (tc *TaggingController) untagNodeResources(nodes []*v1.Node) {
@@ -151,13 +157,14 @@ func (tc *TaggingController) tagEc2Instances(nodes []*v1.Node) {
 	tc.tagResources(instanceIds)
 }
 
+// TODO: call EC2 to tag instances
 func (tc *TaggingController) tagResources(resourceIds []*string) {
 	//request := &ec2.CreateTagsInput{
 	//	Resources: resourceIds,
 	//	Tags:      tc.getTagsFromInputs(),
 	//}
 	//
-	//_, error := awsv1.AwsSdkEC2.CreateTags(request)
+	//_, error := awsv1..EC2.CreateTags(request)
 	//
 	//if error != nil {
 	//	klog.Errorf("Error occurred trying to tag resources, %s", error)

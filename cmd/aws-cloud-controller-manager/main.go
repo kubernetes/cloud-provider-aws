@@ -32,6 +32,7 @@ import (
 
 	"k8s.io/apimachinery/pkg/util/wait"
 	cloudprovider "k8s.io/cloud-provider"
+	conf "k8s.io/cloud-provider-aws/pkg/config"
 	awsv1 "k8s.io/cloud-provider-aws/pkg/providers/v1"
 	awsv2 "k8s.io/cloud-provider-aws/pkg/providers/v2"
 	"k8s.io/cloud-provider/app"
@@ -69,6 +70,11 @@ func main() {
 	if err := command.Execute(); err != nil {
 		klog.Fatalf("unable to execute command: %v", err)
 	}
+
+	if err := conf.ControllerCFG.LoadControllerConfig(); err != nil {
+		klog.Errorf("Unable to load controller config: %v", err)
+	}
+
 }
 
 func cloudInitializer(config *cloudcontrollerconfig.CompletedConfig) cloudprovider.Interface {
