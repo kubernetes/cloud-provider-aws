@@ -90,7 +90,7 @@ verify-fmt:
 
 .PHONY: verify-lint
 verify-lint:
-	which golint 2>&1 >/dev/null || go get golang.org/x/lint/golint
+	which golint 2>&1 >/dev/null || go install golang.org/x/lint/golint
 	golint -set_exit_status $(shell go list ./...)
 
 .PHONY: verify-codegen
