@@ -5107,11 +5107,6 @@ func (c *Cloud) instanceIDToNodeName(instanceID InstanceID) (types.NodeName, err
 		return "", fmt.Errorf("node informer has not synced yet")
 	}
 
-	_, err := c.nodeInformer.Lister().Get(string(instanceID))
-	if err == nil {
-		return types.NodeName(instanceID), nil
-	}
-
 	nodes, err := c.nodeInformer.Informer().GetIndexer().IndexKeys("instanceID", string(instanceID))
 	if err != nil {
 		return "", fmt.Errorf("error getting node with instanceID %q: %v", string(instanceID), err)
