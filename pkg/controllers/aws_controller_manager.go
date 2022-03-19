@@ -58,10 +58,11 @@ func startTaggingControllerWrapper(initContext app.ControllerInitContext, comple
 }
 
 func startTaggingController(ctx context.Context, initContext app.ControllerInitContext, completedConfig *cloudcontrollerconfig.CompletedConfig, cloud cloudprovider.Interface) (controller.Interface, bool, error) {
-	if ok, error := verifyTaggingControllerUserInput(completedConfig.ComponentConfig.KubeCloudShared.ClusterCIDR); ok {
-		klog.Infof("Will not start the tagging controller due to invalid user input, --configure-cloud-routes: %v", error)
-		return nil, false, nil
-	}
+	// TODO: add in validation for user input for new flags
+	//if ok, error := verifyTaggingControllerUserInput(completedConfig.ComponentConfig.KubeCloudShared.ClusterCIDR); ok {
+	//	klog.Infof("Will not start the tagging controller due to invalid user input, --configure-cloud-routes: %v", error)
+	//	return nil, false, nil
+	//}
 
 	// Start the TaggingController
 	taggingcontroller, err := taggingcontroller.NewTaggingController(
@@ -81,7 +82,7 @@ func startTaggingController(ctx context.Context, initContext app.ControllerInitC
 
 func verifyTaggingControllerUserInput(input string) (bool, error) {
 	if len(input) == 0 {
-		return false, errors.New("Provide input for --configure-cloud-routes to use the tagging controller.")
+		return false, errors.New("Provide inputs for --resource-tags and --tagging-resources to use the tagging controller.")
 	}
 
 	return true, nil
