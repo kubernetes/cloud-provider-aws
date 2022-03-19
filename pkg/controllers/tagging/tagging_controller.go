@@ -25,7 +25,6 @@ import (
 	clientset "k8s.io/client-go/kubernetes"
 	v1lister "k8s.io/client-go/listers/core/v1"
 	cloudprovider "k8s.io/cloud-provider"
-	conf "k8s.io/cloud-provider-aws/pkg/config"
 	awsv1 "k8s.io/cloud-provider-aws/pkg/providers/v1"
 	"k8s.io/klog/v2"
 	"time"
@@ -72,8 +71,9 @@ func NewTaggingController(
 		nodeMonitorPeriod: nodeMonitorPeriod,
 		taggedNodes:       make(map[string]bool),
 		nodeMap:           make(map[string]*v1.Node),
-		tags:              conf.ControllerCFG.ResourceTags,
-		resources:         conf.ControllerCFG.TaggingResources,
+		// TODO: add controller configs including the new flags
+		//tags:              conf.ControllerCFG.ResourceTags,
+		//resources:         conf.ControllerCFG.TaggingResources,
 	}
 	return tc, nil
 }
@@ -83,10 +83,10 @@ func NewTaggingController(
 func (tc *TaggingController) Run(ctx context.Context) {
 	defer utilruntime.HandleCrash()
 
-	wait.UntilWithContext(ctx, tc.monitorNodes, tc.nodeMonitorPeriod)
+	wait.UntilWithContext(ctx, tc.MonitorNodes, tc.nodeMonitorPeriod)
 }
 
-func (tc *TaggingController) monitorNodes(ctx context.Context) {
+func (tc *TaggingController) MonitorNodes(ctx context.Context) {
 	nodes, err := tc.nodeLister.List(labels.Everything())
 	if err != nil {
 		klog.Errorf("error listing nodes: %s", err)
@@ -125,8 +125,6 @@ func (tc *TaggingController) tagNodesResources(nodes []*v1.Node) {
 	for _, node := range nodes {
 		klog.Infof("Tagging resources for node %s with %s.", node.GetName(), tc.tags)
 	}
-
-	//awsv1.EC2.CreateTags()
 }
 
 func (tc *TaggingController) untagNodeResources(nodes []*v1.Node) {
