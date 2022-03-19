@@ -4968,11 +4968,38 @@ func (c *Cloud) describeInstances(filters []*ec2.Filter) ([]*ec2.Instance, error
 
 // mapNodeNameToPrivateDNSName maps a k8s NodeName to an AWS Instance PrivateDNSName
 // This is a simple string cast
+//
+// Deprecated: use nodeNameToInstanceID instead. mapNodeNameToPrivateDNSName
+// assumes node name is equal to private DNS name for all nodes.
+//
+// But it is only safe to assume so for --cloud-provider=aws kubelets. Because
+// then the in-tree AWS cloud provider dictates node name with its
+// CurrentNodeName implementation and that always returns private DNS name.
+//
+// It is not safe to assume so for --cloud-provider=external kubelets. Because
+// then kubelet dictates its own node name with its OS hostname (or
+// --hostname-override) and that hostname won't always be private DNS name.
+// This AWS cloud provider can initialize a node so long as the node's name
+// satisfies its InstanceID implementation, i.e. as long as the instance id can
+// be derived from the node name.
+//
+// For example, kops 1.23 with external cloud provider sets node names to
+// instance ID like "i-0123456789abcde". nodeNameToInstanceID handles these
+// cases that this function cannot.
+//
+// Removing this function is part of the effort to support non private DNS node
+// names [2].
+//
+// [1] https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/ec2-instance-naming.html
+// [2] https://github.com/kubernetes/cloud-provider-aws/issues/63
 func mapNodeNameToPrivateDNSName(nodeName types.NodeName) string {
 	return string(nodeName)
 }
 
 // mapInstanceToNodeName maps a EC2 instance to a k8s NodeName, by extracting the PrivateDNSName
+//
+// Deprecated: use instanceIDToNodeName instead. See
+// mapNodeNameToPrivateDNSName for details.
 func mapInstanceToNodeName(i *ec2.Instance) types.NodeName {
 	return types.NodeName(aws.StringValue(i.PrivateDnsName))
 }
