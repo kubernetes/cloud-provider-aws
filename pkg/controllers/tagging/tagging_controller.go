@@ -131,9 +131,7 @@ func (tc *TaggingController) MonitorNodes(ctx context.Context) {
 // tagNodesResources tag node resources from a list of node
 // If we want to tag more resources, modify this function appropriately
 func (tc *TaggingController) tagNodesResources(nodes []*v1.Node) {
-	for _, node := range nodes {
-		klog.Infof("Tagging resources for node %s with %s.", node.GetName(), tc.tags)
-	}
+	tc.tagEc2Instances(nodes)
 }
 
 func (tc *TaggingController) untagNodeResources(nodes []*v1.Node) {
@@ -170,22 +168,23 @@ func (tc *TaggingController) tagResources(resourceIds []*string) {
 		Tags:      tc.getTagsFromInputs(),
 	}
 
-	_, error := tc.cloud.Ec2.CreateTags(request)
+	_, err := tc.cloud.Ec2.CreateTags(request)
 
-	if error != nil {
-		klog.Errorf("Error occurred trying to tag resources, %s", error)
+	if err != nil {
+		klog.Errorf("Error occurred trying to tag resources, %s", err)
 	}
-	klog.Infof("Going to tag resources %s with tags %s", resourceIds, tc.tags)
 }
 
 // Sample function demonstrating that we'll get the tag list from user
 func (tc *TaggingController) getTagsFromInputs() []*ec2.Tag {
 	var awsTags []*ec2.Tag
-	tag := &ec2.Tag{
-		Key:   aws.String("Sample Key"),
-		Value: aws.String("Sample value"),
+	for k, v := range tc.tags {
+		newTag := &ec2.Tag{
+			Key:   aws.String(k),
+			Value: aws.String(v),
+		}
+		awsTags = append(awsTags, newTag)
 	}
-	awsTags = append(awsTags, tag)
 
 	return awsTags
 }
