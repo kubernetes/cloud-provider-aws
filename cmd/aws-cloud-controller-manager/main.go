@@ -72,8 +72,11 @@ func main() {
 		},
 		Constructor: taggingControllerWrapper.StartTaggingControllerWrapper,
 	}
-	
+
 	controllerInitializers[tagging.TaggingControllerKey] = taggingControllerConstructor
+
+	// TODO: remove the following line to enable the route controller
+	delete(controllerInitializers, "route")
 
 	command := app.NewCloudControllerManagerCommand(opts, cloudInitializer, controllerInitializers, fss, wait.NeverStop)
 
