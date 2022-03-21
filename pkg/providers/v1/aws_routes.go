@@ -35,7 +35,7 @@ func (c *Cloud) findRouteTable(clusterName string) (*ec2.RouteTable, error) {
 
 	if c.cfg.Global.RouteTableID != "" {
 		request := &ec2.DescribeRouteTablesInput{Filters: []*ec2.Filter{newEc2Filter("route-table-id", c.cfg.Global.RouteTableID)}}
-		response, err := c.ec2.DescribeRouteTables(request)
+		response, err := c.Ec2.DescribeRouteTables(request)
 		if err != nil {
 			return nil, err
 		}
@@ -43,7 +43,7 @@ func (c *Cloud) findRouteTable(clusterName string) (*ec2.RouteTable, error) {
 		tables = response
 	} else {
 		request := &ec2.DescribeRouteTablesInput{}
-		response, err := c.ec2.DescribeRouteTables(request)
+		response, err := c.Ec2.DescribeRouteTables(request)
 		if err != nil {
 			return nil, err
 		}
@@ -131,7 +131,7 @@ func (c *Cloud) configureInstanceSourceDestCheck(instanceID string, sourceDestCh
 	request.InstanceId = aws.String(instanceID)
 	request.SourceDestCheck = &ec2.AttributeBooleanValue{Value: aws.Bool(sourceDestCheck)}
 
-	_, err := c.ec2.ModifyInstanceAttribute(request)
+	_, err := c.Ec2.ModifyInstanceAttribute(request)
 	if err != nil {
 		return fmt.Errorf("error configuring source-dest-check on instance %s: %q", instanceID, err)
 	}
@@ -178,7 +178,7 @@ func (c *Cloud) CreateRoute(ctx context.Context, clusterName string, nameHint st
 		request.DestinationCidrBlock = deleteRoute.DestinationCidrBlock
 		request.RouteTableId = table.RouteTableId
 
-		_, err = c.ec2.DeleteRoute(request)
+		_, err = c.Ec2.DeleteRoute(request)
 		if err != nil {
 			return fmt.Errorf("error deleting blackholed AWS route (%s): %q", aws.StringValue(deleteRoute.DestinationCidrBlock), err)
 		}
@@ -190,7 +190,7 @@ func (c *Cloud) CreateRoute(ctx context.Context, clusterName string, nameHint st
 	request.InstanceId = instance.InstanceId
 	request.RouteTableId = table.RouteTableId
 
-	_, err = c.ec2.CreateRoute(request)
+	_, err = c.Ec2.CreateRoute(request)
 	if err != nil {
 		return fmt.Errorf("error creating AWS route (%s): %q", route.DestinationCIDR, err)
 	}
@@ -210,7 +210,7 @@ func (c *Cloud) DeleteRoute(ctx context.Context, clusterName string, route *clou
 	request.DestinationCidrBlock = aws.String(route.DestinationCIDR)
 	request.RouteTableId = table.RouteTableId
 
-	_, err = c.ec2.DeleteRoute(request)
+	_, err = c.Ec2.DeleteRoute(request)
 	if err != nil {
 		return fmt.Errorf("error deleting AWS route (%s): %q", route.DestinationCIDR, err)
 	}

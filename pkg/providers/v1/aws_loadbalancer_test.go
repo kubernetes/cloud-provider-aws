@@ -552,7 +552,7 @@ func makeNodeInstancePair(offset int) (*v1.Node, *ec2.Instance) {
 		Placement: &ec2.Placement{
 			AvailabilityZone: aws.String("us-east-1b"),
 		},
-		PrivateDnsName:   aws.String(fmt.Sprintf("ip-192-168-32-%d.ec2.internal", 101+offset)),
+		PrivateDnsName:   aws.String(fmt.Sprintf("ip-192-168-32-%d.Ec2.internal", 101+offset)),
 		PrivateIpAddress: aws.String(fmt.Sprintf("192.168.32.%d", 101+offset)),
 		PublicIpAddress:  aws.String(fmt.Sprintf("1.2.3.%d", 1+offset)),
 	}
@@ -564,7 +564,7 @@ func makeNodeInstancePair(offset int) (*v1.Node, *ec2.Instance) {
 
 	node := &v1.Node{
 		ObjectMeta: metav1.ObjectMeta{
-			Name: fmt.Sprintf("ip-192-168-0-%d.ec2.internal", 101+offset),
+			Name: fmt.Sprintf("ip-192-168-0-%d.Ec2.internal", 101+offset),
 		},
 		Spec: v1.NodeSpec{
 			ProviderID: fmt.Sprintf("aws:///us-east-1b/%s", instanceID),
@@ -576,7 +576,7 @@ func makeNodeInstancePair(offset int) (*v1.Node, *ec2.Instance) {
 func TestCloud_findInstancesForELB(t *testing.T) {
 	defaultNode := &v1.Node{
 		ObjectMeta: metav1.ObjectMeta{
-			Name: "ip-172-20-0-100.ec2.internal",
+			Name: "ip-172-20-0-100.Ec2.internal",
 		},
 		Spec: v1.NodeSpec{
 			ProviderID: "aws:///us-east-1a/i-self",

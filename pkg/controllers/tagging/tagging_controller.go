@@ -15,6 +15,7 @@ package tagging
 
 import (
 	"context"
+	"fmt"
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/service/ec2"
 	v1 "k8s.io/api/core/v1"
@@ -25,6 +26,7 @@ import (
 	clientset "k8s.io/client-go/kubernetes"
 	v1lister "k8s.io/client-go/listers/core/v1"
 	cloudprovider "k8s.io/cloud-provider"
+	"k8s.io/cloud-provider-aws/pkg/controllers/options"
 	awsv1 "k8s.io/cloud-provider-aws/pkg/providers/v1"
 	"k8s.io/klog/v2"
 	"time"
@@ -34,10 +36,10 @@ import (
 // It periodically check for Node events (creating/deleting) to apply appropriate
 // tags to resources.
 type TaggingController struct {
-	kubeClient clientset.Interface
-	nodeLister v1lister.NodeLister
-
-	cloud cloudprovider.Interface
+	controllerOptions options.TaggingControllerOptions
+	kubeClient        clientset.Interface
+	nodeLister        v1lister.NodeLister
+	cloud             *awsv1.Cloud
 
 	// Value controlling TaggingController monitoring period, i.e. how often does TaggingController
 	// check node list. This value should be lower than nodeMonitorGracePeriod
@@ -51,10 +53,10 @@ type TaggingController struct {
 	nodeMap map[string]*v1.Node
 
 	// Representing the user input for tags
-	tags string
+	tags map[string]string
 
 	// Representing the resources to tag
-	resources string
+	resources []string
 }
 
 // NewTaggingController creates a NewTaggingController object
@@ -62,18 +64,23 @@ func NewTaggingController(
 	nodeInformer coreinformers.NodeInformer,
 	kubeClient clientset.Interface,
 	cloud cloudprovider.Interface,
-	nodeMonitorPeriod time.Duration) (*TaggingController, error) {
+	nodeMonitorPeriod time.Duration,
+	tags map[string]string) (*TaggingController, error) {
+
+	awsCloud, ok := cloud.(*awsv1.Cloud)
+	if !ok {
+		err := fmt.Errorf("tagging controller does not support %v provider", cloud.ProviderName())
+		return nil, err
+	}
 
 	tc := &TaggingController{
 		kubeClient:        kubeClient,
 		nodeLister:        nodeInformer.Lister(),
-		cloud:             cloud,
+		cloud:             awsCloud,
 		nodeMonitorPeriod: nodeMonitorPeriod,
 		taggedNodes:       make(map[string]bool),
 		nodeMap:           make(map[string]*v1.Node),
-		// TODO: add controller configs including the new flags
-		//tags:              conf.ControllerCFG.ResourceTags,
-		//resources:         conf.ControllerCFG.TaggingResources,
+		tags:              tags,
 	}
 	return tc, nil
 }
@@ -87,11 +94,13 @@ func (tc *TaggingController) Run(ctx context.Context) {
 }
 
 func (tc *TaggingController) MonitorNodes(ctx context.Context) {
+	klog.Info("Listing nodes as part of tagging controller.")
 	nodes, err := tc.nodeLister.List(labels.Everything())
 	if err != nil {
 		klog.Errorf("error listing nodes: %s", err)
 		return
 	}
+	klog.Infof("Got these nodes as part of tagging controller %s and will tag them with %s", nodes, tc.tags)
 
 	for k := range tc.taggedNodes {
 		tc.taggedNodes[k] = false
@@ -155,18 +164,18 @@ func (tc *TaggingController) tagEc2Instances(nodes []*v1.Node) {
 	tc.tagResources(instanceIds)
 }
 
-// TODO: call EC2 to tag instances
 func (tc *TaggingController) tagResources(resourceIds []*string) {
-	//request := &ec2.CreateTagsInput{
-	//	Resources: resourceIds,
-	//	Tags:      tc.getTagsFromInputs(),
-	//}
-	//
-	//_, error := awsv1..EC2.CreateTags(request)
-	//
-	//if error != nil {
-	//	klog.Errorf("Error occurred trying to tag resources, %s", error)
-	//}
+	request := &ec2.CreateTagsInput{
+		Resources: resourceIds,
+		Tags:      tc.getTagsFromInputs(),
+	}
+
+	_, error := tc.cloud.Ec2.CreateTags(request)
+
+	if error != nil {
+		klog.Errorf("Error occurred trying to tag resources, %s", error)
+	}
+	klog.Infof("Going to tag resources %s with tags %s", resourceIds, tc.tags)
 }
 
 // Sample function demonstrating that we'll get the tag list from user
