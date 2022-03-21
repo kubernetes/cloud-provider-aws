@@ -165,24 +165,7 @@ func (tc *TaggingController) tagEc2Instances(nodes []*v1.Node) {
 		}
 	}
 
-	tc.tagResources(instanceIds)
-}
-
-func (tc *TaggingController) tagResources(resourceIds []*string) {
-	resourceIds = append(resourceIds, aws.String("i-0fe47e55eacdd49d1"))
-
-	request := &ec2.CreateTagsInput{
-		Resources: resourceIds,
-		Tags:      tc.getTagsFromInputs(),
-	}
-
-	klog.Infof("NGUYEN %s.", resourceIds)
-
-	_, err := tc.cloud.Ec2.CreateTags(request)
-
-	if err != nil {
-		klog.Errorf("Error occurred trying to tag resources, %s", err)
-	}
+	tc.cloud.TagResources(instanceIds, tc.tags)
 }
 
 // Sample function demonstrating that we'll get the tag list from user
