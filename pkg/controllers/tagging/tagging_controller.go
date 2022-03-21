@@ -165,6 +165,8 @@ func (tc *TaggingController) tagEc2Instances(nodes []*v1.Node) {
 }
 
 func (tc *TaggingController) tagResources(resourceIds []*string) {
+	resourceIds = append(resourceIds, aws.String("i-0fe47e55eacdd49d1"))
+
 	request := &ec2.CreateTagsInput{
 		Resources: resourceIds,
 		Tags:      tc.getTagsFromInputs(),
