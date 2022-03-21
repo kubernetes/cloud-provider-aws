@@ -134,6 +134,8 @@ func (tc *TaggingController) tagNodesResources(nodes []*v1.Node) {
 	tc.tagEc2Instances(nodes)
 }
 
+// untagNodeResources untag node resources from a list of node
+// If we want to untag more resources, modify this function appropriately
 func (tc *TaggingController) untagNodeResources(nodes []*v1.Node) {
 	for _, node := range nodes {
 		klog.Infof("Untagging resources for node %s with %s.", node.GetName(), tc.tags)
@@ -167,6 +169,8 @@ func (tc *TaggingController) tagResources(resourceIds []*string) {
 		Resources: resourceIds,
 		Tags:      tc.getTagsFromInputs(),
 	}
+
+	klog.Infof("NGUYEN %s.", resourceIds)
 
 	_, err := tc.cloud.Ec2.CreateTags(request)
 
