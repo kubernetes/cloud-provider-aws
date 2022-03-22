@@ -92,13 +92,11 @@ func (tc *TaggingController) Run(ctx context.Context) {
 }
 
 func (tc *TaggingController) MonitorNodes(ctx context.Context) {
-	klog.Info("Listing nodes as part of tagging controller.")
 	nodes, err := tc.nodeLister.List(labels.Everything())
 	if err != nil {
 		klog.Errorf("error listing nodes: %s", err)
 		return
 	}
-	klog.Infof("Got these nodes as part of tagging controller %s and will tag them with %s", nodes, tc.tags)
 
 	for k := range tc.taggedNodes {
 		tc.taggedNodes[k] = false
@@ -132,7 +130,7 @@ func (tc *TaggingController) tagNodesResources(nodes []*v1.Node) {
 
 		if !nodeTagged {
 			// Node tagged unsuccessfully, remove from the map
-			// so that we can try later
+			// so that we can try later if it still exists
 			delete(tc.taggedNodes, node.GetName())
 		}
 	}
@@ -147,10 +145,11 @@ func (tc *TaggingController) tagEc2Instances(node *v1.Node) bool {
 		klog.Errorf("Error in getting instanceID for node %s, error: %v", node.GetName(), err)
 		return false
 	} else {
-		err := tc.cloud.UntagResource(string(instanceId), tc.tags)
+		err := tc.cloud.TagResource(string(instanceId), tc.tags)
 
 		if err != nil {
 			klog.Errorf("Error in tagging EC2 instance for node %s, error: %v", node.GetName(), err)
+			return false
 		}
 	}
 
@@ -162,7 +161,7 @@ func (tc *TaggingController) tagEc2Instances(node *v1.Node) bool {
 func (tc *TaggingController) untagNodeResources(nodes []*v1.Node) {
 	for _, node := range nodes {
 		nodeUntagged := false
-		nodeUntagged = tc.untagEc2Instances(node)
+		nodeUntagged = tc.untagEc2Instance(node)
 
 		if nodeUntagged {
 			delete(tc.taggedNodes, node.GetName())
@@ -172,7 +171,7 @@ func (tc *TaggingController) untagNodeResources(nodes []*v1.Node) {
 
 // untagEc2Instances deletes the provided tags to each EC2 instances in
 // the cluster. Return if a node is tagged or not
-func (tc *TaggingController) untagEc2Instances(node *v1.Node) bool {
+func (tc *TaggingController) untagEc2Instance(node *v1.Node) bool {
 	instanceId, err := awsv1.KubernetesInstanceID(node.Spec.ProviderID).MapToAWSInstanceID()
 
 	if err != nil {
@@ -183,6 +182,7 @@ func (tc *TaggingController) untagEc2Instances(node *v1.Node) bool {
 
 		if err != nil {
 			klog.Errorf("Error in untagging EC2 instance for node %s, error: %v", node.GetName(), err)
+			return false
 		}
 	}
 
