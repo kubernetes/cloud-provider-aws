@@ -1158,6 +1158,14 @@ func (s *awsSdkEC2) CreateTags(request *ec2.CreateTagsInput) (*ec2.CreateTagsOut
 	return resp, err
 }
 
+func (s *awsSdkEC2) DeleteTags(request *ec2.DeleteTagsInput) (*ec2.DeleteTagsOutput, error) {
+	requestTime := time.Now()
+	resp, err := s.ec2.DeleteTags(request)
+	timeTaken := time.Since(requestTime).Seconds()
+	recordAWSMetric("create_tags", timeTaken, err)
+	return resp, err
+}
+
 func (s *awsSdkEC2) DescribeRouteTables(request *ec2.DescribeRouteTablesInput) ([]*ec2.RouteTable, error) {
 	results := []*ec2.RouteTable{}
 	var nextToken *string

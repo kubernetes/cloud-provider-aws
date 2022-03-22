@@ -128,7 +128,7 @@ func (tc *TaggingController) MonitorNodes(ctx context.Context) {
 func (tc *TaggingController) tagNodesResources(nodes []*v1.Node) {
 	for _, node := range nodes {
 		nodeTagged := false
-		nodeTagged = tc.untagEc2Instances(node)
+		nodeTagged = tc.tagEc2Instances(node)
 
 		if !nodeTagged {
 			// Node tagged unsuccessfully, remove from the map
@@ -147,7 +147,7 @@ func (tc *TaggingController) tagEc2Instances(node *v1.Node) bool {
 		klog.Errorf("Error in getting instanceID for node %s, error: %v", node.GetName(), err)
 		return false
 	} else {
-		err := tc.cloud.TagResource(string(instanceId), tc.tags)
+		err := tc.cloud.UntagResource(string(instanceId), tc.tags)
 
 		if err != nil {
 			klog.Errorf("Error in tagging EC2 instance for node %s, error: %v", node.GetName(), err)
