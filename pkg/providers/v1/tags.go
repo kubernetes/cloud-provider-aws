@@ -311,7 +311,7 @@ func (t *awsTagging) clusterID() string {
 	return t.ClusterID
 }
 
-func (c *Cloud) TagResources(resourceIds []*string, tags map[string]string) {
+func (c *Cloud) TagResource(resourceId string, tags map[string]string) error {
 	var awsTags []*ec2.Tag
 	for k, v := range tags {
 		newTag := &ec2.Tag{
@@ -322,7 +322,7 @@ func (c *Cloud) TagResources(resourceIds []*string, tags map[string]string) {
 	}
 
 	request := &ec2.CreateTagsInput{
-		Resources: resourceIds,
+		Resources: []*string{aws.String(resourceId)},
 		Tags:      awsTags,
 	}
 
@@ -330,5 +330,8 @@ func (c *Cloud) TagResources(resourceIds []*string, tags map[string]string) {
 
 	if err != nil {
 		klog.Errorf("Error occurred trying to tag resources, %s", err)
+		return err
 	}
+
+	return nil
 }
