@@ -27,6 +27,7 @@ package main
 
 import (
 	"fmt"
+	"k8s.io/cloud-provider-aws/pkg/controllers/tagging"
 	"math/rand"
 	"net"
 	"net/http"
