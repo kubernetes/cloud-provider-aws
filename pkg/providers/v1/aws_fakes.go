@@ -66,7 +66,7 @@ func NewFakeAWSServices(clusterID string) *FakeAWSServices {
 	selfInstance.Placement = &ec2.Placement{
 		AvailabilityZone: aws.String("us-east-1a"),
 	}
-	selfInstance.PrivateDnsName = aws.String("ip-172-20-0-100.Ec2.internal")
+	selfInstance.PrivateDnsName = aws.String("ip-172-20-0-100.ec2.internal")
 	selfInstance.PrivateIpAddress = aws.String("192.168.0.1")
 	selfInstance.PublicIpAddress = aws.String("1.2.3.4")
 	s.selfInstance = selfInstance
@@ -80,7 +80,7 @@ func NewFakeAWSServices(clusterID string) *FakeAWSServices {
 	return s
 }
 
-// WithAz sets the Ec2 placement availability zone
+// WithAz sets the ec2 placement availability zone
 func (s *FakeAWSServices) WithAz(az string) *FakeAWSServices {
 	if s.selfInstance.Placement == nil {
 		s.selfInstance.Placement = &ec2.Placement{}

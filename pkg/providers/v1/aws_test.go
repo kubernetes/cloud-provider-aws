@@ -377,15 +377,15 @@ func TestOverridesActiveConfig(t *testing.T) {
                   SigningMethod = v4
 
 				[ServiceOverride "2"]
-                  Service=Ec2
+                  Service=ec2
                   Region=sregion2
-                  URL=https://Ec2.foo.bar
+                  URL=https://ec2.foo.bar
                   SigningRegion=sregion2
                   SigningMethod = v4`),
 			nil,
 			false, true,
 			[]ServiceDescriptor{{name: "s3", region: "sregion1", signingRegion: "sregion1", signingMethod: "v4"},
-				{name: "Ec2", region: "sregion2", signingRegion: "sregion2", signingMethod: "v4"}},
+				{name: "ec2", region: "sregion2", signingRegion: "sregion2", signingMethod: "v4"}},
 		},
 		{
 			"Duplicate Services",
@@ -422,16 +422,16 @@ func TestOverridesActiveConfig(t *testing.T) {
                  SigningRegion=sregion1
 
 				[ServiceOverride "2"]
-                 Service=Ec2
+                 Service=ec2
                  Region=region2
-                 URL=https://Ec2.foo.bar
+                 URL=https://ec2.foo.bar
                  SigningRegion=sregion
                  SigningMethod = v4
                  `),
 			nil,
 			false, true,
 			[]ServiceDescriptor{{name: "s3", region: "region1", signingRegion: "sregion1", signingMethod: ""},
-				{name: "Ec2", region: "region2", signingRegion: "sregion", signingMethod: "v4"}},
+				{name: "ec2", region: "region2", signingRegion: "sregion", signingMethod: "v4"}},
 		},
 		{
 			"Multiple regions, Same Service",
@@ -688,10 +688,10 @@ func makeInstance(num int, privateIP, publicIP, privateDNSName, publicDNSName st
 func TestNodeAddressesByProviderID(t *testing.T) {
 	// Note instance0 and instance1 have the same name
 	// (we test that this produces an error)
-	instance0 := makeInstance(0, "192.168.0.1", "1.2.3.4", "instance-same.Ec2.internal", "instance-same.Ec2.external", nil, true)
-	instance1 := makeInstance(1, "192.168.0.2", "", "instance-same.Ec2.internal", "", nil, false)
-	instance2 := makeInstance(2, "192.168.0.1", "1.2.3.4", "instance-other.Ec2.internal", "", nil, false)
-	instance3 := makeInstance(3, "192.168.0.3", "", "instance-ipv6.Ec2.internal", "", []string{"2a05:d014:aa7:911:fc7e:1600:fc4d:ab2", "2a05:d014:aa7:911:9f44:e737:1aa0:6489"}, true)
+	instance0 := makeInstance(0, "192.168.0.1", "1.2.3.4", "instance-same.ec2.internal", "instance-same.ec2.external", nil, true)
+	instance1 := makeInstance(1, "192.168.0.2", "", "instance-same.ec2.internal", "", nil, false)
+	instance2 := makeInstance(2, "192.168.0.1", "1.2.3.4", "instance-other.ec2.internal", "", nil, false)
+	instance3 := makeInstance(3, "192.168.0.3", "", "instance-ipv6.ec2.internal", "", []string{"2a05:d014:aa7:911:fc7e:1600:fc4d:ab2", "2a05:d014:aa7:911:9f44:e737:1aa0:6489"}, true)
 	instances := []*ec2.Instance{&instance0, &instance1, &instance2, &instance3}
 
 	aws1, _ := mockInstancesResp(&instance0, []*ec2.Instance{&instance0})
@@ -712,9 +712,9 @@ func TestNodeAddressesByProviderID(t *testing.T) {
 	}
 	testHasNodeAddress(t, addrs2, v1.NodeInternalIP, "192.168.0.1")
 	testHasNodeAddress(t, addrs2, v1.NodeExternalIP, "1.2.3.4")
-	testHasNodeAddress(t, addrs2, v1.NodeExternalDNS, "instance-same.Ec2.external")
-	testHasNodeAddress(t, addrs2, v1.NodeInternalDNS, "instance-same.Ec2.internal")
-	testHasNodeAddress(t, addrs2, v1.NodeHostName, "instance-same.Ec2.internal")
+	testHasNodeAddress(t, addrs2, v1.NodeExternalDNS, "instance-same.ec2.external")
+	testHasNodeAddress(t, addrs2, v1.NodeInternalDNS, "instance-same.ec2.internal")
+	testHasNodeAddress(t, addrs2, v1.NodeHostName, "instance-same.ec2.internal")
 
 	aws3, _ := mockInstancesResp(&instance3, instances)
 	aws3.cfg.Global.NodeIPFamilies = []string{"ipv4", "ipv6"}
@@ -729,8 +729,8 @@ func TestNodeAddressesByProviderID(t *testing.T) {
 	}
 	testHasNodeAddress(t, addrs3, v1.NodeInternalIP, "192.168.0.3")
 	testHasNodeAddress(t, addrs3, v1.NodeInternalIP, "2a05:d014:aa7:911:fc7e:1600:fc4d:ab2")
-	testHasNodeAddress(t, addrs3, v1.NodeInternalDNS, "instance-ipv6.Ec2.internal")
-	testHasNodeAddress(t, addrs3, v1.NodeHostName, "instance-ipv6.Ec2.internal")
+	testHasNodeAddress(t, addrs3, v1.NodeInternalDNS, "instance-ipv6.ec2.internal")
+	testHasNodeAddress(t, addrs3, v1.NodeHostName, "instance-ipv6.ec2.internal")
 
 	aws4, _ := mockInstancesResp(&instance3, instances)
 	aws4.cfg.Global.NodeIPFamilies = []string{"ipv6"}
@@ -748,13 +748,13 @@ func TestNodeAddressesByProviderID(t *testing.T) {
 }
 
 func TestNodeAddresses(t *testing.T) {
-	instance0 := makeInstance(0, "192.168.0.1", "1.2.3.4", "instance-same.Ec2.internal", "instance-same.Ec2.external", nil, true)
-	instance2 := makeInstance(2, "192.168.0.1", "1.2.3.4", "instance-other.Ec2.internal", "", nil, false)
-	instance3 := makeInstance(3, "192.168.0.3", "", "instance-ipv6.Ec2.internal", "", []string{"2a05:d014:aa7:911:fc7e:1600:fc4d:ab2", "2a05:d014:aa7:911:9f44:e737:1aa0:6489"}, true)
+	instance0 := makeInstance(0, "192.168.0.1", "1.2.3.4", "instance-same.ec2.internal", "instance-same.ec2.external", nil, true)
+	instance2 := makeInstance(2, "192.168.0.1", "1.2.3.4", "instance-other.ec2.internal", "", nil, false)
+	instance3 := makeInstance(3, "192.168.0.3", "", "instance-ipv6.ec2.internal", "", []string{"2a05:d014:aa7:911:fc7e:1600:fc4d:ab2", "2a05:d014:aa7:911:9f44:e737:1aa0:6489"}, true)
 	instances := []*ec2.Instance{&instance0, &instance2, &instance3}
 
 	aws1, _ := mockInstancesResp(&instance0, []*ec2.Instance{&instance0})
-	_, err1 := aws1.NodeAddresses(context.TODO(), "instance-mismatch.Ec2.internal")
+	_, err1 := aws1.NodeAddresses(context.TODO(), "instance-mismatch.ec2.internal")
 	if err1 == nil {
 		t.Errorf("Should error when no instance found")
 	}
@@ -762,7 +762,7 @@ func TestNodeAddresses(t *testing.T) {
 	aws3, _ := mockInstancesResp(&instance0, instances[0:1])
 	// change node name so it uses the instance instead of metadata
 	aws3.selfAWSInstance.nodeName = "foo"
-	addrs3, err3 := aws3.NodeAddresses(context.TODO(), "instance-same.Ec2.internal")
+	addrs3, err3 := aws3.NodeAddresses(context.TODO(), "instance-same.ec2.internal")
 	if err3 != nil {
 		t.Errorf("Should not error when instance found")
 	}
@@ -771,15 +771,15 @@ func TestNodeAddresses(t *testing.T) {
 	}
 	testHasNodeAddress(t, addrs3, v1.NodeInternalIP, "192.168.0.1")
 	testHasNodeAddress(t, addrs3, v1.NodeExternalIP, "1.2.3.4")
-	testHasNodeAddress(t, addrs3, v1.NodeExternalDNS, "instance-same.Ec2.external")
-	testHasNodeAddress(t, addrs3, v1.NodeInternalDNS, "instance-same.Ec2.internal")
-	testHasNodeAddress(t, addrs3, v1.NodeHostName, "instance-same.Ec2.internal")
+	testHasNodeAddress(t, addrs3, v1.NodeExternalDNS, "instance-same.ec2.external")
+	testHasNodeAddress(t, addrs3, v1.NodeInternalDNS, "instance-same.ec2.internal")
+	testHasNodeAddress(t, addrs3, v1.NodeHostName, "instance-same.ec2.internal")
 
 	aws4, _ := mockInstancesResp(&instance3, instances)
 	aws4.cfg.Global.NodeIPFamilies = []string{"ipv4", "ipv6"}
 	// change node name so it uses the instance instead of metadata
 	aws4.selfAWSInstance.nodeName = "foo"
-	addrs4, err4 := aws4.NodeAddresses(context.TODO(), "instance-ipv6.Ec2.internal")
+	addrs4, err4 := aws4.NodeAddresses(context.TODO(), "instance-ipv6.ec2.internal")
 	if err4 != nil {
 		t.Errorf("Should not error when instance found")
 	}
@@ -788,14 +788,14 @@ func TestNodeAddresses(t *testing.T) {
 	}
 	testHasNodeAddress(t, addrs4, v1.NodeInternalIP, "192.168.0.3")
 	testHasNodeAddress(t, addrs4, v1.NodeInternalIP, "2a05:d014:aa7:911:fc7e:1600:fc4d:ab2")
-	testHasNodeAddress(t, addrs4, v1.NodeInternalDNS, "instance-ipv6.Ec2.internal")
-	testHasNodeAddress(t, addrs4, v1.NodeHostName, "instance-ipv6.Ec2.internal")
+	testHasNodeAddress(t, addrs4, v1.NodeInternalDNS, "instance-ipv6.ec2.internal")
+	testHasNodeAddress(t, addrs4, v1.NodeHostName, "instance-ipv6.ec2.internal")
 
 	aws5, _ := mockInstancesResp(&instance3, instances)
 	aws5.cfg.Global.NodeIPFamilies = []string{"ipv6"}
 	// change node name so it uses the instance instead of metadata
 	aws5.selfAWSInstance.nodeName = "foo"
-	addrs5, err5 := aws5.NodeAddresses(context.TODO(), "instance-ipv6.Ec2.internal")
+	addrs5, err5 := aws5.NodeAddresses(context.TODO(), "instance-ipv6.ec2.internal")
 	if err5 != nil {
 		t.Errorf("Should not error when instance found")
 	}
@@ -1630,7 +1630,7 @@ func TestGetInstanceByNodeNameBatching(t *testing.T) {
 	tags := []*ec2.Tag{&tag}
 	nodeNames := []string{}
 	for i := 0; i < 200; i++ {
-		nodeName := fmt.Sprintf("ip-171-20-42-%d.Ec2.internal", i)
+		nodeName := fmt.Sprintf("ip-171-20-42-%d.ec2.internal", i)
 		nodeNames = append(nodeNames, nodeName)
 		ec2Instance := &ec2.Instance{}
 		instanceID := fmt.Sprintf("i-abcedf%d", i)
@@ -2598,7 +2598,7 @@ func TestRegionIsValid(t *testing.T) {
 }
 
 func TestNodeNameToProviderID(t *testing.T) {
-	testNodeName := types.NodeName("ip-10-0-0-1.Ec2.internal")
+	testNodeName := types.NodeName("ip-10-0-0-1.ec2.internal")
 	testProviderID := "aws:///us-east-1c/i-02bce90670bb0c7cd"
 	fakeAWS := newMockedFakeAWSServices(TestClusterID)
 	c, err := newAWSCloud(CloudConfig{}, fakeAWS)
@@ -3212,7 +3212,7 @@ func makeNamedNode(s *FakeAWSServices, offset int, name string) *v1.Node {
 	instance.Placement = &ec2.Placement{
 		AvailabilityZone: aws.String("us-east-1c"),
 	}
-	instance.PrivateDnsName = aws.String(fmt.Sprintf("ip-172-20-0-%d.Ec2.internal", 101+offset))
+	instance.PrivateDnsName = aws.String(fmt.Sprintf("ip-172-20-0-%d.ec2.internal", 101+offset))
 	instance.PrivateIpAddress = aws.String(fmt.Sprintf("192.168.0.%d", 1+offset))
 
 	var tag ec2.Tag

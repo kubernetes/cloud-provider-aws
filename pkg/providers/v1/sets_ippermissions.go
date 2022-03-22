@@ -166,7 +166,7 @@ func (s IPPermissionSet) Len() int {
 func keyForIPPermission(p *ec2.IpPermission) string {
 	v, err := json.Marshal(p)
 	if err != nil {
-		panic(fmt.Sprintf("error building JSON representation of Ec2.IpPermission: %v", err))
+		panic(fmt.Sprintf("error building JSON representation of ec2.IpPermission: %v", err))
 	}
 	return string(v)
 }

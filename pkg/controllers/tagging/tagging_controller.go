@@ -17,7 +17,6 @@ import (
 	"context"
 	"fmt"
 	"github.com/aws/aws-sdk-go/aws"
-	"github.com/aws/aws-sdk-go/service/ec2"
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
@@ -157,6 +156,7 @@ func (tc *TaggingController) syncDeletedNodesToTaggedNodes() {
 func (tc *TaggingController) tagEc2Instances(nodes []*v1.Node) {
 	var instanceIds []*string
 	for _, node := range nodes {
+		klog.Infof("Node %s, with providerID %s", node.GetName(), node.Spec.ProviderID)
 		instanceId, err := awsv1.KubernetesInstanceID(node.Spec.ProviderID).MapToAWSInstanceID()
 		if err != nil {
 			klog.Infof("Error in getting instanceID for node %s, error: %v", node.GetName(), err)
@@ -166,18 +166,4 @@ func (tc *TaggingController) tagEc2Instances(nodes []*v1.Node) {
 	}
 
 	tc.cloud.TagResources(instanceIds, tc.tags)
-}
-
-// Sample function demonstrating that we'll get the tag list from user
-func (tc *TaggingController) getTagsFromInputs() []*ec2.Tag {
-	var awsTags []*ec2.Tag
-	for k, v := range tc.tags {
-		newTag := &ec2.Tag{
-			Key:   aws.String(k),
-			Value: aws.String(v),
-		}
-		awsTags = append(awsTags, newTag)
-	}
-
-	return awsTags
 }
