@@ -269,6 +269,11 @@ func (ec2i *FakeEC2Impl) CreateTags(*ec2.CreateTagsInput) (*ec2.CreateTagsOutput
 	panic("Not implemented")
 }
 
+// DeleteTags is not implemented but is required for interface conformance
+func (ec2i *FakeEC2Impl) DeleteTags(input *ec2.DeleteTagsInput) (*ec2.DeleteTagsOutput, error) {
+	panic("Not implemented")
+}
+
 // DescribeRouteTables returns fake route table descriptions
 func (ec2i *FakeEC2Impl) DescribeRouteTables(request *ec2.DescribeRouteTablesInput) ([]*ec2.RouteTable, error) {
 	ec2i.DescribeRouteTablesInput = request
