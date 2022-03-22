@@ -158,6 +158,7 @@ func (tc *TaggingController) tagEc2Instances(nodes []*v1.Node) {
 	for _, node := range nodes {
 		klog.Infof("Node %s, with providerID %s", node.GetName(), node.Spec.ProviderID)
 		instanceId, err := awsv1.KubernetesInstanceID(node.Spec.ProviderID).MapToAWSInstanceID()
+		klog.Infof("Node %s, with instanceId %s", node.GetName(), instanceId)
 		if err != nil {
 			klog.Infof("Error in getting instanceID for node %s, error: %v", node.GetName(), err)
 		} else {
