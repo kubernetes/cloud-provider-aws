@@ -26,13 +26,10 @@ limitations under the License.
 package main
 
 import (
-	"k8s.io/cloud-provider-aws/pkg/controllers/tagging"
-	"math/rand"
-	"os"
-	"time"
-
+	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/apimachinery/pkg/util/wait"
 	cloudprovider "k8s.io/cloud-provider"
+	"k8s.io/cloud-provider-aws/pkg/controllers/tagging"
 	awsv1 "k8s.io/cloud-provider-aws/pkg/providers/v1"
 	awsv2 "k8s.io/cloud-provider-aws/pkg/providers/v2"
 	"k8s.io/cloud-provider/app"
@@ -42,6 +39,9 @@ import (
 	_ "k8s.io/component-base/metrics/prometheus/clientgo" // for client metric registration
 	_ "k8s.io/component-base/metrics/prometheus/version"  // for version metric registration
 	"k8s.io/klog/v2"
+	"math/rand"
+	"os"
+	"time"
 
 	cloudcontrollerconfig "k8s.io/cloud-provider/app/config"
 )
@@ -49,6 +49,9 @@ import (
 const (
 	enableAlphaV2EnvVar = "ENABLE_ALPHA_V2"
 )
+
+// ControllersDisabledByDefault is the controller disabled default when starting cloud-controller managers.
+var ControllersDisabledByDefault = sets.NewString()
 
 func main() {
 	rand.Seed(time.Now().UTC().UnixNano())
@@ -75,9 +78,7 @@ func main() {
 
 	controllerInitializers[tagging.TaggingControllerKey] = taggingControllerConstructor
 
-	// TODO: remove the following line to enable the route controller
-	delete(controllerInitializers, "route")
-
+	app.ControllersDisabledByDefault = sets.NewString("route")
 	command := app.NewCloudControllerManagerCommand(opts, cloudInitializer, controllerInitializers, fss, wait.NeverStop)
 
 	if err := command.Execute(); err != nil {
