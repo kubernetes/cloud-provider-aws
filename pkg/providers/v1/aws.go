@@ -366,6 +366,7 @@ type EC2 interface {
 	DescribeSubnets(*ec2.DescribeSubnetsInput) ([]*ec2.Subnet, error)
 
 	CreateTags(*ec2.CreateTagsInput) (*ec2.CreateTagsOutput, error)
+	DeleteTags(input *ec2.DeleteTagsInput) (*ec2.DeleteTagsOutput, error)
 
 	DescribeRouteTables(request *ec2.DescribeRouteTablesInput) ([]*ec2.RouteTable, error)
 	CreateRoute(request *ec2.CreateRouteInput) (*ec2.CreateRouteOutput, error)
@@ -1154,6 +1155,14 @@ func (s *awsSdkEC2) RevokeSecurityGroupIngress(request *ec2.RevokeSecurityGroupI
 func (s *awsSdkEC2) CreateTags(request *ec2.CreateTagsInput) (*ec2.CreateTagsOutput, error) {
 	requestTime := time.Now()
 	resp, err := s.ec2.CreateTags(request)
+	timeTaken := time.Since(requestTime).Seconds()
+	recordAWSMetric("create_tags", timeTaken, err)
+	return resp, err
+}
+
+func (s *awsSdkEC2) DeleteTags(request *ec2.DeleteTagsInput) (*ec2.DeleteTagsOutput, error) {
+	requestTime := time.Now()
+	resp, err := s.ec2.DeleteTags(request)
 	timeTaken := time.Since(requestTime).Seconds()
 	recordAWSMetric("create_tags", timeTaken, err)
 	return resp, err

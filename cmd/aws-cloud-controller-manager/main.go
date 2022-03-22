@@ -26,6 +26,7 @@ limitations under the License.
 package main
 
 import (
+	"k8s.io/cloud-provider-aws/pkg/controllers/tagging"
 	"math/rand"
 	"os"
 	"time"
@@ -43,8 +44,6 @@ import (
 	"k8s.io/klog/v2"
 
 	cloudcontrollerconfig "k8s.io/cloud-provider/app/config"
-
-	awscontrollers "k8s.io/cloud-provider-aws/pkg/controllers"
 )
 
 const (
@@ -64,8 +63,23 @@ func main() {
 		klog.Fatalf("unable to initialize command options: %v", err)
 	}
 
-	controllerInitializers := awscontrollers.BuildControllerInitializers()
+	controllerInitializers := app.DefaultInitFuncConstructors
+	taggingControllerWrapper := tagging.TaggingControllerWrapper{}
 	fss := cliflag.NamedFlagSets{}
+	taggingControllerWrapper.Options.AddFlags(fss.FlagSet("tagging controller"))
+
+	taggingControllerConstructor := app.ControllerInitFuncConstructor{
+		InitContext: app.ControllerInitContext{
+			ClientName: tagging.TaggingControllerClientName,
+		},
+		Constructor: taggingControllerWrapper.StartTaggingControllerWrapper,
+	}
+
+	controllerInitializers[tagging.TaggingControllerKey] = taggingControllerConstructor
+
+	// TODO: remove the following line to enable the route controller
+	delete(controllerInitializers, "route")
+
 	command := app.NewCloudControllerManagerCommand(opts, cloudInitializer, controllerInitializers, fss, wait.NeverStop)
 
 	if err := command.Execute(); err != nil {
