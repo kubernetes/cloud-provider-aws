@@ -312,6 +312,38 @@ func (t *awsTagging) clusterID() string {
 }
 
 func (c *Cloud) TagResource(resourceId string, tags map[string]string) error {
+	request := &ec2.CreateTagsInput{
+		Resources: []*string{aws.String(resourceId)},
+		Tags:      buildAwsTags(tags),
+	}
+
+	_, err := c.ec2.CreateTags(request)
+
+	if err != nil {
+		klog.Errorf("Error occurred trying to tag resources, %v", err)
+		return err
+	}
+
+	return nil
+}
+
+func (c *Cloud) UntagResource(resourceId string, tags map[string]string) error {
+	request := &ec2.DeleteTagsInput{
+		Resources: []*string{aws.String(resourceId)},
+		Tags:      buildAwsTags(tags),
+	}
+
+	_, err := c.ec2.DeleteTags(request)
+
+	if err != nil {
+		klog.Errorf("Error occurred trying to untag resources, %v", err)
+		return err
+	}
+
+	return nil
+}
+
+func buildAwsTags(tags map[string]string) []*ec2.Tag {
 	var awsTags []*ec2.Tag
 	for k, v := range tags {
 		newTag := &ec2.Tag{
@@ -321,17 +353,5 @@ func (c *Cloud) TagResource(resourceId string, tags map[string]string) error {
 		awsTags = append(awsTags, newTag)
 	}
 
-	request := &ec2.CreateTagsInput{
-		Resources: []*string{aws.String(resourceId)},
-		Tags:      awsTags,
-	}
-
-	_, err := c.ec2.CreateTags(request)
-
-	if err != nil {
-		klog.Errorf("Error occurred trying to tag resources, %s", err)
-		return err
-	}
-
-	return nil
+	return awsTags
 }

@@ -111,7 +111,6 @@ func (tc *TaggingController) MonitorNodes(ctx context.Context) {
 		}
 
 		tc.nodeMap[node.GetName()] = node
-		tc.taggedNodes[node.GetName()] = true
 	}
 	tc.tagNodesResources(nodesToTag)
 
@@ -122,50 +121,70 @@ func (tc *TaggingController) MonitorNodes(ctx context.Context) {
 		}
 	}
 	tc.untagNodeResources(nodesToUntag)
-
-	tc.syncDeletedNodesToTaggedNodes()
 }
 
 // tagNodesResources tag node resources from a list of node
 // If we want to tag more resources, modify this function appropriately
 func (tc *TaggingController) tagNodesResources(nodes []*v1.Node) {
-	tc.tagEc2Instances(nodes)
+	for _, node := range nodes {
+		nodeTagged := false
+		nodeTagged = tc.untagEc2Instances(node)
+
+		if !nodeTagged {
+			// Node tagged unsuccessfully, remove from the map
+			// so that we can try later
+			delete(tc.taggedNodes, node.GetName())
+		}
+	}
+}
+
+// tagEc2Instances applies the provided tags to each EC2 instances in
+// the cluster. Return if a node is tagged or not
+func (tc *TaggingController) tagEc2Instances(node *v1.Node) bool {
+	instanceId, err := awsv1.KubernetesInstanceID(node.Spec.ProviderID).MapToAWSInstanceID()
+
+	if err != nil {
+		klog.Errorf("Error in getting instanceID for node %s, error: %v", node.GetName(), err)
+		return false
+	} else {
+		err := tc.cloud.TagResource(string(instanceId), tc.tags)
+
+		if err != nil {
+			klog.Errorf("Error in tagging EC2 instance for node %s, error: %v", node.GetName(), err)
+		}
+	}
+
+	return true
 }
 
 // untagNodeResources untag node resources from a list of node
 // If we want to untag more resources, modify this function appropriately
 func (tc *TaggingController) untagNodeResources(nodes []*v1.Node) {
 	for _, node := range nodes {
-		klog.Infof("Untagging resources for node %s with %s.", node.GetName(), tc.tags)
-	}
-}
+		nodeUntagged := false
+		nodeUntagged = tc.untagEc2Instances(node)
 
-// syncDeletedNodes delete (k, v) from taggedNodes
-// if it doesn't exist
-func (tc *TaggingController) syncDeletedNodesToTaggedNodes() {
-	for k, v := range tc.taggedNodes {
-		if v == false {
-			delete(tc.taggedNodes, k)
+		if nodeUntagged {
+			delete(tc.taggedNodes, node.GetName())
 		}
 	}
 }
 
-// tagEc2Instances applies the provided tags to each EC2 instances in
-// the cluster.
-func (tc *TaggingController) tagEc2Instances(nodes []*v1.Node) {
-	for _, node := range nodes {
-		instanceId, err := awsv1.KubernetesInstanceID(node.Spec.ProviderID).MapToAWSInstanceID()
+// untagEc2Instances deletes the provided tags to each EC2 instances in
+// the cluster. Return if a node is tagged or not
+func (tc *TaggingController) untagEc2Instances(node *v1.Node) bool {
+	instanceId, err := awsv1.KubernetesInstanceID(node.Spec.ProviderID).MapToAWSInstanceID()
+
+	if err != nil {
+		klog.Errorf("Error in getting instanceID for node %s, error: %v", node.GetName(), err)
+		return false
+	} else {
+		err := tc.cloud.UntagResource(string(instanceId), tc.tags)
 
 		if err != nil {
-			klog.Infof("Error in getting instanceID for node %s, error: %v", node.GetName(), err)
-		} else {
-			err := tc.cloud.TagResource(string(instanceId), tc.tags)
-
-			if err == nil {
-				return
-			}
-
-			klog.Errorf("Unable to tag node %s because of %v.", node.GetName(), err)
+			klog.Errorf("Error in untagging EC2 instance for node %s, error: %v", node.GetName(), err)
 		}
 	}
+
+	return true
 }

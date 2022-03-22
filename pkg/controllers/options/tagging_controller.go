@@ -1,8 +1,8 @@
 package options
 
 import (
+	"fmt"
 	"github.com/spf13/pflag"
-	"k8s.io/klog/v2"
 )
 
 type TaggingControllerOptions struct {
@@ -14,7 +14,9 @@ func (o *TaggingControllerOptions) AddFlags(fs *pflag.FlagSet) {
 }
 
 func (o *TaggingControllerOptions) Validate() error {
-	// TODO: Add validation logic here.
-	klog.Info("Validating tags here")
+	if len(o.Tags) == 0 {
+		return fmt.Errorf("--tags must not be empty.")
+	}
+
 	return nil
 }
