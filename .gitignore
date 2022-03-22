@@ -2,7 +2,8 @@
 /ecr-credential-provider
 /cloudconfig
 
-.vscode/
-
 docs/book/_book/
 site/
+.vscode/
+e2e.test
+.idea/
