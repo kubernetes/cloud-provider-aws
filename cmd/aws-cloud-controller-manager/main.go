@@ -26,7 +26,6 @@ limitations under the License.
 package main
 
 import (
-	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/apimachinery/pkg/util/wait"
 	cloudprovider "k8s.io/cloud-provider"
 	"k8s.io/cloud-provider-aws/pkg/controllers/tagging"
@@ -49,9 +48,6 @@ import (
 const (
 	enableAlphaV2EnvVar = "ENABLE_ALPHA_V2"
 )
-
-// ControllersDisabledByDefault is the controller disabled default when starting cloud-controller managers.
-var ControllersDisabledByDefault = sets.NewString()
 
 func main() {
 	rand.Seed(time.Now().UTC().UnixNano())
@@ -77,8 +73,7 @@ func main() {
 	}
 
 	controllerInitializers[tagging.TaggingControllerKey] = taggingControllerConstructor
-
-	app.ControllersDisabledByDefault = sets.NewString("route")
+	app.ControllersDisabledByDefault.Insert(tagging.TaggingControllerKey)
 	command := app.NewCloudControllerManagerCommand(opts, cloudInitializer, controllerInitializers, fss, wait.NeverStop)
 
 	if err := command.Execute(); err != nil {
