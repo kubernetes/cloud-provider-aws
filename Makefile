@@ -22,7 +22,7 @@ GOARCH ?= $(shell go env GOARCH)
 GOPROXY ?= $(shell go env GOPROXY)
 GIT_VERSION := $(shell git describe --dirty --tags --match='v*')
 VERSION ?= $(GIT_VERSION)
-IMAGE := amazon/cloud-controller-manager:$(VERSION)
+IMAGE ?= amazon/cloud-controller-manager:$(VERSION)
 OUTPUT ?= $(shell pwd)/_output
 INSTALL_PATH ?= $(OUTPUT)/bin
 LDFLAGS ?= -w -s -X k8s.io/component-base/version.gitVersion=$(VERSION)
