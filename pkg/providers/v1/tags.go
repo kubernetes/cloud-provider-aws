@@ -317,10 +317,8 @@ func (c *Cloud) TagResource(resourceId string, tags map[string]string) error {
 		Tags:      buildAwsTags(tags),
 	}
 
-	res, err := c.ec2.CreateTags(request)
+	_, err := c.ec2.CreateTags(request)
 
-	klog.Infof("NGUYEN: %v", res)
-	
 	if err != nil {
 		klog.Errorf("Error occurred trying to tag resources, %v", err)
 		return err
