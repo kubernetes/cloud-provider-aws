@@ -31,11 +31,11 @@ const TestClusterID = "clusterid.test"
 
 func Test_NodesJoiningAndLeaving(t *testing.T) {
 	testcases := []struct {
-		name              string
-		currNode          *v1.Node
-		taggingController TaggingController
-		noOfCurrNodes     int
-		totalNodes        int
+		name                string
+		currNode            *v1.Node
+		taggingController   TaggingController
+		noOfToBeTaggedNodes int
+		totalNodes          int
 	}{
 		{
 			name: "node0 joins the cluster.",
@@ -52,8 +52,8 @@ func Test_NodesJoiningAndLeaving(t *testing.T) {
 				currNodes:  make(map[string]bool),
 				totalNodes: make(map[string]*v1.Node),
 			},
-			noOfCurrNodes: 1,
-			totalNodes:    1,
+			noOfToBeTaggedNodes: 1,
+			totalNodes:          1,
 		},
 		{
 			name: "node1 joins the cluster, node0 left.",
@@ -82,8 +82,8 @@ func Test_NodesJoiningAndLeaving(t *testing.T) {
 					},
 				},
 			},
-			noOfCurrNodes: 1,
-			totalNodes:    2,
+			noOfToBeTaggedNodes: 1,
+			totalNodes:          2,
 		},
 		{
 			name: "node2 joins the cluster, node0 and node1 left.",
@@ -122,8 +122,8 @@ func Test_NodesJoiningAndLeaving(t *testing.T) {
 					},
 				},
 			},
-			noOfCurrNodes: 1,
-			totalNodes:    3,
+			noOfToBeTaggedNodes: 1,
+			totalNodes:          3,
 		},
 		{
 			name: "no new node joins the cluster.",
@@ -172,8 +172,88 @@ func Test_NodesJoiningAndLeaving(t *testing.T) {
 					},
 				},
 			},
-			noOfCurrNodes: 1,
-			totalNodes:    3,
+			noOfToBeTaggedNodes: 1,
+			totalNodes:          3,
+		},
+		{
+			name: "node 3 joins the cluster but failed to be tagged.",
+			currNode: &v1.Node{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:              "node3",
+					CreationTimestamp: metav1.Date(2012, 1, 1, 0, 0, 0, 0, time.UTC),
+				},
+				Spec: v1.NodeSpec{
+					ProviderID: "i-error",
+				},
+			},
+			taggingController: TaggingController{
+				currNodes: map[string]bool{
+					"node0": true,
+					"node1": true,
+					"node2": true,
+				},
+				totalNodes: map[string]*v1.Node{
+					"node0": {
+						ObjectMeta: metav1.ObjectMeta{
+							Name:              "node0",
+							CreationTimestamp: metav1.Date(2012, 1, 1, 0, 0, 0, 0, time.UTC),
+						},
+						Spec: v1.NodeSpec{
+							ProviderID: "i-00000",
+						},
+					},
+					"node1": {
+						ObjectMeta: metav1.ObjectMeta{
+							Name:              "node1",
+							CreationTimestamp: metav1.Date(2012, 1, 1, 0, 0, 0, 0, time.UTC),
+						},
+						Spec: v1.NodeSpec{
+							ProviderID: "i-00001",
+						},
+					},
+					"node2": {
+						ObjectMeta: metav1.ObjectMeta{
+							Name:              "node2",
+							CreationTimestamp: metav1.Date(2012, 1, 1, 0, 0, 0, 0, time.UTC),
+						},
+						Spec: v1.NodeSpec{
+							ProviderID: "i-00002",
+						},
+					},
+				},
+			},
+			noOfToBeTaggedNodes: 0,
+			totalNodes:          4,
+		},
+		{
+			name: "node 1 joins the cluster, node 0 left but failed to be untagged.",
+			currNode: &v1.Node{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:              "node1",
+					CreationTimestamp: metav1.Date(2012, 1, 1, 0, 0, 0, 0, time.UTC),
+				},
+				Spec: v1.NodeSpec{
+					ProviderID: "i-0001",
+				},
+			},
+			taggingController: TaggingController{
+				currNodes: map[string]bool{
+					"node0": true,
+				},
+				totalNodes: map[string]*v1.Node{
+					"node0": {
+						ObjectMeta: metav1.ObjectMeta{
+							Name:              "node0",
+							CreationTimestamp: metav1.Date(2012, 1, 1, 0, 0, 0, 0, time.UTC),
+						},
+						Spec: v1.NodeSpec{
+							ProviderID: "i-error",
+						},
+					},
+				},
+			},
+			noOfToBeTaggedNodes: 2,
+			totalNodes:          2,
 		},
 	}
 
@@ -203,8 +283,8 @@ func Test_NodesJoiningAndLeaving(t *testing.T) {
 
 			testcase.taggingController.MonitorNodes(ctx)
 
-			if len(testcase.taggingController.currNodes) != testcase.noOfCurrNodes || len(testcase.taggingController.totalNodes) != testcase.totalNodes {
-				t.Errorf("currNodes must contain %d element(s), and totalNodes must contain %d element(s).", testcase.noOfCurrNodes, testcase.totalNodes)
+			if len(testcase.taggingController.currNodes) != testcase.noOfToBeTaggedNodes || len(testcase.taggingController.totalNodes) != testcase.totalNodes {
+				t.Errorf("currNodes must contain %d element(s), and totalNodes must contain %d element(s).", testcase.noOfToBeTaggedNodes, testcase.totalNodes)
 			}
 		})
 	}
