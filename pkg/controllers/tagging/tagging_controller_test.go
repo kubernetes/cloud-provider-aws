@@ -21,16 +21,17 @@ import (
 	coreinformers "k8s.io/client-go/informers/core/v1"
 	"k8s.io/client-go/kubernetes/fake"
 	"k8s.io/client-go/tools/record"
-	fakecloud "k8s.io/cloud-provider/fake"
+	awsv1 "k8s.io/cloud-provider-aws/pkg/providers/v1"
 	"k8s.io/klog/v2"
 	"testing"
 	"time"
 )
 
+const TestClusterID = "clusterid.test"
+
 func Test_NodesJoining(t *testing.T) {
 	testcases := []struct {
 		name              string
-		fakeCloud         *fakecloud.Cloud
 		currNode          *v1.Node
 		taggingController TaggingController
 		noOfNodes         int
@@ -42,9 +43,9 @@ func Test_NodesJoining(t *testing.T) {
 					Name:              "node0",
 					CreationTimestamp: metav1.Date(2012, 1, 1, 0, 0, 0, 0, time.UTC),
 				},
-			},
-			fakeCloud: &fakecloud.Cloud{
-				ExistsByProviderID: false,
+				Spec: v1.NodeSpec{
+					ProviderID: "i-00000",
+				},
 			},
 			taggingController: TaggingController{
 				taggedNodes: make(map[string]bool),
@@ -59,9 +60,9 @@ func Test_NodesJoining(t *testing.T) {
 					Name:              "node1",
 					CreationTimestamp: metav1.Date(2012, 1, 1, 0, 0, 0, 0, time.UTC),
 				},
-			},
-			fakeCloud: &fakecloud.Cloud{
-				ExistsByProviderID: false,
+				Spec: v1.NodeSpec{
+					ProviderID: "i-00001",
+				},
 			},
 			taggingController: TaggingController{
 				taggedNodes: map[string]bool{
@@ -72,6 +73,9 @@ func Test_NodesJoining(t *testing.T) {
 						ObjectMeta: metav1.ObjectMeta{
 							Name:              "node0",
 							CreationTimestamp: metav1.Date(2012, 1, 1, 0, 0, 0, 0, time.UTC),
+						},
+						Spec: v1.NodeSpec{
+							ProviderID: "i-00000",
 						},
 					},
 				},
@@ -85,9 +89,9 @@ func Test_NodesJoining(t *testing.T) {
 					Name:              "node2",
 					CreationTimestamp: metav1.Date(2012, 1, 1, 0, 0, 0, 0, time.UTC),
 				},
-			},
-			fakeCloud: &fakecloud.Cloud{
-				ExistsByProviderID: false,
+				Spec: v1.NodeSpec{
+					ProviderID: "i-00002",
+				},
 			},
 			taggingController: TaggingController{
 				taggedNodes: map[string]bool{
@@ -100,11 +104,17 @@ func Test_NodesJoining(t *testing.T) {
 							Name:              "node0",
 							CreationTimestamp: metav1.Date(2012, 1, 1, 0, 0, 0, 0, time.UTC),
 						},
+						Spec: v1.NodeSpec{
+							ProviderID: "i-00000",
+						},
 					},
 					"node1": {
 						ObjectMeta: metav1.ObjectMeta{
 							Name:              "node1",
 							CreationTimestamp: metav1.Date(2012, 1, 1, 0, 0, 0, 0, time.UTC),
+						},
+						Spec: v1.NodeSpec{
+							ProviderID: "i-00001",
 						},
 					},
 				},
@@ -112,6 +122,9 @@ func Test_NodesJoining(t *testing.T) {
 			noOfNodes: 1,
 		},
 	}
+
+	awsServices := awsv1.NewFakeAWSServices(TestClusterID)
+	fakeAws, _ := awsv1.NewAWSCloud(awsv1.CloudConfig{}, awsServices)
 
 	for _, testcase := range testcases {
 		t.Run(testcase.name, func(t *testing.T) {
@@ -128,7 +141,7 @@ func Test_NodesJoining(t *testing.T) {
 			eventBroadcaster := record.NewBroadcaster()
 			testcase.taggingController.nodeLister = nodeInformer.Lister()
 			testcase.taggingController.kubeClient = clientset
-			testcase.taggingController.cloud = testcase.fakeCloud
+			testcase.taggingController.cloud = fakeAws
 			testcase.taggingController.nodeMonitorPeriod = 1 * time.Second
 
 			w := eventBroadcaster.StartLogging(klog.Infof)
