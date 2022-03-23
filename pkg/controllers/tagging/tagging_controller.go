@@ -83,8 +83,8 @@ func NewTaggingController(
 	return tc, nil
 }
 
-// Run will start the controller to tag resources attached to a cluster
-// and untag resources detached from a cluster.
+// Run will start the controller to tag resources attached to the cluster
+// and untag resources detached from the cluster.
 func (tc *TaggingController) Run(ctx context.Context) {
 	defer utilruntime.HandleCrash()
 
@@ -94,8 +94,7 @@ func (tc *TaggingController) Run(ctx context.Context) {
 func (tc *TaggingController) MonitorNodes(ctx context.Context) {
 	nodes, err := tc.nodeLister.List(labels.Everything())
 	if err != nil {
-		klog.Errorf("error listing nodes: %s", err)
-		return
+		klog.Fatalf("error listing nodes: %s", err)
 	}
 
 	for k := range tc.currNodes {
@@ -122,7 +121,7 @@ func (tc *TaggingController) MonitorNodes(ctx context.Context) {
 	tc.untagNodeResources(nodesToUntag)
 }
 
-// tagNodesResources tag node resources from a list of node
+// tagNodesResources tag node resources from a list of nodes
 // If we want to tag more resources, modify this function appropriately
 func (tc *TaggingController) tagNodesResources(nodes []*v1.Node) {
 	for _, node := range nodes {
@@ -130,15 +129,15 @@ func (tc *TaggingController) tagNodesResources(nodes []*v1.Node) {
 		nodeTagged = tc.tagEc2Instances(node)
 
 		if !nodeTagged {
-			// Node tagged unsuccessfully, remove from the map
+			// Node tagged unsuccessfully, remove from currNodes
 			// so that we can try later if it still exists
 			delete(tc.currNodes, node.GetName())
 		}
 	}
 }
 
-// tagEc2Instances applies the provided tags to each EC2 instances in
-// the cluster. Return if a node is tagged or not
+// tagEc2Instances applies the provided tags to each EC2 instance in
+// the cluster. Return a boolean value representing if a node is tagged or not
 func (tc *TaggingController) tagEc2Instances(node *v1.Node) bool {
 	instanceId, err := awsv1.KubernetesInstanceID(node.Spec.ProviderID).MapToAWSInstanceID()
 
@@ -157,7 +156,7 @@ func (tc *TaggingController) tagEc2Instances(node *v1.Node) bool {
 	return true
 }
 
-// untagNodeResources untag node resources from a list of node
+// untagNodeResources untag node resources from a list of nodes
 // If we want to untag more resources, modify this function appropriately
 func (tc *TaggingController) untagNodeResources(nodes []*v1.Node) {
 	for _, node := range nodes {
