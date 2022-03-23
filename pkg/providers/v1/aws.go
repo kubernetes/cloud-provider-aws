@@ -1399,6 +1399,10 @@ func newAWSCloud(cfg CloudConfig, awsServices Services) (*Cloud, error) {
 	return awsCloud, nil
 }
 
+func NewAWSCloud(cfg CloudConfig, awsServices Services) (*Cloud, error) {
+	return newAWSCloud(cfg, awsServices)
+}
+
 // isRegionValid accepts an AWS region name and returns if the region is a
 // valid region known to the AWS SDK. Considers the region returned from the
 // EC2 metadata service to be a valid region as it's only available on a host
