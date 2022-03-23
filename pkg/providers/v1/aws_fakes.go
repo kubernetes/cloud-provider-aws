@@ -264,12 +264,12 @@ func (ec2i *FakeEC2Impl) RemoveSubnets() {
 
 // CreateTags is not implemented but is required for interface conformance
 func (ec2i *FakeEC2Impl) CreateTags(input *ec2.CreateTagsInput) (*ec2.CreateTagsOutput, error) {
-	panic("Not implemented")
+	return &ec2.CreateTagsOutput{}, nil
 }
 
 // DeleteTags is not implemented but is required for interface conformance
 func (ec2i *FakeEC2Impl) DeleteTags(input *ec2.DeleteTagsInput) (*ec2.DeleteTagsOutput, error) {
-	panic("Not implemented")
+	return &ec2.DeleteTagsOutput{}, nil
 }
 
 // DescribeRouteTables returns fake route table descriptions
