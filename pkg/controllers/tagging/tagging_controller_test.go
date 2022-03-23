@@ -29,12 +29,13 @@ import (
 
 const TestClusterID = "clusterid.test"
 
-func Test_NodesJoining(t *testing.T) {
+func Test_NodesJoiningAndLeaving(t *testing.T) {
 	testcases := []struct {
 		name              string
 		currNode          *v1.Node
 		taggingController TaggingController
-		noOfNodes         int
+		noOfCurrNodes     int
+		totalNodes        int
 	}{
 		{
 			name: "node0 joins the cluster.",
@@ -51,7 +52,8 @@ func Test_NodesJoining(t *testing.T) {
 				taggedNodes: make(map[string]bool),
 				nodeMap:     make(map[string]*v1.Node),
 			},
-			noOfNodes: 1,
+			noOfCurrNodes: 1,
+			totalNodes:    1,
 		},
 		{
 			name: "node1 joins the cluster, node0 left.",
@@ -80,7 +82,8 @@ func Test_NodesJoining(t *testing.T) {
 					},
 				},
 			},
-			noOfNodes: 1,
+			noOfCurrNodes: 1,
+			totalNodes:    2,
 		},
 		{
 			name: "node2 joins the cluster, node0 and node1 left.",
@@ -119,7 +122,58 @@ func Test_NodesJoining(t *testing.T) {
 					},
 				},
 			},
-			noOfNodes: 1,
+			noOfCurrNodes: 1,
+			totalNodes:    3,
+		},
+		{
+			name: "no new node joins the cluster.",
+			currNode: &v1.Node{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:              "node2",
+					CreationTimestamp: metav1.Date(2012, 1, 1, 0, 0, 0, 0, time.UTC),
+				},
+				Spec: v1.NodeSpec{
+					ProviderID: "i-00002",
+				},
+			},
+			taggingController: TaggingController{
+				taggedNodes: map[string]bool{
+					"node0": true,
+					"node1": true,
+					"node2": true,
+				},
+				nodeMap: map[string]*v1.Node{
+					"node0": {
+						ObjectMeta: metav1.ObjectMeta{
+							Name:              "node0",
+							CreationTimestamp: metav1.Date(2012, 1, 1, 0, 0, 0, 0, time.UTC),
+						},
+						Spec: v1.NodeSpec{
+							ProviderID: "i-00000",
+						},
+					},
+					"node1": {
+						ObjectMeta: metav1.ObjectMeta{
+							Name:              "node1",
+							CreationTimestamp: metav1.Date(2012, 1, 1, 0, 0, 0, 0, time.UTC),
+						},
+						Spec: v1.NodeSpec{
+							ProviderID: "i-00001",
+						},
+					},
+					"node2": {
+						ObjectMeta: metav1.ObjectMeta{
+							Name:              "node2",
+							CreationTimestamp: metav1.Date(2012, 1, 1, 0, 0, 0, 0, time.UTC),
+						},
+						Spec: v1.NodeSpec{
+							ProviderID: "i-00002",
+						},
+					},
+				},
+			},
+			noOfCurrNodes: 1,
+			totalNodes:    3,
 		},
 	}
 
@@ -147,14 +201,10 @@ func Test_NodesJoining(t *testing.T) {
 			w := eventBroadcaster.StartLogging(klog.Infof)
 			defer w.Stop()
 
-			nodeCountBeforeTagging := len(testcase.taggingController.nodeMap)
 			testcase.taggingController.MonitorNodes(ctx)
 
-			klog.Infof("testcase.taggingController.taggedNodes %s", testcase.taggingController.taggedNodes)
-			klog.Errorf("testcase.taggingController.nodeMap %s", testcase.taggingController.nodeMap)
-
-			if len(testcase.taggingController.taggedNodes) != testcase.noOfNodes || len(testcase.taggingController.nodeMap) != nodeCountBeforeTagging+testcase.noOfNodes {
-				t.Errorf("taggedNodes must contain %d element(s), and nodeMap must contain %d element(s).", testcase.noOfNodes, nodeCountBeforeTagging+testcase.noOfNodes)
+			if len(testcase.taggingController.taggedNodes) != testcase.noOfCurrNodes || len(testcase.taggingController.nodeMap) != testcase.totalNodes {
+				t.Errorf("taggedNodes must contain %d element(s), and nodeMap must contain %d element(s).", testcase.noOfCurrNodes, testcase.totalNodes)
 			}
 		})
 	}
