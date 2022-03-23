@@ -49,8 +49,8 @@ func Test_NodesJoiningAndLeaving(t *testing.T) {
 				},
 			},
 			taggingController: TaggingController{
-				taggedNodes: make(map[string]bool),
-				nodeMap:     make(map[string]*v1.Node),
+				currNodes:  make(map[string]bool),
+				totalNodes: make(map[string]*v1.Node),
 			},
 			noOfCurrNodes: 1,
 			totalNodes:    1,
@@ -67,10 +67,10 @@ func Test_NodesJoiningAndLeaving(t *testing.T) {
 				},
 			},
 			taggingController: TaggingController{
-				taggedNodes: map[string]bool{
+				currNodes: map[string]bool{
 					"node0": true,
 				},
-				nodeMap: map[string]*v1.Node{
+				totalNodes: map[string]*v1.Node{
 					"node0": {
 						ObjectMeta: metav1.ObjectMeta{
 							Name:              "node0",
@@ -97,11 +97,11 @@ func Test_NodesJoiningAndLeaving(t *testing.T) {
 				},
 			},
 			taggingController: TaggingController{
-				taggedNodes: map[string]bool{
+				currNodes: map[string]bool{
 					"node0": true,
 					"node1": true,
 				},
-				nodeMap: map[string]*v1.Node{
+				totalNodes: map[string]*v1.Node{
 					"node0": {
 						ObjectMeta: metav1.ObjectMeta{
 							Name:              "node0",
@@ -137,12 +137,12 @@ func Test_NodesJoiningAndLeaving(t *testing.T) {
 				},
 			},
 			taggingController: TaggingController{
-				taggedNodes: map[string]bool{
+				currNodes: map[string]bool{
 					"node0": true,
 					"node1": true,
 					"node2": true,
 				},
-				nodeMap: map[string]*v1.Node{
+				totalNodes: map[string]*v1.Node{
 					"node0": {
 						ObjectMeta: metav1.ObjectMeta{
 							Name:              "node0",
@@ -203,8 +203,8 @@ func Test_NodesJoiningAndLeaving(t *testing.T) {
 
 			testcase.taggingController.MonitorNodes(ctx)
 
-			if len(testcase.taggingController.taggedNodes) != testcase.noOfCurrNodes || len(testcase.taggingController.nodeMap) != testcase.totalNodes {
-				t.Errorf("taggedNodes must contain %d element(s), and nodeMap must contain %d element(s).", testcase.noOfCurrNodes, testcase.totalNodes)
+			if len(testcase.taggingController.currNodes) != testcase.noOfCurrNodes || len(testcase.taggingController.totalNodes) != testcase.totalNodes {
+				t.Errorf("currNodes must contain %d element(s), and totalNodes must contain %d element(s).", testcase.noOfCurrNodes, testcase.totalNodes)
 			}
 		})
 	}
