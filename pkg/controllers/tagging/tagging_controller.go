@@ -109,6 +109,7 @@ func (tc *TaggingController) MonitorNodes(ctx context.Context) {
 		}
 
 		tc.nodeMap[node.GetName()] = node
+		tc.taggedNodes[node.GetName()] = true
 	}
 	tc.tagNodesResources(nodesToTag)
 
