@@ -45,10 +45,10 @@ type TaggingController struct {
 	nodeMonitorPeriod time.Duration
 
 	// A map presenting the node and whether it currently exists
-	taggedNodes map[string]bool
+	currNodes map[string]bool
 
-	// A map representing nodes that were part of the cluster at any point in time
-	nodeMap map[string]*v1.Node
+	// A map representing nodes that were ever part of the cluster
+	totalNodes map[string]*v1.Node
 
 	// Representing the user input for tags
 	tags map[string]string
@@ -76,8 +76,8 @@ func NewTaggingController(
 		nodeLister:        nodeInformer.Lister(),
 		cloud:             awsCloud,
 		nodeMonitorPeriod: nodeMonitorPeriod,
-		taggedNodes:       make(map[string]bool),
-		nodeMap:           make(map[string]*v1.Node),
+		currNodes:         make(map[string]bool),
+		totalNodes:        make(map[string]*v1.Node),
 		tags:              tags,
 	}
 	return tc, nil
@@ -98,25 +98,25 @@ func (tc *TaggingController) MonitorNodes(ctx context.Context) {
 		return
 	}
 
-	for k := range tc.taggedNodes {
-		tc.taggedNodes[k] = false
+	for k := range tc.currNodes {
+		tc.currNodes[k] = false
 	}
 
 	var nodesToTag []*v1.Node
 	for _, node := range nodes {
-		if _, ok := tc.taggedNodes[node.GetName()]; !ok {
+		if _, ok := tc.currNodes[node.GetName()]; !ok {
 			nodesToTag = append(nodesToTag, node)
 		}
 
-		tc.nodeMap[node.GetName()] = node
-		tc.taggedNodes[node.GetName()] = true
+		tc.totalNodes[node.GetName()] = node
+		tc.currNodes[node.GetName()] = true
 	}
 	tc.tagNodesResources(nodesToTag)
 
 	var nodesToUntag []*v1.Node
-	for nodeName, existed := range tc.taggedNodes {
+	for nodeName, existed := range tc.currNodes {
 		if existed == false {
-			nodesToUntag = append(nodesToUntag, tc.nodeMap[nodeName])
+			nodesToUntag = append(nodesToUntag, tc.totalNodes[nodeName])
 		}
 	}
 	tc.untagNodeResources(nodesToUntag)
@@ -132,7 +132,7 @@ func (tc *TaggingController) tagNodesResources(nodes []*v1.Node) {
 		if !nodeTagged {
 			// Node tagged unsuccessfully, remove from the map
 			// so that we can try later if it still exists
-			delete(tc.taggedNodes, node.GetName())
+			delete(tc.currNodes, node.GetName())
 		}
 	}
 }
@@ -165,7 +165,7 @@ func (tc *TaggingController) untagNodeResources(nodes []*v1.Node) {
 		nodeUntagged = tc.untagEc2Instance(node)
 
 		if nodeUntagged {
-			delete(tc.taggedNodes, node.GetName())
+			delete(tc.currNodes, node.GetName())
 		}
 	}
 }
