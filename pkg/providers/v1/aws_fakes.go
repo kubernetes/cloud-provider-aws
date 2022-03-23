@@ -17,6 +17,7 @@ limitations under the License.
 package aws
 
 import (
+	"errors"
 	"fmt"
 	"sort"
 	"strings"
@@ -264,11 +265,21 @@ func (ec2i *FakeEC2Impl) RemoveSubnets() {
 
 // CreateTags is not implemented but is required for interface conformance
 func (ec2i *FakeEC2Impl) CreateTags(input *ec2.CreateTagsInput) (*ec2.CreateTagsOutput, error) {
+	for _, id := range input.Resources {
+		if *id == "i-error" {
+			return nil, errors.New("Unable to tag")
+		}
+	}
 	return &ec2.CreateTagsOutput{}, nil
 }
 
 // DeleteTags is not implemented but is required for interface conformance
 func (ec2i *FakeEC2Impl) DeleteTags(input *ec2.DeleteTagsInput) (*ec2.DeleteTagsOutput, error) {
+	for _, id := range input.Resources {
+		if *id == "i-error" {
+			return nil, errors.New("Unable to remove tag")
+		}
+	}
 	return &ec2.DeleteTagsOutput{}, nil
 }
 
