@@ -819,12 +819,32 @@ func (p *awsSDKProvider) getCrossRequestRetryDelay(regionName string) *CrossRequ
 	return delayer
 }
 
+// InstanceIDIndexFunc indexes based on a Node's instance ID found in its spec.providerID
+func InstanceIDIndexFunc(obj interface{}) ([]string, error) {
+	node, ok := obj.(*v1.Node)
+	if !ok {
+		return []string{""}, fmt.Errorf("%+v is not a Node", obj)
+	}
+	if node.Spec.ProviderID == "" {
+		// provider ID hasn't been populated yet
+		return []string{""}, nil
+	}
+	instanceID, err := KubernetesInstanceID(node.Spec.ProviderID).MapToAWSInstanceID()
+	if err != nil {
+		return []string{""}, fmt.Errorf("error mapping node %q's provider ID %q to instance ID: %v", node.Name, node.Spec.ProviderID, err)
+	}
+	return []string{string(instanceID)}, nil
+}
+
 // SetInformers implements InformerUser interface by setting up informer-fed caches for aws lib to
 // leverage Kubernetes API for caching
 func (c *Cloud) SetInformers(informerFactory informers.SharedInformerFactory) {
 	klog.Infof("Setting up informers for Cloud")
 	c.nodeInformer = informerFactory.Core().V1().Nodes()
 	c.nodeInformerHasSynced = c.nodeInformer.Informer().HasSynced
+	c.nodeInformer.Informer().AddIndexers(cache.Indexers{
+		"instanceID": InstanceIDIndexFunc,
+	})
 }
 
 func (p *awsSDKProvider) Compute(regionName string) (EC2, error) {
@@ -1508,11 +1528,11 @@ func (c *Cloud) HasClusterID() bool {
 
 // NodeAddresses is an implementation of Instances.NodeAddresses.
 func (c *Cloud) NodeAddresses(ctx context.Context, name types.NodeName) ([]v1.NodeAddress, error) {
-	providerID, err := c.nodeNameToProviderID(name)
+	instanceID, err := c.nodeNameToInstanceID(name)
 	if err != nil {
-		return nil, fmt.Errorf("could not look up provider ID for node %q: %v", name, err)
+		return nil, fmt.Errorf("could not look up instance ID for node %q: %v", name, err)
 	}
-	return c.NodeAddressesByProviderID(ctx, string(providerID))
+	return c.NodeAddressesByProviderID(ctx, string(instanceID))
 }
 
 // extractIPv4NodeAddresses maps the instance information from EC2 to an array of NodeAddresses.
@@ -4961,11 +4981,38 @@ func (c *Cloud) describeInstances(filters []*ec2.Filter) ([]*ec2.Instance, error
 
 // mapNodeNameToPrivateDNSName maps a k8s NodeName to an AWS Instance PrivateDNSName
 // This is a simple string cast
+//
+// Deprecated: use nodeNameToInstanceID instead. mapNodeNameToPrivateDNSName
+// assumes node name is equal to private DNS name for all nodes.
+//
+// But it is only safe to assume so for --cloud-provider=aws kubelets. Because
+// then the in-tree AWS cloud provider dictates node name with its
+// CurrentNodeName implementation and that always returns private DNS name.
+//
+// It is not safe to assume so for --cloud-provider=external kubelets. Because
+// then kubelet dictates its own node name with its OS hostname (or
+// --hostname-override) and that hostname won't always be private DNS name.
+// This AWS cloud provider can initialize a node so long as the node's name
+// satisfies its InstanceID implementation, i.e. as long as the instance id can
+// be derived from the node name.
+//
+// For example, kops 1.23 with external cloud provider sets node names to
+// instance ID like "i-0123456789abcde". nodeNameToInstanceID handles these
+// cases that this function cannot.
+//
+// Removing this function is part of the effort to support non private DNS node
+// names [2].
+//
+// [1] https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/ec2-instance-naming.html
+// [2] https://github.com/kubernetes/cloud-provider-aws/issues/63
 func mapNodeNameToPrivateDNSName(nodeName types.NodeName) string {
 	return string(nodeName)
 }
 
 // mapInstanceToNodeName maps a EC2 instance to a k8s NodeName, by extracting the PrivateDNSName
+//
+// Deprecated: use instanceIDToNodeName instead. See
+// mapNodeNameToPrivateDNSName for details.
 func mapInstanceToNodeName(i *ec2.Instance) types.NodeName {
 	return types.NodeName(aws.StringValue(i.PrivateDnsName))
 }
@@ -5007,10 +5054,10 @@ func (c *Cloud) findInstanceByNodeName(nodeName types.NodeName) (*ec2.Instance, 
 func (c *Cloud) getInstanceByNodeName(nodeName types.NodeName) (*ec2.Instance, error) {
 	var instance *ec2.Instance
 
-	// we leverage node cache to try to retrieve node's provider id first, as
-	// get instance by provider id is way more efficient than by filters in
+	// we leverage node cache to try to retrieve node's instance id first, as
+	// get instance by instance id is way more efficient than by filters in
 	// aws context
-	awsID, err := c.nodeNameToProviderID(nodeName)
+	awsID, err := c.nodeNameToInstanceID(nodeName)
 	if err != nil {
 		klog.V(3).Infof("Unable to convert node name %q to aws instanceID, fall back to findInstanceByNodeName: %v", nodeName, err)
 		instance, err = c.findInstanceByNodeName(nodeName)
@@ -5041,7 +5088,7 @@ func isFargateNode(nodeName string) bool {
 	return strings.HasPrefix(nodeName, fargateNodeNamePrefix)
 }
 
-func (c *Cloud) nodeNameToProviderID(nodeName types.NodeName) (InstanceID, error) {
+func (c *Cloud) nodeNameToInstanceID(nodeName types.NodeName) (InstanceID, error) {
 	if strings.HasPrefix(string(nodeName), rbnNamePrefix) {
 		return InstanceID(nodeName), nil
 	}
@@ -5062,6 +5109,27 @@ func (c *Cloud) nodeNameToProviderID(nodeName types.NodeName) (InstanceID, error
 	}
 
 	return KubernetesInstanceID(node.Spec.ProviderID).MapToAWSInstanceID()
+}
+
+func (c *Cloud) instanceIDToNodeName(instanceID InstanceID) (types.NodeName, error) {
+	if len(instanceID) == 0 {
+		return "", fmt.Errorf("no instanceID provided")
+	}
+
+	if c.nodeInformerHasSynced == nil || !c.nodeInformerHasSynced() {
+		return "", fmt.Errorf("node informer has not synced yet")
+	}
+
+	nodes, err := c.nodeInformer.Informer().GetIndexer().IndexKeys("instanceID", string(instanceID))
+	if err != nil {
+		return "", fmt.Errorf("error getting node with instanceID %q: %v", string(instanceID), err)
+	} else if len(nodes) == 0 {
+		return "", fmt.Errorf("node with instanceID %q not found", string(instanceID))
+	} else if len(nodes) > 1 {
+		return "", fmt.Errorf("multiple nodes with instanceID %q found: %v", string(instanceID), nodes)
+	}
+
+	return types.NodeName(nodes[0]), nil
 }
 
 func checkMixedProtocol(ports []v1.ServicePort) error {

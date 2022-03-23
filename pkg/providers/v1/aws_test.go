@@ -2597,9 +2597,15 @@ func TestRegionIsValid(t *testing.T) {
 	assert.False(t, isRegionValid("pl-fake-991a", fake.metadata), "expected region 'pl-fake-991' to be invalid but it was not")
 }
 
-func TestNodeNameToProviderID(t *testing.T) {
-	testNodeName := types.NodeName("ip-10-0-0-1.ec2.internal")
-	testProviderID := "aws:///us-east-1c/i-02bce90670bb0c7cd"
+const (
+	testNodeName           = types.NodeName("ip-10-0-0-1.ec2.internal")
+	testInstanceIDNodeName = types.NodeName("i-02bce90670bb0c7cd")
+	testOverriddenNodeName = types.NodeName("foo")
+	testProviderID         = "aws:///us-east-1c/i-02bce90670bb0c7cd"
+	testInstanceID         = "i-02bce90670bb0c7cd"
+)
+
+func TestNodeNameToInstanceID(t *testing.T) {
 	fakeAWS := newMockedFakeAWSServices(TestClusterID)
 	c, err := newAWSCloud(CloudConfig{}, fakeAWS)
 	assert.NoError(t, err)
@@ -2609,17 +2615,17 @@ func TestNodeNameToProviderID(t *testing.T) {
 	c.SetInformers(fakeInformerFactory)
 
 	// no node name
-	_, err = c.nodeNameToProviderID("")
+	_, err = c.nodeNameToInstanceID("")
 	assert.Error(t, err)
 
 	// informer has not synced
 	c.nodeInformerHasSynced = informerNotSynced
-	_, err = c.nodeNameToProviderID(testNodeName)
+	_, err = c.nodeNameToInstanceID(testNodeName)
 	assert.Error(t, err)
 
 	// informer has synced but node not found
 	c.nodeInformerHasSynced = informerSynced
-	_, err = c.nodeNameToProviderID(testNodeName)
+	_, err = c.nodeNameToInstanceID(testNodeName)
 	assert.Error(t, err)
 
 	// we are able to find the node in cache
@@ -2632,8 +2638,101 @@ func TestNodeNameToProviderID(t *testing.T) {
 		},
 	})
 	assert.NoError(t, err)
-	_, err = c.nodeNameToProviderID(testNodeName)
+	_, err = c.nodeNameToInstanceID(testNodeName)
 	assert.NoError(t, err)
+}
+
+func TestInstanceIDToNodeName(t *testing.T) {
+	testCases := []struct {
+		name             string
+		instanceID       InstanceID
+		node             *v1.Node
+		expectedNodeName types.NodeName
+		expectedErr      error
+	}{
+		{
+			name:       "success: node with private DNS name",
+			instanceID: testInstanceID,
+			node: &v1.Node{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: string(testNodeName),
+				},
+				Spec: v1.NodeSpec{
+					ProviderID: testProviderID,
+				},
+			},
+			expectedNodeName: testNodeName,
+			expectedErr:      nil,
+		},
+		{
+			name:       "success: node with instance ID name",
+			instanceID: testInstanceID,
+			node: &v1.Node{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: string(testInstanceIDNodeName),
+				},
+				Spec: v1.NodeSpec{
+					ProviderID: testProviderID,
+				},
+			},
+			expectedNodeName: testInstanceIDNodeName,
+			expectedErr:      nil,
+		},
+		{
+			name:       "success: node with overridden name",
+			instanceID: testInstanceID,
+			node: &v1.Node{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: string(testOverriddenNodeName),
+				},
+				Spec: v1.NodeSpec{
+					ProviderID: testProviderID,
+				},
+			},
+			expectedNodeName: testOverriddenNodeName,
+			expectedErr:      nil,
+		},
+		{
+			name:       "fail: no node with matching instance ID",
+			instanceID: testInstanceID,
+			node: &v1.Node{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: string(testOverriddenNodeName),
+				},
+				Spec: v1.NodeSpec{
+					ProviderID: "aws:///us-east-1c/i-foo",
+				},
+			},
+			expectedNodeName: types.NodeName(""),
+			expectedErr:      fmt.Errorf("node with instanceID \"i-02bce90670bb0c7cd\" not found"),
+		},
+		{
+			name:             "fail: no node at all",
+			instanceID:       testInstanceID,
+			node:             nil,
+			expectedNodeName: types.NodeName(""),
+			expectedErr:      fmt.Errorf("node with instanceID \"i-02bce90670bb0c7cd\" not found"),
+		},
+	}
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			awsServices := newMockedFakeAWSServices(TestClusterID)
+			awsCloud, err := newAWSCloud(CloudConfig{}, awsServices)
+			if err != nil {
+				t.Fatalf("error creating mock cloud: %v", err)
+			}
+			awsCloud.kubeClient = fake.NewSimpleClientset()
+			fakeInformerFactory := informers.NewSharedInformerFactory(awsCloud.kubeClient, 0)
+			awsCloud.SetInformers(fakeInformerFactory)
+			if testCase.node != nil {
+				awsCloud.nodeInformer.Informer().GetStore().Add(testCase.node)
+			}
+			awsCloud.nodeInformerHasSynced = informerSynced
+			nodeName, err := awsCloud.instanceIDToNodeName(testCase.instanceID)
+			assert.Equal(t, testCase.expectedNodeName, nodeName)
+			assert.Equal(t, testCase.expectedErr, err)
+		})
+	}
 }
 
 func informerSynced() bool {
