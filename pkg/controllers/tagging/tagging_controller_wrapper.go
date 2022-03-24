@@ -32,7 +32,7 @@ func (tc *TaggingControllerWrapper) StartTaggingControllerWrapper(initContext ap
 func (tc *TaggingControllerWrapper) startTaggingController(ctx context.Context, initContext app.ControllerInitContext, completedConfig *cloudcontrollerconfig.CompletedConfig, cloud cloudprovider.Interface) (controller.Interface, bool, error) {
 	err := tc.Options.Validate()
 	if err != nil {
-		klog.Fatal("Tagging controller inputs are not properly set.")
+		klog.Fatalf("Tagging controller inputs are not properly set: %v", err)
 	}
 
 	// Start the TaggingController
