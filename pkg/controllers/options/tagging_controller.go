@@ -25,7 +25,7 @@ type TaggingControllerOptions struct {
 
 func (o *TaggingControllerOptions) AddFlags(fs *pflag.FlagSet) {
 	fs.StringToStringVar(&o.Tags, "tags", o.Tags, "Tags to apply to AWS resources in the tagging controller.")
-	fs.StringToStringVar(&o.Tags, "resources", o.Tags, "AWS resources name to add/remove tags in the tagging controller.")
+	fs.StringArrayVar(&o.Resources, "resources", o.Resources, "AWS resources name to add/remove tags in the tagging controller.")
 }
 
 func (o *TaggingControllerOptions) Validate() error {
