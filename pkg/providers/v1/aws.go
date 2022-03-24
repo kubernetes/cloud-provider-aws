@@ -1162,7 +1162,7 @@ func (s *awsSdkEC2) DeleteTags(request *ec2.DeleteTagsInput) (*ec2.DeleteTagsOut
 	requestTime := time.Now()
 	resp, err := s.ec2.DeleteTags(request)
 	timeTaken := time.Since(requestTime).Seconds()
-	recordAWSMetric("create_tags", timeTaken, err)
+	recordAWSMetric("delete_tags", timeTaken, err)
 	return resp, err
 }
 
