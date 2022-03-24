@@ -41,7 +41,8 @@ func (tc *TaggingControllerWrapper) startTaggingController(ctx context.Context, 
 		completedConfig.ClientBuilder.ClientOrDie(initContext.ClientName),
 		cloud,
 		completedConfig.ComponentConfig.KubeCloudShared.NodeMonitorPeriod.Duration,
-		tc.Options.Tags)
+		tc.Options.Tags,
+		tc.Options.Resources)
 
 	if err != nil {
 		klog.Warningf("failed to start tagging controller: %s", err)
