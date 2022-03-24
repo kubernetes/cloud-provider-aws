@@ -25,6 +25,7 @@ import (
 	v1lister "k8s.io/client-go/listers/core/v1"
 	cloudprovider "k8s.io/cloud-provider"
 	"k8s.io/cloud-provider-aws/pkg/controllers/options"
+	opt "k8s.io/cloud-provider-aws/pkg/controllers/options"
 	awsv1 "k8s.io/cloud-provider-aws/pkg/providers/v1"
 	"k8s.io/klog/v2"
 	"time"
@@ -45,7 +46,7 @@ type TaggingController struct {
 	nodeMonitorPeriod time.Duration
 
 	// A map presenting the node and whether it currently exists
-	currNodes map[string]bool
+	currentNodes map[string]bool
 
 	// A map representing nodes that were ever part of the cluster
 	totalNodes map[string]*v1.Node
@@ -63,7 +64,8 @@ func NewTaggingController(
 	kubeClient clientset.Interface,
 	cloud cloudprovider.Interface,
 	nodeMonitorPeriod time.Duration,
-	tags map[string]string) (*TaggingController, error) {
+	tags map[string]string,
+	resources []string) (*TaggingController, error) {
 
 	awsCloud, ok := cloud.(*awsv1.Cloud)
 	if !ok {
@@ -76,9 +78,10 @@ func NewTaggingController(
 		nodeLister:        nodeInformer.Lister(),
 		cloud:             awsCloud,
 		nodeMonitorPeriod: nodeMonitorPeriod,
-		currNodes:         make(map[string]bool),
+		currentNodes:      make(map[string]bool),
 		totalNodes:        make(map[string]*v1.Node),
 		tags:              tags,
+		resources:         resources,
 	}
 	return tc, nil
 }
@@ -97,24 +100,24 @@ func (tc *TaggingController) MonitorNodes(ctx context.Context) {
 		klog.Fatalf("error listing nodes: %s", err)
 	}
 
-	for k := range tc.currNodes {
-		tc.currNodes[k] = false
+	for k := range tc.currentNodes {
+		tc.currentNodes[k] = false
 	}
 
 	var nodesToTag []*v1.Node
 	for _, node := range nodes {
-		if _, ok := tc.currNodes[node.GetName()]; !ok {
+		if _, ok := tc.currentNodes[node.GetName()]; !ok {
 			nodesToTag = append(nodesToTag, node)
 		}
 
 		tc.totalNodes[node.GetName()] = node
-		tc.currNodes[node.GetName()] = true
+		tc.currentNodes[node.GetName()] = true
 	}
 	tc.tagNodesResources(nodesToTag)
 
 	var nodesToUntag []*v1.Node
-	for nodeName, existed := range tc.currNodes {
-		if existed == false {
+	for nodeName, existed := range tc.currentNodes {
+		if !existed {
 			nodesToUntag = append(nodesToUntag, tc.totalNodes[nodeName])
 		}
 	}
@@ -126,12 +129,18 @@ func (tc *TaggingController) MonitorNodes(ctx context.Context) {
 func (tc *TaggingController) tagNodesResources(nodes []*v1.Node) {
 	for _, node := range nodes {
 		nodeTagged := false
-		nodeTagged = tc.tagEc2Instances(node)
+
+		for _, resource := range tc.resources {
+			switch resource {
+			case opt.Instance:
+				nodeTagged = tc.tagEc2Instances(node)
+			}
+		}
 
 		if !nodeTagged {
-			// Node tagged unsuccessfully, remove from currNodes
+			// Node tagged unsuccessfully, remove from currentNodes
 			// so that we can try later if it still exists
-			delete(tc.currNodes, node.GetName())
+			delete(tc.currentNodes, node.GetName())
 		}
 	}
 }
@@ -161,10 +170,15 @@ func (tc *TaggingController) tagEc2Instances(node *v1.Node) bool {
 func (tc *TaggingController) untagNodeResources(nodes []*v1.Node) {
 	for _, node := range nodes {
 		nodeUntagged := false
-		nodeUntagged = tc.untagEc2Instance(node)
+
+		for _, resource := range tc.resources {
+			if resource == opt.Instance {
+				nodeUntagged = tc.untagEc2Instance(node)
+			}
+		}
 
 		if nodeUntagged {
-			delete(tc.currNodes, node.GetName())
+			delete(tc.currentNodes, node.GetName())
 		}
 	}
 }
