@@ -94,7 +94,7 @@ func NewTaggingController(
 	tc.nodeInformer.Informer().AddEventHandler(cache.ResourceEventHandlerFuncs{
 		AddFunc:    tc.enqueueNode,
 		UpdateFunc: func(oldObj, newObj interface{}) { tc.enqueueNode(newObj) },
-		// TODO: enqueueing to the same workqueue with different action,
+		// TODO: maybe use workqueue for this to be more resilient
 		DeleteFunc: tc.untagNodeResources,
 	})
 
