@@ -94,6 +94,7 @@ func NewTaggingController(
 	tc.nodeInformer.Informer().AddEventHandler(cache.ResourceEventHandlerFuncs{
 		AddFunc:    tc.enqueueNode,
 		UpdateFunc: func(oldObj, newObj interface{}) { tc.enqueueNode(newObj) },
+		// TODO: enqueueing to the same workqueue with different action,
 		DeleteFunc: tc.untagNodeResources,
 	})
 
@@ -137,7 +138,7 @@ func (tc *TaggingController) MonitorNodes() {
 			utilruntime.HandleError(fmt.Errorf("invalid resource key: %s", key))
 			return nil
 		}
-		
+
 		if err := tc.tagNodesResources(nodeName); err != nil {
 			// Put the item back on the workqueue to handle any transient errors.
 			tc.workqueue.AddRateLimited(key)
@@ -176,7 +177,7 @@ func (tc *TaggingController) tagNodesResources(nodeName string) error {
 }
 
 // tagEc2Instances applies the provided tags to each EC2 instance in
-// the cluster. Return a boolean value representing if a node is tagged or not
+// the cluster.
 func (tc *TaggingController) tagEc2Instances(node *v1.Node) error {
 	instanceId, err := awsv1.KubernetesInstanceID(node.Spec.ProviderID).MapToAWSInstanceID()
 
@@ -198,10 +199,6 @@ func (tc *TaggingController) tagEc2Instances(node *v1.Node) error {
 // untagNodeResources untag node resources from a list of nodes
 // If we want to untag more resources, modify this function appropriately
 func (tc *TaggingController) untagNodeResources(obj interface{}) {
-	// Unlike tagging/enqueue obj, when untag resource,
-	// we can get off node object is to force conversion from obj to Node.
-	// This is not desirable but NodeLister at this point should not contain
-	// the deleted node
 	var node *v1.Node
 	var ok bool
 	if node, ok = obj.(*v1.Node); !ok {
@@ -209,14 +206,15 @@ func (tc *TaggingController) untagNodeResources(obj interface{}) {
 	}
 
 	for _, resource := range tc.resources {
-		if resource == opt.Instance {
+		switch resource {
+		case opt.Instance:
 			tc.untagEc2Instance(node)
 		}
 	}
 }
 
 // untagEc2Instances deletes the provided tags to each EC2 instances in
-// the cluster. Return if a node is tagged or not
+// the cluster.
 func (tc *TaggingController) untagEc2Instance(node *v1.Node) {
 	instanceId, err := awsv1.KubernetesInstanceID(node.Spec.ProviderID).MapToAWSInstanceID()
 

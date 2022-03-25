@@ -29,6 +29,7 @@ import (
 
 const TestClusterID = "clusterid.test"
 
+// TODO: rework the test
 func Test_NodesJoiningAndLeaving(t *testing.T) {
 	testcases := []struct {
 		name                string
