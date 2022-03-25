@@ -92,9 +92,9 @@ func NewTaggingController(
 	// Use shared informer to listen to add/update of nodes. Note that any nodes
 	// that exist before node controller starts will show up in the update method
 	tc.nodeInformer.Informer().AddEventHandler(cache.ResourceEventHandlerFuncs{
-		AddFunc:    tc.enqueueNode,
+		AddFunc:    tc.untagNodeResources,
 		UpdateFunc: func(oldObj, newObj interface{}) { tc.enqueueNode(newObj) },
-		//DeleteFunc: tc.untagNodeResources,
+		DeleteFunc: tc.untagNodeResources,
 	})
 
 	return tc, nil
@@ -192,44 +192,41 @@ func (tc *TaggingController) tagEc2Instances(node *v1.Node) error {
 
 // untagNodeResources untag node resources from a list of nodes
 // If we want to untag more resources, modify this function appropriately
-func (tc *TaggingController) untagNodeResources(nodes []*v1.Node) {
-	for _, node := range nodes {
-		nodeUntagged := false
+func (tc *TaggingController) untagNodeResources(obj interface{}) {
+	// Unlike tagging/enqueue obj, when untag resource,
+	// we can get off node object is to force conversion from obj to Node.
+	// This is not desirable but NodeLister at this point should not contain
+	// the deleted node
+	var node *v1.Node
+	var ok bool
+	if node, ok = obj.(*v1.Node); !ok {
+		utilruntime.HandleError(fmt.Errorf("unable to get Node object from %v", obj))
+	}
 
-		for _, resource := range tc.resources {
-			if resource == opt.Instance {
-				nodeUntagged = tc.untagEc2Instance(node)
-			}
-		}
-
-		if nodeUntagged {
-			delete(tc.currentNodes, node.GetName())
+	for _, resource := range tc.resources {
+		if resource == opt.Instance {
+			tc.untagEc2Instance(node)
 		}
 	}
 }
 
 // untagEc2Instances deletes the provided tags to each EC2 instances in
 // the cluster. Return if a node is tagged or not
-func (tc *TaggingController) untagEc2Instance(node *v1.Node) bool {
+func (tc *TaggingController) untagEc2Instance(node *v1.Node) {
 	instanceId, err := awsv1.KubernetesInstanceID(node.Spec.ProviderID).MapToAWSInstanceID()
 
 	if err != nil {
-		klog.Errorf("Error in getting instanceID for node %s, error: %v", node.GetName(), err)
-		return false
+		klog.Fatalf("Error in getting instanceID for node %s, error: %v", node.GetName(), err)
 	} else {
 		err := tc.cloud.UntagResource(string(instanceId), tc.tags)
 
 		if err != nil {
-			klog.Errorf("Error in untagging EC2 instance for node %s, error: %v", node.GetName(), err)
-			return false
+			klog.Fatalf("Error in untagging EC2 instance for node %s, error: %v", node.GetName(), err)
 		}
 	}
-
-	return true
 }
 
 func (tc *TaggingController) enqueueNode(obj interface{}) {
-	klog.Infof("Enqueueing node %v", obj)
 	var key string
 	var err error
 	if key, err = cache.MetaNamespaceKeyFunc(obj); err != nil {
