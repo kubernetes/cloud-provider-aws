@@ -73,7 +73,8 @@ func main() {
 	}
 
 	controllerInitializers[tagging.TaggingControllerKey] = taggingControllerConstructor
-	app.ControllersDisabledByDefault.Insert(tagging.TaggingControllerKey)
+	//app.ControllersDisabledByDefault.Insert(tagging.TaggingControllerKey)
+	app.ControllersDisabledByDefault.Insert("route")
 	command := app.NewCloudControllerManagerCommand(opts, cloudInitializer, controllerInitializers, fss, wait.NeverStop)
 
 	if err := command.Execute(); err != nil {
