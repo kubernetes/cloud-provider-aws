@@ -14,24 +14,23 @@ limitations under the License.
 package options
 
 import (
-	"fmt"
 	"github.com/spf13/pflag"
 )
 
 type TaggingControllerOptions struct {
-	Tags map[string]string
-	//Resources []string
+	Tags      map[string]string
+	Resources []string
 }
 
 func (o *TaggingControllerOptions) AddFlags(fs *pflag.FlagSet) {
 	fs.StringToStringVar(&o.Tags, "tags", o.Tags, "Tags to apply to AWS resources in the tagging controller.")
-	//fs.StringArrayVar(&o.Resources, "resources", o.Resources, "AWS resources name to add/remove tags in the tagging controller.")
+	fs.StringArrayVar(&o.Resources, "resources", o.Resources, "AWS resources name to add/remove tags in the tagging controller.")
 }
 
 func (o *TaggingControllerOptions) Validate() error {
-	if len(o.Tags) == 0 {
-		return fmt.Errorf("--tags must not be empty")
-	}
+	//if len(o.Tags) == 0 {
+	//	return fmt.Errorf("--tags must not be empty")
+	//}
 
 	//if len(o.Resources) == 0 {
 	//	return fmt.Errorf("--resources must not be empty")
