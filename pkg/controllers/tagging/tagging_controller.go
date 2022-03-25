@@ -97,8 +97,8 @@ func NewTaggingController(
 	// Use shared informer to listen to add/update/delete of nodes. Note that any nodes
 	// that exist before tagging controller starts will show up in the update method
 	tc.nodeInformer.Informer().AddEventHandler(cache.ResourceEventHandlerFuncs{
-		AddFunc:    func(obj interface{}) { tc.enqueueNode(obj, true) },
-		UpdateFunc: func(oldObj, newObj interface{}) { tc.enqueueNode(newObj, true) },
+		AddFunc:    func(obj interface{}) { tc.enqueueNode(obj, false) },
+		UpdateFunc: func(oldObj, newObj interface{}) { tc.enqueueNode(newObj, false) },
 		DeleteFunc: func(obj interface{}) { tc.enqueueNode(obj, false) },
 	})
 
