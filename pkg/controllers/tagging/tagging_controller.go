@@ -89,8 +89,8 @@ func NewTaggingController(
 		workqueue:         workqueue.NewNamedRateLimitingQueue(workqueue.DefaultControllerRateLimiter(), "Tagging"),
 	}
 
-	// Use shared informer to listen to add/update of nodes. Note that any nodes
-	// that exist before node controller starts will show up in the update method
+	// Use shared informer to listen to add/update/delete of nodes. Note that any nodes
+	// that exist before tagging controller starts will show up in the update method
 	tc.nodeInformer.Informer().AddEventHandler(cache.ResourceEventHandlerFuncs{
 		AddFunc:    tc.enqueueNode,
 		UpdateFunc: func(oldObj, newObj interface{}) { tc.enqueueNode(newObj) },
@@ -137,9 +137,7 @@ func (tc *TaggingController) MonitorNodes() {
 			utilruntime.HandleError(fmt.Errorf("invalid resource key: %s", key))
 			return nil
 		}
-
-		// Run the syncHandler, passing it the key of the
-		// Node resource to be synced.
+		
 		if err := tc.tagNodesResources(nodeName); err != nil {
 			// Put the item back on the workqueue to handle any transient errors.
 			tc.workqueue.AddRateLimited(key)
