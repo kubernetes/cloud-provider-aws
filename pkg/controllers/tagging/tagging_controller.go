@@ -92,8 +92,8 @@ func NewTaggingController(
 	// Use shared informer to listen to add/update of nodes. Note that any nodes
 	// that exist before node controller starts will show up in the update method
 	tc.nodeInformer.Informer().AddEventHandler(cache.ResourceEventHandlerFuncs{
-		AddFunc:    tc.untagNodeResources,
-		UpdateFunc: func(oldObj, newObj interface{}) { tc.untagNodeResources(newObj) },
+		AddFunc:    tc.enqueueNode,
+		UpdateFunc: func(oldObj, newObj interface{}) { tc.enqueueNode(newObj) },
 		DeleteFunc: tc.untagNodeResources,
 	})
 
@@ -131,9 +131,16 @@ func (tc *TaggingController) MonitorNodes() {
 			return nil
 		}
 
+		_, nodeName, err := cache.SplitMetaNamespaceKey(key)
+
+		if err != nil {
+			utilruntime.HandleError(fmt.Errorf("invalid resource key: %s", key))
+			return nil
+		}
+
 		// Run the syncHandler, passing it the key of the
 		// Node resource to be synced.
-		if err := tc.tagNodesResources(tc.getNodeName(key)); err != nil {
+		if err := tc.tagNodesResources(nodeName); err != nil {
 			// Put the item back on the workqueue to handle any transient errors.
 			tc.workqueue.AddRateLimited(key)
 			return fmt.Errorf("error tagging '%s': %s, requeuing", key, err.Error())
@@ -193,8 +200,6 @@ func (tc *TaggingController) tagEc2Instances(node *v1.Node) error {
 // untagNodeResources untag node resources from a list of nodes
 // If we want to untag more resources, modify this function appropriately
 func (tc *TaggingController) untagNodeResources(obj interface{}) {
-	klog.Infof("untagging %v", obj)
-	
 	// Unlike tagging/enqueue obj, when untag resource,
 	// we can get off node object is to force conversion from obj to Node.
 	// This is not desirable but NodeLister at this point should not contain
@@ -236,15 +241,4 @@ func (tc *TaggingController) enqueueNode(obj interface{}) {
 		return
 	}
 	tc.workqueue.Add(key)
-}
-
-func (tc *TaggingController) getNodeName(key string) string {
-	_, nodeName, err := cache.SplitMetaNamespaceKey(key)
-
-	if err != nil {
-		utilruntime.HandleError(fmt.Errorf("invalid resource key: %s", key))
-		return ""
-	}
-
-	return nodeName
 }
