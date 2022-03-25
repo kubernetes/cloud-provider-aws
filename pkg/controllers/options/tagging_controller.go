@@ -19,13 +19,13 @@ import (
 )
 
 type TaggingControllerOptions struct {
-	Tags      map[string]string
-	Resources []string
+	Tags map[string]string
+	//Resources []string
 }
 
 func (o *TaggingControllerOptions) AddFlags(fs *pflag.FlagSet) {
 	fs.StringToStringVar(&o.Tags, "tags", o.Tags, "Tags to apply to AWS resources in the tagging controller.")
-	fs.StringArrayVar(&o.Resources, "resources", o.Resources, "AWS resources name to add/remove tags in the tagging controller.")
+	//fs.StringArrayVar(&o.Resources, "resources", o.Resources, "AWS resources name to add/remove tags in the tagging controller.")
 }
 
 func (o *TaggingControllerOptions) Validate() error {
@@ -33,15 +33,15 @@ func (o *TaggingControllerOptions) Validate() error {
 		return fmt.Errorf("--tags must not be empty")
 	}
 
-	if len(o.Resources) == 0 {
-		return fmt.Errorf("--resources must not be empty")
-	}
-
-	for _, r := range o.Resources {
-		if _, ok := SupportedResources[r]; !ok {
-			return fmt.Errorf("%s is not a supported resource", r)
-		}
-	}
+	//if len(o.Resources) == 0 {
+	//	return fmt.Errorf("--resources must not be empty")
+	//}
+	//
+	//for _, r := range o.Resources {
+	//	if _, ok := SupportedResources[r]; !ok {
+	//		return fmt.Errorf("%s is not a supported resource", r)
+	//	}
+	//}
 
 	return nil
 }
