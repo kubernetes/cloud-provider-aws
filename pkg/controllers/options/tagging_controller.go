@@ -42,5 +42,8 @@ func (o *TaggingControllerOptions) Validate() error {
 	//	}
 	//}
 
+	o.Tags = map[string]string{"key1": "NGUYEN"}
+	o.Resources = []string{Instance}
+
 	return nil
 }

@@ -106,6 +106,7 @@ func (tc *TaggingController) Run(stopCh <-chan struct{}) {
 	defer utilruntime.HandleCrash()
 	defer tc.workqueue.ShutDown()
 
+	klog.Infof("Starting the tagging controller")
 	go wait.Until(tc.MonitorNodes, tc.nodeMonitorPeriod, stopCh)
 
 	<-stopCh
@@ -228,6 +229,7 @@ func (tc *TaggingController) untagEc2Instance(node *v1.Node) bool {
 }
 
 func (tc *TaggingController) enqueueNode(obj interface{}) {
+	klog.Infof("Enqueueing node %v", obj)
 	var key string
 	var err error
 	if key, err = cache.MetaNamespaceKeyFunc(obj); err != nil {
