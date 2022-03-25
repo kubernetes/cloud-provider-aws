@@ -93,7 +93,7 @@ func NewTaggingController(
 	// that exist before node controller starts will show up in the update method
 	tc.nodeInformer.Informer().AddEventHandler(cache.ResourceEventHandlerFuncs{
 		AddFunc:    tc.untagNodeResources,
-		UpdateFunc: func(oldObj, newObj interface{}) { tc.enqueueNode(newObj) },
+		UpdateFunc: func(oldObj, newObj interface{}) { tc.untagNodeResources(newObj) },
 		DeleteFunc: tc.untagNodeResources,
 	})
 
@@ -193,6 +193,8 @@ func (tc *TaggingController) tagEc2Instances(node *v1.Node) error {
 // untagNodeResources untag node resources from a list of nodes
 // If we want to untag more resources, modify this function appropriately
 func (tc *TaggingController) untagNodeResources(obj interface{}) {
+	klog.Infof("untagging %v", obj)
+	
 	// Unlike tagging/enqueue obj, when untag resource,
 	// we can get off node object is to force conversion from obj to Node.
 	// This is not desirable but NodeLister at this point should not contain
