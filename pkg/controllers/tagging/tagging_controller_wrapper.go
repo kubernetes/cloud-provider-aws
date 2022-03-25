@@ -49,7 +49,7 @@ func (tc *TaggingControllerWrapper) startTaggingController(ctx context.Context, 
 		return nil, false, nil
 	}
 
-	go taggingcontroller.Run(ctx)
+	go taggingcontroller.Run(ctx.Done())
 
 	return nil, true, nil
 }
