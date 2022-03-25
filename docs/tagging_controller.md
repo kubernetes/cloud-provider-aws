@@ -1,6 +1,6 @@
 # The Tagging Controller
 
-The tagging controller is responsible for tagging and untagging node resources when it joins and leaves the cluster respectively. It can add and remove tags based on user input. Unlike the existing controllers, the tagging controller is working exclusively with AWS as we want to tag the resources (EC instances for example). For functionalities used by the controller, we primarily use `CreateTags` and `DeleteTags` from `EC2`.
+The tagging controller is responsible for tagging and untagging node resources when they join and leave the cluster, respectively. It can add and remove tags based on user input. Unlike the existing controllers, the tagging controller works exclusively with AWS. The AWS APIs it uses are `ec2:CreateTags` and `ec2:DeleteTags`.
 
 | Flag | Valid Values | Default | Description |
 |------| --- | --- | --- |
