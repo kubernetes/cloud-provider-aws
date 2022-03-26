@@ -21,11 +21,9 @@ import (
 	"k8s.io/apimachinery/pkg/util/wait"
 	coreinformers "k8s.io/client-go/informers/core/v1"
 	clientset "k8s.io/client-go/kubernetes"
-	v1lister "k8s.io/client-go/listers/core/v1"
 	"k8s.io/client-go/tools/cache"
 	"k8s.io/client-go/util/workqueue"
 	cloudprovider "k8s.io/cloud-provider"
-	"k8s.io/cloud-provider-aws/pkg/controllers/options"
 	opt "k8s.io/cloud-provider-aws/pkg/controllers/options"
 	awsv1 "k8s.io/cloud-provider-aws/pkg/providers/v1"
 	"k8s.io/klog/v2"
@@ -34,30 +32,24 @@ import (
 )
 
 const (
-	tag string = "tag"
+	// This is a prefix used to recognized if a node in the workqueue
+	// is to be tagged or not
+	tagKeyPrefix string = "tagKeyPrefix"
 )
 
 // TaggingController is the controller implementation for tagging cluster resources.
 // It periodically check for Node events (creating/deleting) to apply appropriate
 // tags to resources.
 type TaggingController struct {
-	nodeInformer      coreinformers.NodeInformer
-	controllerOptions options.TaggingControllerOptions
-	kubeClient        clientset.Interface
-	nodeLister        v1lister.NodeLister
-	cloud             *awsv1.Cloud
-	workqueue         workqueue.RateLimitingInterface
+	nodeInformer coreinformers.NodeInformer
+	kubeClient   clientset.Interface
+	cloud        *awsv1.Cloud
+	workqueue    workqueue.RateLimitingInterface
 
 	// Value controlling TaggingController monitoring period, i.e. how often does TaggingController
 	// check node list. This value should be lower than nodeMonitorGracePeriod
 	// set in controller-manager
 	nodeMonitorPeriod time.Duration
-
-	// A map presenting the node and whether it currently exists
-	currentNodes map[string]bool
-
-	// A map representing nodes that were ever part of the cluster
-	totalNodes map[string]*v1.Node
 
 	// Representing the user input for tags
 	tags map[string]string
@@ -84,11 +76,8 @@ func NewTaggingController(
 	tc := &TaggingController{
 		nodeInformer:      nodeInformer,
 		kubeClient:        kubeClient,
-		nodeLister:        nodeInformer.Lister(),
 		cloud:             awsCloud,
 		nodeMonitorPeriod: nodeMonitorPeriod,
-		currentNodes:      make(map[string]bool),
-		totalNodes:        make(map[string]*v1.Node),
 		tags:              tags,
 		resources:         resources,
 		workqueue:         workqueue.NewNamedRateLimitingQueue(workqueue.DefaultControllerRateLimiter(), "Tagging"),
@@ -136,8 +125,8 @@ func (tc *TaggingController) MonitorNodes() {
 			return nil
 		}
 
-		var isTagged bool
-		isTagged, key = tc.getActionAndKey(key)
+		var toBeTagged bool
+		toBeTagged, key = tc.getActionAndKey(key)
 
 		_, nodeName, err := cache.SplitMetaNamespaceKey(key)
 
@@ -155,10 +144,10 @@ func (tc *TaggingController) MonitorNodes() {
 			return err
 		}
 
-		if isTagged {
+		if toBeTagged {
 			if err := tc.tagNodesResources(node); err != nil {
 				// Put the item back on the workqueue to handle any transient errors.
-				tc.workqueue.AddRateLimited(tag + key)
+				tc.workqueue.AddRateLimited(tagKeyPrefix + key)
 				return fmt.Errorf("error tagging '%s': %s, requeuing", key, err.Error())
 			}
 		} else {
@@ -251,7 +240,7 @@ func (tc *TaggingController) untagEc2Instance(node *v1.Node) error {
 
 // enqueueNode takes in the object to enqueue to the workqueue and whether
 // the object is to be tagged
-func (tc *TaggingController) enqueueNode(obj interface{}, isTagged bool) {
+func (tc *TaggingController) enqueueNode(obj interface{}, toBeTagged bool) {
 	var key string
 	var err error
 	if key, err = cache.MetaNamespaceKeyFunc(obj); err != nil {
@@ -259,19 +248,21 @@ func (tc *TaggingController) enqueueNode(obj interface{}, isTagged bool) {
 		return
 	}
 
-	if isTagged {
-		tc.workqueue.Add(tag + key)
+	if toBeTagged {
+		tc.workqueue.Add(tagKeyPrefix + key)
 	} else {
 		tc.workqueue.Add(key)
 	}
 }
 
+// getActionAndKey from the provided key, check if the object is to be tagged
+// and extract that action together with the key
 func (tc *TaggingController) getActionAndKey(key string) (bool, string) {
-	isTagged := false
-	if strings.HasPrefix(key, tag) {
-		isTagged = true
-		key = strings.TrimPrefix(key, tag)
+	toBeTagged := false
+	if strings.HasPrefix(key, tagKeyPrefix) {
+		toBeTagged = true
+		key = strings.TrimPrefix(key, tagKeyPrefix)
 	}
 
-	return isTagged, key
+	return toBeTagged, key
 }
