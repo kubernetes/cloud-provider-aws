@@ -26,7 +26,7 @@ import (
 	cloudprovider "k8s.io/cloud-provider"
 	opt "k8s.io/cloud-provider-aws/pkg/controllers/options"
 	awsv1 "k8s.io/cloud-provider-aws/pkg/providers/v1"
-	"k8s.io/klog/v2"
+	"k8s.io/klog"
 	"strings"
 	"time"
 )
@@ -252,7 +252,7 @@ func (tc *TaggingController) untagEc2Instance(node *v1.Node) error {
 		}
 	}
 
-	klog.Infof("Successfully tagged %s with %v", instanceId, tc.tags)
+	klog.Infof("Successfully untagged %s with %v", instanceId, tc.tags)
 
 	return nil
 }
