@@ -23,6 +23,8 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+	"sync"
+	"time"
 
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/service/autoscaling"
@@ -48,6 +50,14 @@ type FakeAWSServices struct {
 	asg      *FakeASG
 	metadata *FakeMetadata
 	kms      *FakeKMS
+}
+
+type FakeCloud struct {
+	cloud *Cloud
+
+	Calls        []string
+	addCallLock  sync.Mutex
+	RequestDelay time.Duration
 }
 
 // NewFakeAWSServices creates a new FakeAWSServices
@@ -265,8 +275,8 @@ func (ec2i *FakeEC2Impl) RemoveSubnets() {
 	ec2i.Subnets = ec2i.Subnets[:0]
 }
 
-// CreateTags is not implemented but is required for interface conformance
 func (ec2i *FakeEC2Impl) CreateTags(input *ec2.CreateTagsInput) (*ec2.CreateTagsOutput, error) {
+	addCall("create-tags")
 	for _, id := range input.Resources {
 		if *id == "i-error" {
 			return nil, errors.New("Unable to tag")
@@ -275,14 +285,28 @@ func (ec2i *FakeEC2Impl) CreateTags(input *ec2.CreateTagsInput) (*ec2.CreateTags
 	return &ec2.CreateTagsOutput{}, nil
 }
 
-// DeleteTags is not implemented but is required for interface conformance
 func (ec2i *FakeEC2Impl) DeleteTags(input *ec2.DeleteTagsInput) (*ec2.DeleteTagsOutput, error) {
+	ec2i.addCall("delete-tags")
 	for _, id := range input.Resources {
 		if *id == "i-error" {
 			return nil, errors.New("Unable to remove tag")
 		}
 	}
 	return &ec2.DeleteTagsOutput{}, nil
+}
+
+func (f *FakeCloud) addCall(desc string) {
+	f.addCallLock.Lock()
+	defer f.addCallLock.Unlock()
+
+	time.Sleep(f.RequestDelay)
+
+	f.Calls = append(f.Calls, desc)
+}
+
+// ClearCalls clears internal record of method calls to this Cloud.
+func (f *FakeCloud) ClearCalls() {
+	f.Calls = []string{}
 }
 
 // DescribeRouteTables returns fake route table descriptions
