@@ -15,12 +15,14 @@ package tagging
 
 import (
 	"context"
+	"github.com/stretchr/testify/assert"
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/informers"
 	coreinformers "k8s.io/client-go/informers/core/v1"
 	"k8s.io/client-go/kubernetes/fake"
 	"k8s.io/client-go/tools/record"
+	"k8s.io/client-go/util/workqueue"
 	awsv1 "k8s.io/cloud-provider-aws/pkg/providers/v1"
 	"k8s.io/klog/v2"
 	"testing"
@@ -29,14 +31,11 @@ import (
 
 const TestClusterID = "clusterid.test"
 
-// TODO: rework the test
 func Test_NodesJoiningAndLeaving(t *testing.T) {
 	testcases := []struct {
-		name                string
-		currNode            *v1.Node
-		taggingController   TaggingController
-		noOfToBeTaggedNodes int
-		totalNodes          int
+		name          string
+		currNode      *v1.Node
+		expectedCalls []string
 	}{
 		{
 			name: "node0 joins the cluster.",
@@ -49,212 +48,7 @@ func Test_NodesJoiningAndLeaving(t *testing.T) {
 					ProviderID: "i-00000",
 				},
 			},
-			taggingController: TaggingController{
-				currentNodes: make(map[string]bool),
-				totalNodes:   make(map[string]*v1.Node),
-			},
-			noOfToBeTaggedNodes: 1,
-			totalNodes:          1,
-		},
-		{
-			name: "node1 joins the cluster, node0 left.",
-			currNode: &v1.Node{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:              "node1",
-					CreationTimestamp: metav1.Date(2012, 1, 1, 0, 0, 0, 0, time.UTC),
-				},
-				Spec: v1.NodeSpec{
-					ProviderID: "i-00001",
-				},
-			},
-			taggingController: TaggingController{
-				currentNodes: map[string]bool{
-					"node0": true,
-				},
-				totalNodes: map[string]*v1.Node{
-					"node0": {
-						ObjectMeta: metav1.ObjectMeta{
-							Name:              "node0",
-							CreationTimestamp: metav1.Date(2012, 1, 1, 0, 0, 0, 0, time.UTC),
-						},
-						Spec: v1.NodeSpec{
-							ProviderID: "i-00000",
-						},
-					},
-				},
-			},
-			noOfToBeTaggedNodes: 1,
-			totalNodes:          2,
-		},
-		{
-			name: "node2 joins the cluster, node0 and node1 left.",
-			currNode: &v1.Node{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:              "node2",
-					CreationTimestamp: metav1.Date(2012, 1, 1, 0, 0, 0, 0, time.UTC),
-				},
-				Spec: v1.NodeSpec{
-					ProviderID: "i-00002",
-				},
-			},
-			taggingController: TaggingController{
-				currentNodes: map[string]bool{
-					"node0": true,
-					"node1": true,
-				},
-				totalNodes: map[string]*v1.Node{
-					"node0": {
-						ObjectMeta: metav1.ObjectMeta{
-							Name:              "node0",
-							CreationTimestamp: metav1.Date(2012, 1, 1, 0, 0, 0, 0, time.UTC),
-						},
-						Spec: v1.NodeSpec{
-							ProviderID: "i-00000",
-						},
-					},
-					"node1": {
-						ObjectMeta: metav1.ObjectMeta{
-							Name:              "node1",
-							CreationTimestamp: metav1.Date(2012, 1, 1, 0, 0, 0, 0, time.UTC),
-						},
-						Spec: v1.NodeSpec{
-							ProviderID: "i-00001",
-						},
-					},
-				},
-			},
-			noOfToBeTaggedNodes: 1,
-			totalNodes:          3,
-		},
-		{
-			name: "no new node joins the cluster.",
-			currNode: &v1.Node{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:              "node2",
-					CreationTimestamp: metav1.Date(2012, 1, 1, 0, 0, 0, 0, time.UTC),
-				},
-				Spec: v1.NodeSpec{
-					ProviderID: "i-00002",
-				},
-			},
-			taggingController: TaggingController{
-				currentNodes: map[string]bool{
-					"node0": true,
-					"node1": true,
-					"node2": true,
-				},
-				totalNodes: map[string]*v1.Node{
-					"node0": {
-						ObjectMeta: metav1.ObjectMeta{
-							Name:              "node0",
-							CreationTimestamp: metav1.Date(2012, 1, 1, 0, 0, 0, 0, time.UTC),
-						},
-						Spec: v1.NodeSpec{
-							ProviderID: "i-00000",
-						},
-					},
-					"node1": {
-						ObjectMeta: metav1.ObjectMeta{
-							Name:              "node1",
-							CreationTimestamp: metav1.Date(2012, 1, 1, 0, 0, 0, 0, time.UTC),
-						},
-						Spec: v1.NodeSpec{
-							ProviderID: "i-00001",
-						},
-					},
-					"node2": {
-						ObjectMeta: metav1.ObjectMeta{
-							Name:              "node2",
-							CreationTimestamp: metav1.Date(2012, 1, 1, 0, 0, 0, 0, time.UTC),
-						},
-						Spec: v1.NodeSpec{
-							ProviderID: "i-00002",
-						},
-					},
-				},
-			},
-			noOfToBeTaggedNodes: 1,
-			totalNodes:          3,
-		},
-		{
-			name: "node 3 joins the cluster but failed to be tagged.",
-			currNode: &v1.Node{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:              "node3",
-					CreationTimestamp: metav1.Date(2012, 1, 1, 0, 0, 0, 0, time.UTC),
-				},
-				Spec: v1.NodeSpec{
-					ProviderID: "i-error",
-				},
-			},
-			taggingController: TaggingController{
-				currentNodes: map[string]bool{
-					"node0": true,
-					"node1": true,
-					"node2": true,
-				},
-				totalNodes: map[string]*v1.Node{
-					"node0": {
-						ObjectMeta: metav1.ObjectMeta{
-							Name:              "node0",
-							CreationTimestamp: metav1.Date(2012, 1, 1, 0, 0, 0, 0, time.UTC),
-						},
-						Spec: v1.NodeSpec{
-							ProviderID: "i-00000",
-						},
-					},
-					"node1": {
-						ObjectMeta: metav1.ObjectMeta{
-							Name:              "node1",
-							CreationTimestamp: metav1.Date(2012, 1, 1, 0, 0, 0, 0, time.UTC),
-						},
-						Spec: v1.NodeSpec{
-							ProviderID: "i-00001",
-						},
-					},
-					"node2": {
-						ObjectMeta: metav1.ObjectMeta{
-							Name:              "node2",
-							CreationTimestamp: metav1.Date(2012, 1, 1, 0, 0, 0, 0, time.UTC),
-						},
-						Spec: v1.NodeSpec{
-							ProviderID: "i-00002",
-						},
-					},
-				},
-			},
-			noOfToBeTaggedNodes: 0,
-			totalNodes:          4,
-		},
-		{
-			name: "node 1 joins the cluster, node 0 left but failed to be untagged.",
-			currNode: &v1.Node{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:              "node1",
-					CreationTimestamp: metav1.Date(2012, 1, 1, 0, 0, 0, 0, time.UTC),
-				},
-				Spec: v1.NodeSpec{
-					ProviderID: "i-0001",
-				},
-			},
-			taggingController: TaggingController{
-				currentNodes: map[string]bool{
-					"node0": true,
-				},
-				totalNodes: map[string]*v1.Node{
-					"node0": {
-						ObjectMeta: metav1.ObjectMeta{
-							Name:              "node0",
-							CreationTimestamp: metav1.Date(2012, 1, 1, 0, 0, 0, 0, time.UTC),
-						},
-						Spec: v1.NodeSpec{
-							ProviderID: "i-error",
-						},
-					},
-				},
-			},
-			noOfToBeTaggedNodes: 2,
-			totalNodes:          2,
+			expectedCalls: []string{"create-tags"},
 		},
 	}
 
@@ -263,8 +57,6 @@ func Test_NodesJoiningAndLeaving(t *testing.T) {
 
 	for _, testcase := range testcases {
 		t.Run(testcase.name, func(t *testing.T) {
-			ctx, cancel := context.WithCancel(context.Background())
-			defer cancel()
 			clientset := fake.NewSimpleClientset(testcase.currNode)
 			informer := informers.NewSharedInformerFactory(clientset, time.Second)
 			nodeInformer := informer.Core().V1().Nodes()
@@ -274,20 +66,26 @@ func Test_NodesJoiningAndLeaving(t *testing.T) {
 			}
 
 			eventBroadcaster := record.NewBroadcaster()
-			testcase.taggingController.nodeLister = nodeInformer.Lister()
-			testcase.taggingController.kubeClient = clientset
-			testcase.taggingController.cloud = fakeAws
-			testcase.taggingController.nodeMonitorPeriod = 1 * time.Second
+			tc := &TaggingController{
+				nodeInformer:      nodeInformer,
+				kubeClient:        clientset,
+				cloud:             fakeAws,
+				nodeMonitorPeriod: 1 * time.Second,
+				tags:              map[string]string{"key": "value"},
+				resources:         []string{"instance"},
+				workqueue:         workqueue.NewNamedRateLimitingQueue(workqueue.DefaultControllerRateLimiter(), "Tagging"),
+			}
 
 			w := eventBroadcaster.StartLogging(klog.Infof)
 			defer w.Stop()
 
-			testcase.taggingController.MonitorNodes(ctx)
+			tc.enqueueNode(testcase.currNode, true)
+			tc.MonitorNodes()
+			ec2, _ := awsServices.Compute("")
 
-			if len(testcase.taggingController.currentNodes) != testcase.noOfToBeTaggedNodes || len(testcase.taggingController.totalNodes) != testcase.totalNodes {
-				t.Errorf("currentNodes must contain %d element(s), and totalNodes must contain %d element(s).", testcase.noOfToBeTaggedNodes, testcase.totalNodes)
-			}
-
+			assert.EqualValues(t, testcase.expectedCalls, ec2.,
+				"expected cloud provider methods `%v` to be called but `%v` was called ",
+				testcase.expectedCalls, awsServices.MadeRequest.Calls)
 		})
 	}
 }
