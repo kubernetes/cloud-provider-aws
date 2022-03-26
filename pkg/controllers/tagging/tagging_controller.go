@@ -32,9 +32,9 @@ import (
 )
 
 const (
-	// This is a prefix used to recognized if a node in the workqueue
-	// is to be tagged or not
-	tagKeyPrefix string = "tagKeyPrefix"
+	// This is a prefix used to recognized if a node
+	// in the workqueue is to be tagged or not
+	tagKeyPrefix string = "ToBeTagged:"
 )
 
 // TaggingController is the controller implementation for tagging cluster resources.
@@ -121,6 +121,8 @@ func (tc *TaggingController) Process() bool {
 		return false
 	}
 
+	klog.Infof("Starting to process %v", obj)
+
 	err := func(obj interface{}) error {
 		defer tc.workqueue.Done(obj)
 
@@ -145,6 +147,7 @@ func (tc *TaggingController) Process() bool {
 		node, err := tc.nodeInformer.Lister().Get(nodeName)
 		if err != nil {
 			if apierrors.IsNotFound(err) {
+				klog.Errorf("Unable to find a node with name %s", nodeName)
 				return nil
 			}
 
@@ -152,9 +155,10 @@ func (tc *TaggingController) Process() bool {
 		}
 
 		if toBeTagged {
+			key = tagKeyPrefix + key
 			if err := tc.tagNodesResources(node); err != nil {
 				// Put the item back on the workqueue to handle any transient errors.
-				tc.workqueue.AddRateLimited(tagKeyPrefix + key)
+				tc.workqueue.AddRateLimited(key)
 				return fmt.Errorf("error tagging '%s': %s, requeuing", key, err.Error())
 			}
 		} else {
@@ -165,10 +169,12 @@ func (tc *TaggingController) Process() bool {
 		}
 
 		tc.workqueue.Forget(obj)
+		klog.Infof("Finished processing %v", obj)
 		return nil
 	}(obj)
 
 	if err != nil {
+		klog.Errorf("Error occurred while processing %v", obj)
 		utilruntime.HandleError(err)
 	}
 
@@ -208,6 +214,8 @@ func (tc *TaggingController) tagEc2Instance(node *v1.Node) error {
 		}
 	}
 
+	klog.Infof("Successfully tagged %s with %v", instanceId, tc.tags)
+
 	return nil
 }
 
@@ -244,6 +252,8 @@ func (tc *TaggingController) untagEc2Instance(node *v1.Node) error {
 		}
 	}
 
+	klog.Infof("Successfully tagged %s with %v", instanceId, tc.tags)
+
 	return nil
 }
 
@@ -258,10 +268,12 @@ func (tc *TaggingController) enqueueNode(obj interface{}, toBeTagged bool) {
 	}
 
 	if toBeTagged {
-		tc.workqueue.Add(tagKeyPrefix + key)
-	} else {
-		tc.workqueue.Add(key)
+		key = tagKeyPrefix + key
 	}
+
+	tc.workqueue.Add(key)
+
+	klog.Infof("Added %s to the workqueue", key)
 }
 
 // getActionAndKey from the provided key, check if the object is to be tagged
