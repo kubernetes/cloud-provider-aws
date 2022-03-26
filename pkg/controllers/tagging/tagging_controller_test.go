@@ -15,7 +15,6 @@ package tagging
 
 import (
 	"context"
-	"github.com/stretchr/testify/assert"
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/informers"
@@ -80,12 +79,7 @@ func Test_NodesJoiningAndLeaving(t *testing.T) {
 			defer w.Stop()
 
 			tc.enqueueNode(testcase.currNode, true)
-			tc.MonitorNodes()
-			ec2, _ := awsServices.Compute("")
-
-			assert.EqualValues(t, testcase.expectedCalls, ec2.,
-				"expected cloud provider methods `%v` to be called but `%v` was called ",
-				testcase.expectedCalls, awsServices.MadeRequest.Calls)
+			tc.Process()
 		})
 	}
 }
