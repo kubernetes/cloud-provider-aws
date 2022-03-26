@@ -14,16 +14,19 @@ limitations under the License.
 package tagging
 
 import (
+	"bytes"
 	"context"
+	"flag"
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/informers"
 	coreinformers "k8s.io/client-go/informers/core/v1"
 	"k8s.io/client-go/kubernetes/fake"
-	"k8s.io/client-go/tools/record"
 	"k8s.io/client-go/util/workqueue"
 	awsv1 "k8s.io/cloud-provider-aws/pkg/providers/v1"
-	"k8s.io/klog/v2"
+	"k8s.io/klog"
+	"os"
+	"strings"
 	"testing"
 	"time"
 )
@@ -31,11 +34,13 @@ import (
 const TestClusterID = "clusterid.test"
 
 func Test_NodesJoiningAndLeaving(t *testing.T) {
+	klog.InitFlags(nil)
+	flag.CommandLine.Parse([]string{"--logtostderr=false"})
 	testcases := []struct {
-		name         string
-		currNode     *v1.Node
-		noOfItemLeft int
-		toBeTagged   bool
+		name             string
+		currNode         *v1.Node
+		toBeTagged       bool
+		expectedMessages []string
 	}{
 		{
 			name: "node0 joins the cluster, but fail to tag.",
@@ -48,8 +53,8 @@ func Test_NodesJoiningAndLeaving(t *testing.T) {
 					ProviderID: "i-error",
 				},
 			},
-			noOfItemLeft: 1,
-			toBeTagged:   true,
+			toBeTagged:       true,
+			expectedMessages: []string{"Error occurred while processing ToBeTagged:node0"},
 		},
 		{
 			name: "node0 joins the cluster.",
@@ -62,11 +67,11 @@ func Test_NodesJoiningAndLeaving(t *testing.T) {
 					ProviderID: "i-0001",
 				},
 			},
-			noOfItemLeft: 0,
-			toBeTagged:   true,
+			toBeTagged:       true,
+			expectedMessages: []string{"Successfully tagged i-0001"},
 		},
 		{
-			name: "node0 leaves the cluster, failed to tag.",
+			name: "node0 leaves the cluster, failed to untag.",
 			currNode: &v1.Node{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:              "node0",
@@ -76,8 +81,8 @@ func Test_NodesJoiningAndLeaving(t *testing.T) {
 					ProviderID: "i-error",
 				},
 			},
-			noOfItemLeft: 1,
-			toBeTagged:   false,
+			toBeTagged:       false,
+			expectedMessages: []string{"Error in untagging EC2 instance for node node0"},
 		},
 		{
 			name: "node0 leaves the cluster.",
@@ -90,8 +95,8 @@ func Test_NodesJoiningAndLeaving(t *testing.T) {
 					ProviderID: "i-0001",
 				},
 			},
-			noOfItemLeft: 0,
-			toBeTagged:   false,
+			toBeTagged:       false,
+			expectedMessages: []string{"Successfully untagged i-0001"},
 		},
 	}
 
@@ -100,6 +105,12 @@ func Test_NodesJoiningAndLeaving(t *testing.T) {
 
 	for _, testcase := range testcases {
 		t.Run(testcase.name, func(t *testing.T) {
+			var logBuf bytes.Buffer
+			klog.SetOutput(&logBuf)
+			defer func() {
+				klog.SetOutput(os.Stderr)
+			}()
+
 			clientset := fake.NewSimpleClientset(testcase.currNode)
 			informer := informers.NewSharedInformerFactory(clientset, time.Second)
 			nodeInformer := informer.Core().V1().Nodes()
@@ -108,7 +119,7 @@ func Test_NodesJoiningAndLeaving(t *testing.T) {
 				t.Errorf("unexpected error: %v", err)
 			}
 
-			eventBroadcaster := record.NewBroadcaster()
+			//eventBroadcaster := record.NewBroadcaster()
 			tc := &TaggingController{
 				nodeInformer:      nodeInformer,
 				kubeClient:        clientset,
@@ -119,14 +130,18 @@ func Test_NodesJoiningAndLeaving(t *testing.T) {
 				workqueue:         workqueue.NewNamedRateLimitingQueue(workqueue.DefaultControllerRateLimiter(), "Tagging"),
 			}
 
-			w := eventBroadcaster.StartLogging(klog.Infof)
-			defer w.Stop()
-
 			tc.enqueueNode(testcase.currNode, testcase.toBeTagged)
 			tc.Process()
 
-			if tc.workqueue.Len() != testcase.noOfItemLeft {
-				t.Fatalf("workqueue not processed properly, expected %d left, got %d.", testcase.noOfItemLeft, tc.workqueue.Len())
+			for _, msg := range testcase.expectedMessages {
+				if !strings.Contains(logBuf.String(), msg) {
+					t.Errorf("\nMsg %q not found in log: \n%v\n", msg, logBuf.String())
+				}
+				if strings.Contains(logBuf.String(), "error tagging ") || strings.Contains(logBuf.String(), "error untagging ") {
+					if !strings.Contains(logBuf.String(), ", requeuing") {
+						t.Errorf("\nFailed to tag or untag but logs do not contain 'requeueing': \n%v\n", logBuf.String())
+					}
+				}
 			}
 		})
 	}
