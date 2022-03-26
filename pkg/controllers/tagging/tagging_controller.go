@@ -101,17 +101,24 @@ func (tc *TaggingController) Run(stopCh <-chan struct{}) {
 	defer tc.workqueue.ShutDown()
 
 	klog.Infof("Starting the tagging controller")
-	go wait.Until(tc.MonitorNodes, tc.nodeMonitorPeriod, stopCh)
+	go wait.Until(tc.work, tc.nodeMonitorPeriod, stopCh)
 
 	<-stopCh
 }
 
-// MonitorNodes is a long-running function that continuously
-// read and process a message on the work queue
-func (tc *TaggingController) MonitorNodes() {
+// work is a long-running function that continuously
+// call process() for each message on the workqueue
+func (tc *TaggingController) work() {
+	for tc.Process() {
+	}
+}
+
+// Process reads each message in the queue and performs either
+// tag or untag function on the Node object
+func (tc *TaggingController) Process() bool {
 	obj, shutdown := tc.workqueue.Get()
 	if shutdown {
-		return
+		return false
 	}
 
 	err := func(obj interface{}) error {
@@ -164,6 +171,8 @@ func (tc *TaggingController) MonitorNodes() {
 	if err != nil {
 		utilruntime.HandleError(err)
 	}
+
+	return true
 }
 
 // tagNodesResources tag node resources from a list of nodes
