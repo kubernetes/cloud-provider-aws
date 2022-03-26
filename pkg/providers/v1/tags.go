@@ -319,12 +319,14 @@ func (c *Cloud) TagResource(resourceId string, tags map[string]string) error {
 		Tags:      buildAwsTags(tags),
 	}
 
-	_, err := c.ec2.CreateTags(request)
+	output, err := c.ec2.CreateTags(request)
 
 	if err != nil {
 		klog.Errorf("Error occurred trying to tag resources, %v", err)
 		return err
 	}
+
+	klog.Infof("Done calling create-tags to EC2: %v", output)
 
 	return nil
 }
@@ -335,12 +337,14 @@ func (c *Cloud) UntagResource(resourceId string, tags map[string]string) error {
 		Tags:      buildAwsTags(tags),
 	}
 
-	_, err := c.ec2.DeleteTags(request)
+	output, err := c.ec2.DeleteTags(request)
 
 	if err != nil {
 		klog.Errorf("Error occurred trying to untag resources, %v", err)
 		return err
 	}
+
+	klog.Infof("Done calling delete-tags to EC2: %v", output)
 
 	return nil
 }
