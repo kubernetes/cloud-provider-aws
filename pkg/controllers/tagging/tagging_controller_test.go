@@ -32,10 +32,25 @@ const TestClusterID = "clusterid.test"
 
 func Test_NodesJoiningAndLeaving(t *testing.T) {
 	testcases := []struct {
-		name          string
-		currNode      *v1.Node
-		expectedCalls []string
+		name         string
+		currNode     *v1.Node
+		noOfItemLeft int
+		toBeTagged   bool
 	}{
+		{
+			name: "node0 joins the cluster, but fail to tag.",
+			currNode: &v1.Node{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:              "node0",
+					CreationTimestamp: metav1.Date(2012, 1, 1, 0, 0, 0, 0, time.UTC),
+				},
+				Spec: v1.NodeSpec{
+					ProviderID: "i-error",
+				},
+			},
+			noOfItemLeft: 1,
+			toBeTagged:   true,
+		},
 		{
 			name: "node0 joins the cluster.",
 			currNode: &v1.Node{
@@ -44,10 +59,39 @@ func Test_NodesJoiningAndLeaving(t *testing.T) {
 					CreationTimestamp: metav1.Date(2012, 1, 1, 0, 0, 0, 0, time.UTC),
 				},
 				Spec: v1.NodeSpec{
-					ProviderID: "i-00000",
+					ProviderID: "i-0001",
 				},
 			},
-			expectedCalls: []string{"create-tags"},
+			noOfItemLeft: 0,
+			toBeTagged:   true,
+		},
+		{
+			name: "node0 leaves the cluster, failed to tag.",
+			currNode: &v1.Node{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:              "node0",
+					CreationTimestamp: metav1.Date(2012, 1, 1, 0, 0, 0, 0, time.UTC),
+				},
+				Spec: v1.NodeSpec{
+					ProviderID: "i-error",
+				},
+			},
+			noOfItemLeft: 1,
+			toBeTagged:   false,
+		},
+		{
+			name: "node0 leaves the cluster.",
+			currNode: &v1.Node{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:              "node0",
+					CreationTimestamp: metav1.Date(2012, 1, 1, 0, 0, 0, 0, time.UTC),
+				},
+				Spec: v1.NodeSpec{
+					ProviderID: "i-0001",
+				},
+			},
+			noOfItemLeft: 0,
+			toBeTagged:   false,
 		},
 	}
 
@@ -78,8 +122,12 @@ func Test_NodesJoiningAndLeaving(t *testing.T) {
 			w := eventBroadcaster.StartLogging(klog.Infof)
 			defer w.Stop()
 
-			tc.enqueueNode(testcase.currNode, true)
+			tc.enqueueNode(testcase.currNode, testcase.toBeTagged)
 			tc.Process()
+
+			if tc.workqueue.Len() != testcase.noOfItemLeft {
+				t.Fatalf("workqueue not processed properly, expected %d left, got %d.", testcase.noOfItemLeft, tc.workqueue.Len())
+			}
 		})
 	}
 }
