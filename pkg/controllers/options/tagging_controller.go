@@ -30,7 +30,7 @@ func (o *TaggingControllerOptions) AddFlags(fs *pflag.FlagSet) {
 
 func (o *TaggingControllerOptions) Validate() error {
 	if len(o.Tags) == 0 {
-		return fmt.Errorf("--tags must not be empty")
+		return fmt.Errorf("--tags must not be empty and must be a form of key:value")
 	}
 
 	if len(o.Resources) == 0 {
@@ -39,7 +39,11 @@ func (o *TaggingControllerOptions) Validate() error {
 
 	for _, r := range o.Resources {
 		if _, ok := SupportedResources[r]; !ok {
-			return fmt.Errorf("%s is not a supported resource", r)
+			resources := []string{}
+			for r, _ := range SupportedResources {
+				resources = append(resources, r)
+			}
+			return fmt.Errorf("%s is not a supported resource. Current supported resources %v", r, resources)
 		}
 	}
 
