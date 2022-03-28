@@ -54,7 +54,7 @@ func Test_NodesJoiningAndLeaving(t *testing.T) {
 				},
 			},
 			toBeTagged:       true,
-			expectedMessages: []string{"Error occurred while processing ToBeTagged:node0"},
+			expectedMessages: []string{"Error occurred while processing"},
 		},
 		{
 			name: "node0 joins the cluster.",
@@ -130,7 +130,11 @@ func Test_NodesJoiningAndLeaving(t *testing.T) {
 				workqueue:         workqueue.NewNamedRateLimitingQueue(workqueue.DefaultControllerRateLimiter(), "Tagging"),
 			}
 
-			tc.enqueueNode(testcase.currNode, testcase.toBeTagged)
+			if testcase.toBeTagged {
+				tc.enqueueNode(testcase.currNode, tc.tagNodesResources)
+			} else {
+				tc.enqueueNode(testcase.currNode, tc.untagNodeResources)
+			}
 			tc.Process()
 
 			for _, msg := range testcase.expectedMessages {
