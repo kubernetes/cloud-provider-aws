@@ -30,7 +30,7 @@ func (o *TaggingControllerOptions) AddFlags(fs *pflag.FlagSet) {
 
 func (o *TaggingControllerOptions) Validate() error {
 	if len(o.Tags) == 0 {
-		return fmt.Errorf("--tags must not be empty and must be a form of key:value")
+		return fmt.Errorf("--tags must not be empty and must be a form of key=value")
 	}
 
 	if len(o.Resources) == 0 {
