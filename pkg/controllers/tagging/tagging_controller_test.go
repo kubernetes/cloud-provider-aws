@@ -24,7 +24,7 @@ import (
 	"k8s.io/client-go/kubernetes/fake"
 	"k8s.io/client-go/util/workqueue"
 	awsv1 "k8s.io/cloud-provider-aws/pkg/providers/v1"
-	"k8s.io/klog"
+	"k8s.io/klog/v2"
 	"os"
 	"strings"
 	"testing"

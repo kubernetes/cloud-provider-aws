@@ -26,7 +26,7 @@ import (
 	cloudprovider "k8s.io/cloud-provider"
 	opt "k8s.io/cloud-provider-aws/pkg/controllers/options"
 	awsv1 "k8s.io/cloud-provider-aws/pkg/providers/v1"
-	"k8s.io/klog"
+	"k8s.io/klog/v2"
 	"strings"
 	"time"
 )
