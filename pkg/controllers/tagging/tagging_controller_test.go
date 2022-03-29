@@ -120,7 +120,7 @@ func Test_NodesJoiningAndLeaving(t *testing.T) {
 			}
 
 			//eventBroadcaster := record.NewBroadcaster()
-			tc := &TaggingController{
+			tc := &Controller{
 				nodeInformer:      nodeInformer,
 				kubeClient:        clientset,
 				cloud:             fakeAws,
