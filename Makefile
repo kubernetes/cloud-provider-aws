@@ -26,6 +26,11 @@ IMAGE ?= amazon/cloud-controller-manager:$(VERSION)
 OUTPUT ?= $(shell pwd)/_output
 INSTALL_PATH ?= $(OUTPUT)/bin
 LDFLAGS ?= -w -s -X k8s.io/component-base/version.gitVersion=$(VERSION)
+PLATFORMS ?= linux/amd64,linux/arm64
+
+ifdef PULL_BASE_REF
+	IMAGE = $(DOCKER_REGISTRY)/$(DOCKER_IMAGE_PREFIX)/cloud-controller-manager:$(VERSION)
+endif
 
 aws-cloud-controller-manager: $(SOURCES)
 	 GO111MODULE=on CGO_ENABLED=0 GOOS=$(GOOS) GOARCH=$(GOARCH) GOPROXY=$(GOPROXY) go build \
@@ -50,7 +55,8 @@ ecr-credential-provider.exe: $(wildcard ./cmd/ecr-credential-provider/*.go)
 
 .PHONY: docker-build-amd64
 docker-build-amd64:
-	docker buildx build --output=type=docker \
+	docker buildx build \
+		--load \
 		--build-arg VERSION=$(VERSION) \
 		--build-arg GOPROXY=$(GOPROXY) \
 		--platform linux/amd64 \
@@ -58,18 +64,20 @@ docker-build-amd64:
 
 .PHONY: docker-build-arm64
 docker-build-arm64:
-	docker buildx build --output=type=docker \
+	docker buildx build \
+		--load \
 		--build-arg VERSION=$(VERSION) \
 		--build-arg GOPROXY=$(GOPROXY) \
 		--platform linux/arm64 \
 		--tag $(IMAGE) .
 
-.PHONY: docker-build
-docker-build:
-	docker buildx build --output=type=registry \
-		--build-arg LDFLAGS=$(LDFLAGS) \
+.PHONY: docker-build-push
+docker-build-push:
+	docker buildx build \
+		--output=type=registry \
+		--build-arg VERSION=$(VERSION) \
 		--build-arg GOPROXY=$(GOPROXY) \
-		--platform linux/amd64,linux/arm64 \
+		--platform $(PLATFORMS) \
 		--tag $(IMAGE) .
 
 e2e.test:

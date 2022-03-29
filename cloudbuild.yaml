@@ -3,16 +3,19 @@ options:
   substitution_option: ALLOW_LOOSE
   machineType: 'N1_HIGHCPU_8'
 steps:
-  - name: gcr.io/k8s-testimages/gcb-docker-gcloud
-    entrypoint: /buildx-entrypoint
+  - name: gcr.io/k8s-testimages/gcb-docker-gcloud:v20220324-0d59b58358
+    id: image-push
+    entrypoint: make
+    env:
+    - PULL_BASE_REF=$_PULL_BASE_REF
+    - DOCKER_CLI_EXPERIMENTAL=enabled
+    - DOCKER_BUILDKIT=1
+    - DOCKER_REGISTRY=$_DOCKER_REGISTRY
+    - DOCKER_IMAGE_PREFIX=$_DOCKER_IMAGE_PREFIX
     args:
-    - build
-    - --tag=gcr.io/$PROJECT_ID/cloud-controller-manager:$_GIT_TAG
-    - --tag=gcr.io/$PROJECT_ID/cloud-controller-manager:latest
-    - --build-arg=VERSION=$_GIT_TAG
-    - --output=type=registry
-    - --platform=linux/amd64,linux/arm64
-    - .
+    - docker-build-push
 substitutions:
-  _GIT_TAG: '12345'
+  _PULL_BASE_REF: 'dev'
+  _DOCKER_REGISTRY: 'gcr.io'
+  _DOCKER_IMAGE_PREFIX: 'k8s-staging-provider-aws'
 timeout: 1200s
