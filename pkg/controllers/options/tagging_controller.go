@@ -18,16 +18,20 @@ import (
 	"github.com/spf13/pflag"
 )
 
+// TaggingControllerOptions contains the inputs that can
+// be used in the tagging controller
 type TaggingControllerOptions struct {
 	Tags      map[string]string
 	Resources []string
 }
 
+// AddFlags add the additional flags for the controller
 func (o *TaggingControllerOptions) AddFlags(fs *pflag.FlagSet) {
 	fs.StringToStringVar(&o.Tags, "tags", o.Tags, "Tags to apply to AWS resources in the tagging controller, in a form of key=value.")
 	fs.StringArrayVar(&o.Resources, "resources", o.Resources, "AWS resources name to add/remove tags in the tagging controller.")
 }
 
+// Validate checks for errors from user input
 func (o *TaggingControllerOptions) Validate() error {
 	if len(o.Tags) == 0 {
 		return fmt.Errorf("--tags must not be empty and must be a form of key=value")
