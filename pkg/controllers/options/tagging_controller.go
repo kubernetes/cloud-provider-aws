@@ -38,16 +38,10 @@ func (o *TaggingControllerOptions) Validate() error {
 	}
 
 	for _, r := range o.Resources {
-		found := false
-
 		for _, resource := range SupportedResources {
-			if r == resource {
-				found = true
+			if r != resource {
+				return fmt.Errorf("%s is not a supported resource. Current supported resources %v", r, SupportedResources)
 			}
-		}
-
-		if !found {
-			return fmt.Errorf("%s is not a supported resource. Current supported resources %v", r, SupportedResources)
 		}
 	}
 
