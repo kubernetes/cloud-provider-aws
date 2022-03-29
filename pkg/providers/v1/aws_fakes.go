@@ -265,6 +265,7 @@ func (ec2i *FakeEC2Impl) RemoveSubnets() {
 	ec2i.Subnets = ec2i.Subnets[:0]
 }
 
+// Mock CreateTags from EC2
 func (ec2i *FakeEC2Impl) CreateTags(input *ec2.CreateTagsInput) (*ec2.CreateTagsOutput, error) {
 	for _, id := range input.Resources {
 		if *id == "i-error" {
@@ -274,6 +275,7 @@ func (ec2i *FakeEC2Impl) CreateTags(input *ec2.CreateTagsInput) (*ec2.CreateTags
 	return &ec2.CreateTagsOutput{}, nil
 }
 
+// Mock DeleteTags from EC2
 func (ec2i *FakeEC2Impl) DeleteTags(input *ec2.DeleteTagsInput) (*ec2.DeleteTagsOutput, error) {
 	for _, id := range input.Resources {
 		if *id == "i-error" {
