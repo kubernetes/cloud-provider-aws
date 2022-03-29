@@ -35,16 +35,16 @@ type workItem struct {
 	action func(node *v1.Node) error
 }
 
-// TaggingController is the controller implementation for tagging cluster resources.
+// Controller is the controller implementation for tagging cluster resources.
 // It periodically check for Node events (creating/deleting) to apply appropriate
 // tags to resources.
-type TaggingController struct {
+type Controller struct {
 	nodeInformer coreinformers.NodeInformer
 	kubeClient   clientset.Interface
 	cloud        *awsv1.Cloud
 	workqueue    workqueue.RateLimitingInterface
 	nodesSynced  cache.InformerSynced
-	// Value controlling TaggingController monitoring period, i.e. how often does TaggingController
+	// Value controlling Controller monitoring period, i.e. how often does Controller
 	// check node list. This value should be lower than nodeMonitorGracePeriod
 	// set in controller-manager
 	nodeMonitorPeriod time.Duration
@@ -63,7 +63,7 @@ func NewTaggingController(
 	cloud cloudprovider.Interface,
 	nodeMonitorPeriod time.Duration,
 	tags map[string]string,
-	resources []string) (*TaggingController, error) {
+	resources []string) (*Controller, error) {
 
 	awsCloud, ok := cloud.(*awsv1.Cloud)
 	if !ok {
@@ -71,7 +71,7 @@ func NewTaggingController(
 		return nil, err
 	}
 
-	tc := &TaggingController{
+	tc := &Controller{
 		nodeInformer:      nodeInformer,
 		kubeClient:        kubeClient,
 		cloud:             awsCloud,
@@ -95,7 +95,7 @@ func NewTaggingController(
 
 // Run will start the controller to tag resources attached to the cluster
 // and untag resources detached from the cluster.
-func (tc *TaggingController) Run(stopCh <-chan struct{}) {
+func (tc *Controller) Run(stopCh <-chan struct{}) {
 	defer utilruntime.HandleCrash()
 	defer tc.workqueue.ShutDown()
 
@@ -114,14 +114,14 @@ func (tc *TaggingController) Run(stopCh <-chan struct{}) {
 
 // work is a long-running function that continuously
 // call process() for each message on the workqueue
-func (tc *TaggingController) work() {
+func (tc *Controller) work() {
 	for tc.process() {
 	}
 }
 
 // process reads each message in the queue and performs either
 // tag or untag function on the Node object
-func (tc *TaggingController) process() bool {
+func (tc *Controller) process() bool {
 	obj, shutdown := tc.workqueue.Get()
 	if shutdown {
 		return false
@@ -161,7 +161,7 @@ func (tc *TaggingController) process() bool {
 
 // tagNodesResources tag node resources from a list of nodes
 // If we want to tag more resources, modify this function appropriately
-func (tc *TaggingController) tagNodesResources(node *v1.Node) error {
+func (tc *Controller) tagNodesResources(node *v1.Node) error {
 	for _, resource := range tc.resources {
 		switch resource {
 		case opt.Instance:
@@ -177,29 +177,29 @@ func (tc *TaggingController) tagNodesResources(node *v1.Node) error {
 
 // tagEc2Instances applies the provided tags to each EC2 instance in
 // the cluster.
-func (tc *TaggingController) tagEc2Instance(node *v1.Node) error {
-	instanceId, err := awsv1.KubernetesInstanceID(node.Spec.ProviderID).MapToAWSInstanceID()
+func (tc *Controller) tagEc2Instance(node *v1.Node) error {
+	instanceID, err := awsv1.KubernetesInstanceID(node.Spec.ProviderID).MapToAWSInstanceID()
 
 	if err != nil {
 		klog.Errorf("Error in getting instanceID for node %s, error: %v", node.GetName(), err)
 		return err
-	} else {
-		err := tc.cloud.TagResource(string(instanceId), tc.tags)
-
-		if err != nil {
-			klog.Errorf("Error in tagging EC2 instance for node %s, error: %v", node.GetName(), err)
-			return err
-		}
 	}
 
-	klog.Infof("Successfully tagged %s with %v", instanceId, tc.tags)
+	err = tc.cloud.TagResource(string(instanceID), tc.tags)
+
+	if err != nil {
+		klog.Errorf("Error in tagging EC2 instance for node %s, error: %v", node.GetName(), err)
+		return err
+	}
+
+	klog.Infof("Successfully tagged %s with %v", instanceID, tc.tags)
 
 	return nil
 }
 
 // untagNodeResources untag node resources from a list of nodes
 // If we want to untag more resources, modify this function appropriately
-func (tc *TaggingController) untagNodeResources(node *v1.Node) error {
+func (tc *Controller) untagNodeResources(node *v1.Node) error {
 	for _, resource := range tc.resources {
 		switch resource {
 		case opt.Instance:
@@ -215,29 +215,29 @@ func (tc *TaggingController) untagNodeResources(node *v1.Node) error {
 
 // untagEc2Instances deletes the provided tags to each EC2 instances in
 // the cluster.
-func (tc *TaggingController) untagEc2Instance(node *v1.Node) error {
-	instanceId, err := awsv1.KubernetesInstanceID(node.Spec.ProviderID).MapToAWSInstanceID()
+func (tc *Controller) untagEc2Instance(node *v1.Node) error {
+	instanceID, err := awsv1.KubernetesInstanceID(node.Spec.ProviderID).MapToAWSInstanceID()
 
 	if err != nil {
 		klog.Errorf("Error in getting instanceID for node %s, error: %v", node.GetName(), err)
 		return err
-	} else {
-		err := tc.cloud.UntagResource(string(instanceId), tc.tags)
-
-		if err != nil {
-			klog.Errorf("Error in untagging EC2 instance for node %s, error: %v", node.GetName(), err)
-			return err
-		}
 	}
 
-	klog.Infof("Successfully untagged %s with %v", instanceId, tc.tags)
+	err = tc.cloud.UntagResource(string(instanceID), tc.tags)
+
+	if err != nil {
+		klog.Errorf("Error in untagging EC2 instance for node %s, error: %v", node.GetName(), err)
+		return err
+	}
+
+	klog.Infof("Successfully untagged %s with %v", instanceID, tc.tags)
 
 	return nil
 }
 
 // enqueueNode takes in the object and an
 // action for the object for a workitem and enqueue to the workqueue
-func (tc *TaggingController) enqueueNode(obj interface{}, action func(node *v1.Node) error) {
+func (tc *Controller) enqueueNode(obj interface{}, action func(node *v1.Node) error) {
 	node := obj.(*v1.Node)
 	item := &workItem{
 		node:   node,
