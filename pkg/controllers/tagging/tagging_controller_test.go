@@ -135,7 +135,7 @@ func Test_NodesJoiningAndLeaving(t *testing.T) {
 			} else {
 				tc.enqueueNode(testcase.currNode, tc.untagNodeResources)
 			}
-			tc.Process()
+			tc.process()
 
 			for _, msg := range testcase.expectedMessages {
 				if !strings.Contains(logBuf.String(), msg) {

@@ -115,13 +115,13 @@ func (tc *TaggingController) Run(stopCh <-chan struct{}) {
 // work is a long-running function that continuously
 // call process() for each message on the workqueue
 func (tc *TaggingController) work() {
-	for tc.Process() {
+	for tc.process() {
 	}
 }
 
-// Process reads each message in the queue and performs either
+// process reads each message in the queue and performs either
 // tag or untag function on the Node object
-func (tc *TaggingController) Process() bool {
+func (tc *TaggingController) process() bool {
 	obj, shutdown := tc.workqueue.Get()
 	if shutdown {
 		return false
