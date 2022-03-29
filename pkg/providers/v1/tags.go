@@ -313,9 +313,11 @@ func (t *awsTagging) clusterID() string {
 	return t.ClusterID
 }
 
-func (c *Cloud) TagResource(resourceId string, tags map[string]string) error {
+// TagResource calls EC2 and tag the resource associated to resourceID
+// with the supplied tags
+func (c *Cloud) TagResource(resourceID string, tags map[string]string) error {
 	request := &ec2.CreateTagsInput{
-		Resources: []*string{aws.String(resourceId)},
+		Resources: []*string{aws.String(resourceID)},
 		Tags:      buildAwsTags(tags),
 	}
 
@@ -331,9 +333,11 @@ func (c *Cloud) TagResource(resourceId string, tags map[string]string) error {
 	return nil
 }
 
-func (c *Cloud) UntagResource(resourceId string, tags map[string]string) error {
+// UntagResource calls EC2 and tag the resource associated to resourceID
+// with the supplied tags
+func (c *Cloud) UntagResource(resourceID string, tags map[string]string) error {
 	request := &ec2.DeleteTagsInput{
-		Resources: []*string{aws.String(resourceId)},
+		Resources: []*string{aws.String(resourceID)},
 		Tags:      buildAwsTags(tags),
 	}
 
