@@ -63,7 +63,7 @@ func main() {
 	}
 
 	controllerInitializers := app.DefaultInitFuncConstructors
-	taggingControllerWrapper := tagging.TaggingControllerWrapper{}
+	taggingControllerWrapper := tagging.ControllerWrapper{}
 	fss := cliflag.NamedFlagSets{}
 	taggingControllerWrapper.Options.AddFlags(fss.FlagSet("tagging controller"))
 
