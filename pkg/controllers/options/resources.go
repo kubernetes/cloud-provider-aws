@@ -10,12 +10,15 @@ WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 See the License for the specific language governing permissions and
 limitations under the License.
 */
+
 package options
 
 const (
+	// Instance presenting the string literal "instance"
 	Instance string = "instance"
 )
 
+// SupportedResources contains the resources that can be tagged by the controller at the moment
 var SupportedResources = []string{
 	Instance,
 }
