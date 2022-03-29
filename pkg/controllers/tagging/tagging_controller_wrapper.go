@@ -18,18 +18,18 @@ const (
 	TaggingControllerKey        = "tagging"
 )
 
-type TaggingControllerWrapper struct {
+type ControllerWrapper struct {
 	Options options.TaggingControllerOptions
 }
 
 // StartTaggingControllerWrapper is used to take cloud config as input and start the tagging controller
-func (tc *TaggingControllerWrapper) StartTaggingControllerWrapper(initContext app.ControllerInitContext, completedConfig *cloudcontrollerconfig.CompletedConfig, cloud cloudprovider.Interface) app.InitFunc {
+func (tc *ControllerWrapper) StartTaggingControllerWrapper(initContext app.ControllerInitContext, completedConfig *cloudcontrollerconfig.CompletedConfig, cloud cloudprovider.Interface) app.InitFunc {
 	return func(ctx context.Context, controllerContext genericcontrollermanager.ControllerContext) (controller.Interface, bool, error) {
 		return tc.startTaggingController(ctx, initContext, completedConfig, cloud)
 	}
 }
 
-func (tc *TaggingControllerWrapper) startTaggingController(ctx context.Context, initContext app.ControllerInitContext, completedConfig *cloudcontrollerconfig.CompletedConfig, cloud cloudprovider.Interface) (controller.Interface, bool, error) {
+func (tc *ControllerWrapper) startTaggingController(ctx context.Context, initContext app.ControllerInitContext, completedConfig *cloudcontrollerconfig.CompletedConfig, cloud cloudprovider.Interface) (controller.Interface, bool, error) {
 	err := tc.Options.Validate()
 	if err != nil {
 		klog.Fatalf("Tagging controller inputs are not properly set: %v", err)
