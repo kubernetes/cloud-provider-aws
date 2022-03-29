@@ -14,8 +14,11 @@ import (
 )
 
 const (
+	// TaggingControllerClientName is the name of the tagging controller
 	TaggingControllerClientName = "tagging-controller"
-	TaggingControllerKey        = "tagging"
+
+	// TaggingControllerKey is the key used to register this controller
+	TaggingControllerKey = "tagging"
 )
 
 type ControllerWrapper struct {
@@ -35,7 +38,7 @@ func (tc *ControllerWrapper) startTaggingController(ctx context.Context, initCon
 		klog.Fatalf("Tagging controller inputs are not properly set: %v", err)
 	}
 
-	// Start the TaggingController
+	// Start the Controller
 	taggingcontroller, err := NewTaggingController(
 		completedConfig.SharedInformers.Core().V1().Nodes(),
 		completedConfig.ClientBuilder.ClientOrDie(initContext.ClientName),
