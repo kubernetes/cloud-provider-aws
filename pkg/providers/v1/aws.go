@@ -1419,6 +1419,7 @@ func newAWSCloud(cfg CloudConfig, awsServices Services) (*Cloud, error) {
 	return awsCloud, nil
 }
 
+// NewAWSCloud calls and return new aws cloud from newAWSCloud with the supplied configuration
 func NewAWSCloud(cfg CloudConfig, awsServices Services) (*Cloud, error) {
 	return newAWSCloud(cfg, awsServices)
 }
