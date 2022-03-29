@@ -21,6 +21,7 @@ const (
 	TaggingControllerKey = "tagging"
 )
 
+// ControllerWrapper is the wrapper for the tagging controller
 type ControllerWrapper struct {
 	Options options.TaggingControllerOptions
 }
