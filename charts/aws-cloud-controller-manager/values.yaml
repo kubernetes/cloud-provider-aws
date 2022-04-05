@@ -105,6 +105,13 @@ resources:
     cpu: 200m
   #   memory: 300Mi
 
+# env -- Pod environment variables
+env: {}
+# securityContext -- Container Security Context.
+securityContext: {}
+# podSecurityContext -- Pods Security Context.
+podSecurityContext: {}
+
 # tolerations -- List of node taints to tolerate (requires Kubernetes >= 1.6).
 tolerations:
 - key: node.cloudprovider.kubernetes.io/uninitialized

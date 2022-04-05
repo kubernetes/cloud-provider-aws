@@ -26,6 +26,7 @@ spec:
       {{- if .Values.hostNetworking }}
       hostNetwork: true
       {{- end }}
+      securityContext: {{- toYaml .Values.podSecurityContext | nindent 8 }}
       containers:
         - name: {{ .Chart.Name }}
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
@@ -35,5 +36,8 @@ spec:
             {{- end }}
           resources:
           {{- toYaml .Values.resources | nindent 12 }}
+          env: {{- toYaml .Values.env | nindent 12 }}
+          securityContext:
+          {{- toYaml .Values.securityContext | nindent 12 }}
 
 ---
