@@ -8,16 +8,16 @@ require (
 	github.com/google/go-cmp v0.5.5
 	github.com/stretchr/testify v1.7.0
 	gopkg.in/gcfg.v1 v1.2.0
-	k8s.io/api v0.22.1
-	k8s.io/apimachinery v0.22.1
-	k8s.io/client-go v0.22.1
-	k8s.io/cloud-provider v0.22.1
-	k8s.io/code-generator v0.22.1
-	k8s.io/component-base v0.22.1
-	k8s.io/csi-translation-lib v0.22.1
+	k8s.io/api v0.22.8
+	k8s.io/apimachinery v0.22.8
+	k8s.io/client-go v0.22.8
+	k8s.io/cloud-provider v0.22.8
+	k8s.io/code-generator v0.22.8
+	k8s.io/component-base v0.22.8
+	k8s.io/csi-translation-lib v0.22.8
 	k8s.io/klog/v2 v2.9.0
-	k8s.io/kubelet v0.22.1
-	k8s.io/utils v0.0.0-20210707171843-4b05e18ac7d9
+	k8s.io/kubelet v0.22.8
+	k8s.io/utils v0.0.0-20211116205334-6203023598ed
 	sigs.k8s.io/yaml v1.2.0
 )
 
@@ -104,10 +104,10 @@ require (
 	gopkg.in/warnings.v0 v0.1.2 // indirect
 	gopkg.in/yaml.v2 v2.4.0 // indirect
 	gopkg.in/yaml.v3 v3.0.0-20210107192922-496545a6307b // indirect
-	k8s.io/apiserver v0.22.1 // indirect
-	k8s.io/controller-manager v0.22.1 // indirect
+	k8s.io/apiserver v0.22.8 // indirect
+	k8s.io/controller-manager v0.22.8 // indirect
 	k8s.io/gengo v0.0.0-20201214224949-b6c5ce23f027 // indirect
-	k8s.io/kube-openapi v0.0.0-20210421082810-95288971da7e // indirect
-	sigs.k8s.io/apiserver-network-proxy/konnectivity-client v0.0.22 // indirect
-	sigs.k8s.io/structured-merge-diff/v4 v4.1.2 // indirect
+	k8s.io/kube-openapi v0.0.0-20211109043538-20434351676c // indirect
+	sigs.k8s.io/apiserver-network-proxy/konnectivity-client v0.0.30 // indirect
+	sigs.k8s.io/structured-merge-diff/v4 v4.2.1 // indirect
 )
