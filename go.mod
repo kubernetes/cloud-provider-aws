@@ -3,9 +3,9 @@ module k8s.io/cloud-provider-aws
 go 1.15
 
 require (
-	github.com/aws/aws-sdk-go v1.35.24
-	github.com/golang/mock v1.4.1
-	github.com/google/go-cmp v0.5.2
+	github.com/aws/aws-sdk-go v1.43.32
+	github.com/golang/mock v1.4.4
+	github.com/google/go-cmp v0.5.5
 	github.com/spf13/pflag v1.0.5
 	github.com/stretchr/testify v1.6.1
 	gopkg.in/gcfg.v1 v1.2.0
