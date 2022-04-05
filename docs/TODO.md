@@ -19,4 +19,3 @@
 ### Tagging Controller
 
 * Add e2e testing which enables the controller, and monitors if the resources are tagged properly
-* Handle the case where potential non-retryable errors are enqeueued indefinitely.
