@@ -135,15 +135,26 @@ func Test_NodesJoiningAndLeaving(t *testing.T) {
 			} else {
 				tc.enqueueNode(testcase.currNode, tc.untagNodeResources)
 			}
-			tc.process()
+
+			for tc.workqueue.Len() > 0 {
+				tc.process()
+
+				// sleep briefly because of exponential backoff when requeueing failed workitem
+				// resulting in workqueue to be empty if checked immediately
+				time.Sleep(1500 * time.Millisecond)
+			}
 
 			for _, msg := range testcase.expectedMessages {
 				if !strings.Contains(logBuf.String(), msg) {
 					t.Errorf("\nMsg %q not found in log: \n%v\n", msg, logBuf.String())
 				}
-				if strings.Contains(logBuf.String(), "error tagging ") || strings.Contains(logBuf.String(), "error untagging ") {
-					if !strings.Contains(logBuf.String(), ", requeuing") {
-						t.Errorf("\nFailed to tag or untag but logs do not contain 'requeueing': \n%v\n", logBuf.String())
+				if strings.Contains(logBuf.String(), "Unable to tag") || strings.Contains(logBuf.String(), "Unable to untag") {
+					if !strings.Contains(logBuf.String(), ", requeuing count ") {
+						t.Errorf("\nFailed to tag or untag but logs did not requeue: \n%v\n", logBuf.String())
+					}
+
+					if !strings.Contains(logBuf.String(), "requeuing count exceeded") {
+						t.Errorf("\nExceeded requeue count but did not stop: \n%v\n", logBuf.String())
 					}
 				}
 			}
