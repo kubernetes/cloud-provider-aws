@@ -1,3 +1,6 @@
+## v1.22.0
+* Bump dependencies ([#331](https://github.com/kubernetes/cloud-provider-aws/pull/331), @nckturner)
+
 ## v1.23.0-alpha.0
 * Tag on create ([#293](https://github.com/kubernetes/cloud-provider-aws/pull/293), @olemarkus)
 * Use go-runner as base image ([#295](https://github.com/kubernetes/cloud-provider-aws/pull/295), @wongma7)
