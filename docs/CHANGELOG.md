@@ -1,3 +1,26 @@
+## v1.24.0-alpha.0
+* chart: Add extraVolumes and extraVolumeMounts ([#333](https://github.com/kubernetes/cloud-provider-aws/pull/333), @jkroepke)
+* Add environment and securityContexts ([#328](https://github.com/kubernetes/cloud-provider-aws/pull/328), @jkroepke)
+* Bump dependencies ([#330](https://github.com/kubernetes/cloud-provider-aws/pull/330), @nckturner)
+* Issue# 306: Added tagging controller ([#308](https://github.com/kubernetes/cloud-provider-aws/pull/308), @nguyenkndinh)
+* Bump k8s version to v1.24.0-alpha.2 ([#320](https://github.com/kubernetes/cloud-provider-aws/pull/320), @nckturner)
+* Fix route controller create/delete spam: use instanceIDToNodeName in case node name != private DNS ([#319](https://github.com/kubernetes/cloud-provider-aws/pull/319), @wongma7)
+* Fix version ([#317](https://github.com/kubernetes/cloud-provider-aws/pull/317), @nckturner)
+* add sts regional endpoint logic ([#313](https://github.com/kubernetes/cloud-provider-aws/pull/313), @prasita123)
+* Get e2e tests working in prow ([#312](https://github.com/kubernetes/cloud-provider-aws/pull/312), @nckturner)
+* E2E framework ([#304](https://github.com/kubernetes/cloud-provider-aws/pull/304), @nckturner)
+* Remove metadata funcs ([#305](https://github.com/kubernetes/cloud-provider-aws/pull/305), @olemarkus)
+
+## v1.23.0
+* Bump dependency versions ([#329](https://github.com/kubernetes/cloud-provider-aws/pull/329), @nckturner)
+* Fix route controller create/delete spam: use instanceIDToNodeName in case node name != private DNS ([#319](https://github.com/kubernetes/cloud-provider-aws/pull/319), @wongma7)
+* Fix version ([#317](https://github.com/kubernetes/cloud-provider-aws/pull/317), @nckturner)
+* add sts regional endpoint logic ([#313](https://github.com/kubernetes/cloud-provider-aws/pull/313), @prasita123)
+* Get e2e tests working in prow ([#312](https://github.com/kubernetes/cloud-provider-aws/pull/312), @nckturner)
+* E2E framework ([#304](https://github.com/kubernetes/cloud-provider-aws/pull/304), @nckturner)
+* Remove metadata funcs ([#305](https://github.com/kubernetes/cloud-provider-aws/pull/305), @olemarkus)
+* Update charts for v1.23.0-alpha.0 ([#298](https://github.com/kubernetes/cloud-provider-aws/pull/298), @nckturner)
+
 ## v1.22.0
 * Bump dependencies ([#331](https://github.com/kubernetes/cloud-provider-aws/pull/331), @nckturner)
 
