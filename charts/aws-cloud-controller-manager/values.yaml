@@ -127,3 +127,6 @@ roleBindingName: cloud-controller-manager:apiserver-authentication-reader
 serviceAccountName: cloud-controller-manager
 
 roleName: extension-apiserver-authentication-reader
+
+extraVolumes: []
+extraVolumeMounts: []
