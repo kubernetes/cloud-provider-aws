@@ -83,7 +83,7 @@ var _ = Describe("[cloud-provider-aws-e2e] loadbalancer", func() {
 		ingressIP := e2eservice.GetIngressPoint(&lbService.Status.LoadBalancer.Ingress[0])
 		framework.Logf("Load balancer's ingress IP: %s", ingressIP)
 
-		e2eservice.TestReachableHTTP(ingressIP, svcPort, e2eservice.KubeProxyLagTimeout)
+		e2eservice.TestReachableHTTP(ingressIP, svcPort, e2eservice.LoadBalancerLagTimeoutAWS)
 
 		// Update the service to cluster IP
 		By("changing TCP service back to type=ClusterIP")
