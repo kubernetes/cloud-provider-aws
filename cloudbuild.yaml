@@ -1,5 +1,6 @@
 # See https://cloud.google.com/cloud-build/docs/build-config
 options:
+  dynamic_substitutions: true
   substitution_option: ALLOW_LOOSE
   machineType: 'N1_HIGHCPU_8'
 steps:
@@ -7,12 +8,13 @@ steps:
     entrypoint: /buildx-entrypoint
     args:
     - build
-    - --tag=gcr.io/$PROJECT_ID/cloud-controller-manager:$_GIT_TAG
+    - --tag=gcr.io/$PROJECT_ID/cloud-controller-manager:$_SHORT_TAG
     - --tag=gcr.io/$PROJECT_ID/cloud-controller-manager:latest
-    - --build-arg=VERSION=$_GIT_TAG
+    - --build-arg=VERSION=$_SHORT_TAG
     - --output=type=registry
     - --platform=linux/amd64,linux/arm64
     - .
 substitutions:
-  _GIT_TAG: '12345'
+  _GIT_TAG: 'v99999999-v12345'
+  _SHORT_TAG: '${_GIT_TAG:10}'
 timeout: 1200s
