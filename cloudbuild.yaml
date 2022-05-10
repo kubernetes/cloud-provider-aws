@@ -16,5 +16,7 @@ steps:
     - .
 substitutions:
   _GIT_TAG: 'v99999999-v12345'
+  # Remove date prefix (first 10 characters) to create valid semver version:
+  # v20220510-v1.24.0-alpha.0-15-g09bd268 => v1.24.0-alpha.0-15-g09bd268
   _SHORT_TAG: '${_GIT_TAG:10}'
 timeout: 1200s
