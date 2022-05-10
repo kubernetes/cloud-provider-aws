@@ -9,7 +9,7 @@ steps:
     - build
     - --tag=gcr.io/$PROJECT_ID/cloud-controller-manager:$_GIT_TAG
     - --tag=gcr.io/$PROJECT_ID/cloud-controller-manager:latest
-    - --build-arg=VERSION=$_GIT_TAG
+    - --build-arg=VERSION=$(echo $_GIT_TAG | cut -d - -f2-)
     - --output=type=registry
     - --platform=linux/amd64,linux/arm64
     - .
