@@ -65,14 +65,7 @@ func main() {
 	fss := cliflag.NamedFlagSets{}
 	taggingControllerWrapper.Options.AddFlags(fss.FlagSet("tagging controller"))
 
-	taggingControllerConstructor := app.ControllerInitFuncConstructor{
-		InitContext: app.ControllerInitContext{
-			ClientName: tagging.TaggingControllerClientName,
-		},
-		Constructor: taggingControllerWrapper.StartTaggingControllerWrapper,
-	}
-
-	controllerInitializers[tagging.TaggingControllerKey] = taggingControllerConstructor
+	controllerInitializers[tagging.TaggingControllerKey] = taggingControllerWrapper.StartTaggingControllerWrapper
 	app.ControllersDisabledByDefault.Insert(tagging.TaggingControllerKey)
 	command := app.NewCloudControllerManagerCommand(opts, cloudInitializer, controllerInitializers, fss, wait.NeverStop)
 
