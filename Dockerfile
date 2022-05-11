@@ -14,26 +14,24 @@
 ##                               BUILD ARGS                                   ##
 ################################################################################
 # This build arg allows the specification of a custom Golang image.
-ARG GOLANG_IMAGE=golang:1.15.3
+ARG GOLANG_IMAGE=golang:1.18.1
 
 # The distroless image on which the CPI manager image is built.
 #
 # Please do not use "latest". Explicit tags should be used to provide
-# deterministic builds. This image doesn't have semantic version tags, but
-# the fully-qualified image can be obtained by entering
-# "gcr.io/distroless/static:latest" in a browser and then copying the
-# fully-qualified image from the web page.
-ARG DISTROLESS_IMAGE=gcr.io/distroless/static@sha256:c6d5981545ce1406d33e61434c61e9452dad93ecd8397c41e89036ef977a88f4
+# deterministic builds. Follow what kubernetes uses to build
+# kube-controller-manager, for example for 1.23.x:
+# https://github.com/kubernetes/kubernetes/blob/release-1.24/build/common.sh#L94
+ARG DISTROLESS_IMAGE=k8s.gcr.io/build-image/go-runner:v2.3.1-go1.18.1-bullseye.0
 
 ################################################################################
 ##                              BUILD STAGE                                   ##
 ################################################################################
 # Build the manager as a statically compiled binary so it has no dependencies
 # libc, muscl, etc.
-FROM ${GOLANG_IMAGE} as builder
+FROM --platform=linux/amd64 ${GOLANG_IMAGE} as builder
 
 ARG GOPROXY=https://goproxy.io,direct
-ARG GOOS=linux
 ARG TARGETOS
 ARG TARGETARCH
 ARG VERSION
@@ -42,14 +40,10 @@ WORKDIR /build
 COPY go.mod go.sum ./
 COPY cmd/ cmd/
 COPY pkg/ pkg/
-RUN GO111MODULE=on CGO_ENABLED=0 GOOS=${GOOS} GOPROXY=${GOPROXY} go build \
-		-ldflags="-w -s -X 'main.version=${VERSION}'" \
-=======
 RUN GO111MODULE=on CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} GOPROXY=${GOPROXY} \
 		go build \
 		-trimpath \
 		-ldflags="-w -s -X k8s.io/component-base/version.gitVersion=${VERSION}" \
->>>>>>> Fix version
 		-o=aws-cloud-controller-manager \
 		cmd/aws-cloud-controller-manager/main.go
 
@@ -57,6 +51,6 @@ RUN GO111MODULE=on CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} GOPROXY=$
 ##                               MAIN STAGE                                   ##
 ################################################################################
 # Copy the manager into the distroless image.
-FROM ${DISTROLESS_IMAGE}
+FROM --platform=${TARGETPLATFORM} ${DISTROLESS_IMAGE}
 COPY --from=builder /build/aws-cloud-controller-manager /bin/aws-cloud-controller-manager
 ENTRYPOINT [ "/bin/aws-cloud-controller-manager" ]
