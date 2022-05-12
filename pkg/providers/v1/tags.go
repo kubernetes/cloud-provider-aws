@@ -312,3 +312,56 @@ func (t *awsTagging) buildTags(lifecycle ResourceLifecycle, additionalTags map[s
 func (t *awsTagging) clusterID() string {
 	return t.ClusterID
 }
+
+// TagResource calls EC2 and tag the resource associated to resourceID
+// with the supplied tags
+func (c *Cloud) TagResource(resourceID string, tags map[string]string) error {
+	request := &ec2.CreateTagsInput{
+		Resources: []*string{aws.String(resourceID)},
+		Tags:      buildAwsTags(tags),
+	}
+
+	output, err := c.ec2.CreateTags(request)
+
+	if err != nil {
+		klog.Errorf("Error occurred trying to tag resources, %v", err)
+		return err
+	}
+
+	klog.Infof("Done calling create-tags to EC2: %v", output)
+
+	return nil
+}
+
+// UntagResource calls EC2 and tag the resource associated to resourceID
+// with the supplied tags
+func (c *Cloud) UntagResource(resourceID string, tags map[string]string) error {
+	request := &ec2.DeleteTagsInput{
+		Resources: []*string{aws.String(resourceID)},
+		Tags:      buildAwsTags(tags),
+	}
+
+	output, err := c.ec2.DeleteTags(request)
+
+	if err != nil {
+		klog.Errorf("Error occurred trying to untag resources, %v", err)
+		return err
+	}
+
+	klog.Infof("Done calling delete-tags to EC2: %v", output)
+
+	return nil
+}
+
+func buildAwsTags(tags map[string]string) []*ec2.Tag {
+	var awsTags []*ec2.Tag
+	for k, v := range tags {
+		newTag := &ec2.Tag{
+			Key:   aws.String(k),
+			Value: aws.String(v),
+		}
+		awsTags = append(awsTags, newTag)
+	}
+
+	return awsTags
+}
