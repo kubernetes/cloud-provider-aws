@@ -14,6 +14,7 @@ require (
 	k8s.io/cloud-provider v0.22.8
 	k8s.io/code-generator v0.22.8
 	k8s.io/component-base v0.22.8
+	k8s.io/controller-manager v0.22.8
 	k8s.io/csi-translation-lib v0.22.8
 	k8s.io/klog/v2 v2.9.0
 	k8s.io/kubelet v0.22.8
