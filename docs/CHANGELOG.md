@@ -1,3 +1,15 @@
+## v1.24.0
+* Cherry picks ([#356](https://github.com/kubernetes/cloud-provider-aws/pull/356), @nckturner)
+* Update Go to v1.18.1 ([#355](https://github.com/kubernetes/cloud-provider-aws/pull/355), @hakman)
+* Explain short tag with comment ([#354](https://github.com/kubernetes/cloud-provider-aws/pull/354), @hakman)
+* Use short git tag for version and images ([#352](https://github.com/kubernetes/cloud-provider-aws/pull/352), @hakman)
+* Trim date prefix from tag in GCB image build ([#350](https://github.com/kubernetes/cloud-provider-aws/pull/350), @rifelpet)
+* [Issue #325] Added retry count to abort workitem after a few failed retries ([#334](https://github.com/kubernetes/cloud-provider-aws/pull/334), @nguyenkndinh)
+* Bump k8s.io deps to 1.24.0 ([#344](https://github.com/kubernetes/cloud-provider-aws/pull/344), @olemarkus)
+* Double load balancer timeout from 5 mins to 10 ([#345](https://github.com/kubernetes/cloud-provider-aws/pull/345), @wongma7)
+* Update changelog and readme with v1.23.0 and v1.24.0-alpha.0 ([#337](https://github.com/kubernetes/cloud-provider-aws/pull/337), @nckturner)
+* Docs ([#336](https://github.com/kubernetes/cloud-provider-aws/pull/336), @nckturner)
+
 ## v1.24.0-alpha.0
 * chart: Add extraVolumes and extraVolumeMounts ([#333](https://github.com/kubernetes/cloud-provider-aws/pull/333), @jkroepke)
 * Add environment and securityContexts ([#328](https://github.com/kubernetes/cloud-provider-aws/pull/328), @jkroepke)

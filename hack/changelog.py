@@ -48,7 +48,7 @@ if __name__ == '__main__':
 
     logs = git_log(args.range)
 
-    changelog = f'{args.section_title}\n'
+    changelog = f'## {args.section_title}\n'
     g = ChangelogGenerator('kubernetes/cloud-provider-aws', args.token)
     for pr_match in re.finditer(r'Merge pull request #(\d+)|\(#([\d]{1,7})\)', logs):
         groups = pr_match.groups()
@@ -64,6 +64,7 @@ if __name__ == '__main__':
     else:
         with open(args.changelog_file, 'r+') as f:
             existing = f.read()
-            f.write(changelog)
+            f.seek(0)
+            f.write(changelog + '\n')
             f.write(existing)
 
