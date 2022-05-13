@@ -5,6 +5,7 @@ approvers:
 - andrewsykim
 - wongma7
 - jaypipes
+- olemarkus
 reviewers:
 - justinsb
 - nckturner
@@ -12,6 +13,7 @@ reviewers:
 - andrewsykim
 - wongma7
 - jaypipes
+- olemarkus
 emeritus_approvers:
 - zmerlynn
 - gnufied
