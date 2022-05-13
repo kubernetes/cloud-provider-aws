@@ -34,7 +34,6 @@ import (
 const TestClusterID = "clusterid.test"
 
 func Test_NodesJoiningAndLeaving(t *testing.T) {
-	klog.InitFlags(nil)
 	flag.CommandLine.Parse([]string{"--logtostderr=false"})
 	testcases := []struct {
 		name             string
