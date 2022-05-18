@@ -16,7 +16,6 @@
 .EXPORT_ALL_VARIABLES:
 
 SHELL := /bin/bash
-SOURCES := $(shell find . -name '*.go')
 GOOS ?= $(shell go env GOOS)
 GOARCH ?= $(shell go env GOARCH)
 GOPROXY ?= $(shell go env GOPROXY)
@@ -27,21 +26,24 @@ OUTPUT ?= $(shell pwd)/_output
 INSTALL_PATH ?= $(OUTPUT)/bin
 LDFLAGS ?= -w -s -X k8s.io/component-base/version.gitVersion=$(VERSION)
 
-aws-cloud-controller-manager: $(SOURCES)
+.PHONY: aws-cloud-controller-manager
+aws-cloud-controller-manager:
 	 GO111MODULE=on CGO_ENABLED=0 GOOS=$(GOOS) GOARCH=$(GOARCH) GOPROXY=$(GOPROXY) go build \
 		-trimpath \
 		-ldflags="$(LDFLAGS)" \
 		-o=aws-cloud-controller-manager \
 		cmd/aws-cloud-controller-manager/main.go
 
-ecr-credential-provider: $(shell find ./cmd/ecr-credential-provider -name '*.go')
+.PHONY: ecr-credential-provider
+ecr-credential-provider:
 	 GO111MODULE=on CGO_ENABLED=0 GOOS=$(GOOS) GOARCH=$(GOARCH) GOPROXY=$(GOPROXY) go build \
 		-trimpath \
 		-ldflags="$(LDFLAGS)" \
 		-o=ecr-credential-provider \
 		cmd/ecr-credential-provider/*.go
 
-ecr-credential-provider.exe: $(wildcard ./cmd/ecr-credential-provider/*.go)
+.PHONY: ecr-credential-provider.exe
+ecr-credential-provider.exe:
 	 GO111MODULE=on CGO_ENABLED=0 GOOS=windows GOPROXY=$(GOPROXY) go build \
 		-trimpath \
 		-ldflags="$(LDFLAGS)" \
@@ -72,6 +74,7 @@ docker-build:
 		--platform linux/amd64,linux/arm64 \
 		--tag $(IMAGE) .
 
+.PHONY: e2e.test
 e2e.test:
 	pushd tests/e2e > /dev/null && \
 		go test -c && popd
