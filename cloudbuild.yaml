@@ -9,7 +9,6 @@ steps:
     args:
     - build
     - --tag=gcr.io/$PROJECT_ID/cloud-controller-manager:$_SHORT_TAG
-    - --tag=gcr.io/$PROJECT_ID/cloud-controller-manager:latest
     - --build-arg=VERSION=$_SHORT_TAG
     - --output=type=registry
     - --platform=linux/amd64,linux/arm64
