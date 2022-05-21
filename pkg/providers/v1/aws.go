@@ -1630,6 +1630,14 @@ func (c *Cloud) NodeAddressesByProviderID(ctx context.Context, providerID string
 		return nil, err
 	}
 
+	if IsFargateNode(string(instanceID)) {
+		eni, err := c.describeNetworkInterfaces(string(instanceID))
+		if eni == nil || err != nil {
+			return nil, err
+		}
+		return getNodeAddressesForFargateNode(aws.StringValue(eni.PrivateDnsName), aws.StringValue(eni.PrivateIpAddress)), nil
+	}
+
 	instance, err := describeInstance(c.ec2, instanceID)
 	if err != nil {
 		return nil, err
@@ -1644,6 +1652,11 @@ func (c *Cloud) InstanceExistsByProviderID(ctx context.Context, providerID strin
 	instanceID, err := KubernetesInstanceID(providerID).MapToAWSInstanceID()
 	if err != nil {
 		return false, err
+	}
+
+	if IsFargateNode(string(instanceID)) {
+		eni, err := c.describeNetworkInterfaces(string(instanceID))
+		return eni != nil, err
 	}
 
 	request := &ec2.DescribeInstancesInput{
@@ -1679,6 +1692,11 @@ func (c *Cloud) InstanceShutdownByProviderID(ctx context.Context, providerID str
 	instanceID, err := KubernetesInstanceID(providerID).MapToAWSInstanceID()
 	if err != nil {
 		return false, err
+	}
+
+	if IsFargateNode(string(instanceID)) {
+		eni, err := c.describeNetworkInterfaces(string(instanceID))
+		return eni != nil, err
 	}
 
 	request := &ec2.DescribeInstancesInput{
@@ -1735,6 +1753,10 @@ func (c *Cloud) InstanceTypeByProviderID(ctx context.Context, providerID string)
 	instanceID, err := KubernetesInstanceID(providerID).MapToAWSInstanceID()
 	if err != nil {
 		return "", err
+	}
+
+	if IsFargateNode(string(instanceID)) {
+		return "", nil
 	}
 
 	instance, err := describeInstance(c.ec2, instanceID)
@@ -1841,6 +1863,18 @@ func (c *Cloud) GetZoneByProviderID(ctx context.Context, providerID string) (clo
 	if err != nil {
 		return cloudprovider.Zone{}, err
 	}
+
+	if IsFargateNode(string(instanceID)) {
+		eni, err := c.describeNetworkInterfaces(string(instanceID))
+		if eni == nil || err != nil {
+			return cloudprovider.Zone{}, err
+		}
+		return cloudprovider.Zone{
+			FailureDomain: *eni.AvailabilityZone,
+			Region:        c.region,
+		}, nil
+	}
+
 	instance, err := c.getInstanceByID(string(instanceID))
 	if err != nil {
 		return cloudprovider.Zone{}, err
@@ -4875,6 +4909,11 @@ func (c *Cloud) getFullInstance(nodeName types.NodeName) (*awsInstance, *ec2.Ins
 	}
 	awsInstance := newAWSInstance(c.ec2, instance)
 	return awsInstance, instance, err
+}
+
+// IsFargateNode returns true if given node runs on Fargate compute
+func IsFargateNode(nodeName string) bool {
+	return strings.HasPrefix(nodeName, fargateNodeNamePrefix)
 }
 
 func (c *Cloud) nodeNameToProviderID(nodeName types.NodeName) (InstanceID, error) {
