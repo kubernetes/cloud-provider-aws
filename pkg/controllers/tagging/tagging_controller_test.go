@@ -70,6 +70,54 @@ func Test_NodesJoiningAndLeaving(t *testing.T) {
 			expectedMessages: []string{"Successfully tagged i-0001"},
 		},
 		{
+			name: "node0 joins the cluster and was tagged earlier with different tags.",
+			currNode: &v1.Node{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:              "node0",
+					CreationTimestamp: metav1.Date(2012, 1, 1, 0, 0, 0, 0, time.UTC),
+					Labels: map[string]string{
+						taggingControllerLabelKey: "9767c4972ba72e87ab553bad2afde741", // MD5 for key1=value1
+					},
+				},
+				Spec: v1.NodeSpec{
+					ProviderID: "i-0001",
+				},
+			},
+			toBeTagged:       true,
+			expectedMessages: []string{"Successfully tagged i-0001"},
+		},
+		{
+			name: "node0 joins the cluster but isn't tagged because it was already tagged earlier.",
+			currNode: &v1.Node{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:              "node0",
+					CreationTimestamp: metav1.Date(2012, 1, 1, 0, 0, 0, 0, time.UTC),
+					Labels: map[string]string{
+						taggingControllerLabelKey: "c812faa65d1d5e5aefa6b069b3da39df", // MD5 for key1=value1,key2=value2
+					},
+				},
+				Spec: v1.NodeSpec{
+					ProviderID: "i-0001",
+				},
+			},
+			toBeTagged:       true,
+			expectedMessages: []string{"Skip tagging node node0 since it was already tagged earlier."},
+		},
+		{
+			name: "fargate node joins the cluster.",
+			currNode: &v1.Node{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:              "fargatenode0",
+					CreationTimestamp: metav1.Date(2012, 1, 1, 0, 0, 0, 0, time.UTC),
+				},
+				Spec: v1.NodeSpec{
+					ProviderID: "aws:///us-west-2a/2ea696a557-9e55466d21eb4f83a99a9aa396bbd134/fargate-ip-10-0-55-27.us-west-2.compute.internal",
+				},
+			},
+			toBeTagged:       true,
+			expectedMessages: []string{"Skip processing the node fargate-ip-10-0-55-27.us-west-2.compute.internal since it is a Fargate node"},
+		},
+		{
 			name: "node0 leaves the cluster, failed to untag.",
 			currNode: &v1.Node{
 				ObjectMeta: metav1.ObjectMeta{
@@ -81,7 +129,7 @@ func Test_NodesJoiningAndLeaving(t *testing.T) {
 				},
 			},
 			toBeTagged:       false,
-			expectedMessages: []string{"Error in untagging EC2 instance for node node0"},
+			expectedMessages: []string{"Error in untagging EC2 instance i-error for node node0"},
 		},
 		{
 			name: "node0 leaves the cluster.",
@@ -124,7 +172,7 @@ func Test_NodesJoiningAndLeaving(t *testing.T) {
 				kubeClient:        clientset,
 				cloud:             fakeAws,
 				nodeMonitorPeriod: 1 * time.Second,
-				tags:              map[string]string{"key": "value"},
+				tags:              map[string]string{"key2": "value2", "key1": "value1"},
 				resources:         []string{"instance"},
 				workqueue:         workqueue.NewNamedRateLimitingQueue(workqueue.DefaultControllerRateLimiter(), "Tagging"),
 			}
