@@ -37,6 +37,13 @@ func (o *TaggingControllerOptions) Validate() error {
 		return fmt.Errorf("--tags must not be empty and must be a form of key=value")
 	}
 
+	for key := range o.Tags {
+		// We label the nodes with the tag keys for a cache-hit check so restrict tag keys to 63 characters.
+		if len(key) > 63 {
+			return fmt.Errorf("Tag keys must not be more than 63 characters long")
+		}
+	}
+
 	if len(o.Resources) == 0 {
 		return fmt.Errorf("--resources must not be empty")
 	}

@@ -70,6 +70,35 @@ func Test_NodesJoiningAndLeaving(t *testing.T) {
 			expectedMessages: []string{"Successfully tagged i-0001"},
 		},
 		{
+			name: "node0 joins the cluster but isn't tagged because it was already tagged earlier.",
+			currNode: &v1.Node{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:              "node0",
+					CreationTimestamp: metav1.Date(2012, 1, 1, 0, 0, 0, 0, time.UTC),
+					Labels:            map[string]string{"prefix.key": ""},
+				},
+				Spec: v1.NodeSpec{
+					ProviderID: "i-0001",
+				},
+			},
+			toBeTagged:       true,
+			expectedMessages: []string{"Skip tagging node node0 since it was already tagged earlier."},
+		},
+		{
+			name: "fargate node joins the cluster.",
+			currNode: &v1.Node{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:              "fargatenode0",
+					CreationTimestamp: metav1.Date(2012, 1, 1, 0, 0, 0, 0, time.UTC),
+				},
+				Spec: v1.NodeSpec{
+					ProviderID: "aws:///us-west-2a/2ea696a557-9e55466d21eb4f83a99a9aa396bbd134/fargate-ip-10-0-55-27.us-west-2.compute.internal",
+				},
+			},
+			toBeTagged:       true,
+			expectedMessages: []string{"Skip processing the node fargate-ip-10-0-55-27.us-west-2.compute.internal since it is a Fargate node"},
+		},
+		{
 			name: "node0 leaves the cluster, failed to untag.",
 			currNode: &v1.Node{
 				ObjectMeta: metav1.ObjectMeta{
@@ -81,7 +110,7 @@ func Test_NodesJoiningAndLeaving(t *testing.T) {
 				},
 			},
 			toBeTagged:       false,
-			expectedMessages: []string{"Error in untagging EC2 instance for node node0"},
+			expectedMessages: []string{"Error in untagging EC2 instance i-error for node node0"},
 		},
 		{
 			name: "node0 leaves the cluster.",
@@ -124,7 +153,7 @@ func Test_NodesJoiningAndLeaving(t *testing.T) {
 				kubeClient:        clientset,
 				cloud:             fakeAws,
 				nodeMonitorPeriod: 1 * time.Second,
-				tags:              map[string]string{"key": "value"},
+				tags:              map[string]string{"prefix:key": "value"},
 				resources:         []string{"instance"},
 				workqueue:         workqueue.NewNamedRateLimitingQueue(workqueue.DefaultControllerRateLimiter(), "Tagging"),
 			}
