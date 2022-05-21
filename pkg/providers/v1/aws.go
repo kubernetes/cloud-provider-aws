@@ -1722,7 +1722,7 @@ func (c *Cloud) NodeAddressesByProviderID(ctx context.Context, providerID string
 		return nil, err
 	}
 
-	if isFargateNode(string(instanceID)) {
+	if IsFargateNode(string(instanceID)) {
 		eni, err := c.describeNetworkInterfaces(string(instanceID))
 		if eni == nil || err != nil {
 			return nil, err
@@ -1746,7 +1746,7 @@ func (c *Cloud) InstanceExistsByProviderID(ctx context.Context, providerID strin
 		return false, err
 	}
 
-	if isFargateNode(string(instanceID)) {
+	if IsFargateNode(string(instanceID)) {
 		eni, err := c.describeNetworkInterfaces(string(instanceID))
 		return eni != nil, err
 	}
@@ -1786,7 +1786,7 @@ func (c *Cloud) InstanceShutdownByProviderID(ctx context.Context, providerID str
 		return false, err
 	}
 
-	if isFargateNode(string(instanceID)) {
+	if IsFargateNode(string(instanceID)) {
 		eni, err := c.describeNetworkInterfaces(string(instanceID))
 		return eni != nil, err
 	}
@@ -1847,7 +1847,7 @@ func (c *Cloud) InstanceTypeByProviderID(ctx context.Context, providerID string)
 		return "", err
 	}
 
-	if isFargateNode(string(instanceID)) {
+	if IsFargateNode(string(instanceID)) {
 		return "", nil
 	}
 
@@ -1956,7 +1956,7 @@ func (c *Cloud) GetZoneByProviderID(ctx context.Context, providerID string) (clo
 		return cloudprovider.Zone{}, err
 	}
 
-	if isFargateNode(string(instanceID)) {
+	if IsFargateNode(string(instanceID)) {
 		eni, err := c.describeNetworkInterfaces(string(instanceID))
 		if eni == nil || err != nil {
 			return cloudprovider.Zone{}, err
@@ -5112,8 +5112,8 @@ func (c *Cloud) getFullInstance(nodeName types.NodeName) (*awsInstance, *ec2.Ins
 	return awsInstance, instance, err
 }
 
-// isFargateNode returns true if given node runs on Fargate compute
-func isFargateNode(nodeName string) bool {
+// IsFargateNode returns true if given node runs on Fargate compute
+func IsFargateNode(nodeName string) bool {
 	return strings.HasPrefix(nodeName, fargateNodeNamePrefix)
 }
 
