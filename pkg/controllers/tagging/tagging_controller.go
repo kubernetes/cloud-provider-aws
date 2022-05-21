@@ -14,6 +14,7 @@ limitations under the License.
 package tagging
 
 import (
+	"crypto/md5"
 	"fmt"
 	v1 "k8s.io/api/core/v1"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
@@ -25,7 +26,10 @@ import (
 	cloudprovider "k8s.io/cloud-provider"
 	opt "k8s.io/cloud-provider-aws/pkg/controllers/options"
 	awsv1 "k8s.io/cloud-provider-aws/pkg/providers/v1"
+	nodehelpers "k8s.io/cloud-provider/node/helpers"
 	"k8s.io/klog/v2"
+	"sort"
+	"strings"
 	"time"
 )
 
@@ -37,7 +41,13 @@ type workItem struct {
 	enqueueTime    time.Time
 }
 
+func (w workItem) String() string {
+	return fmt.Sprintf("[Node: %s, RequeuingCount: %d, EnqueueTime: %s]", w.node.GetName(), w.requeuingCount, w.enqueueTime)
+}
+
 const (
+	taggingControllerLabelKey = "k8s.io/cloud-provider-aws"
+
 	maxRequeuingCount = 9
 
 	// The label for depicting total number of errors a work item encounter and succeed
@@ -105,9 +115,27 @@ func NewTaggingController(
 	// Use shared informer to listen to add/update/delete of nodes. Note that any nodes
 	// that exist before tagging controller starts will show up in the update method
 	tc.nodeInformer.Informer().AddEventHandler(cache.ResourceEventHandlerFuncs{
-		AddFunc:    func(obj interface{}) { tc.enqueueNode(obj, tc.tagNodesResources) },
-		UpdateFunc: func(oldObj, newObj interface{}) { tc.enqueueNode(newObj, tc.tagNodesResources) },
-		DeleteFunc: func(obj interface{}) { tc.enqueueNode(obj, tc.untagNodeResources) },
+		AddFunc: func(obj interface{}) {
+			node := obj.(*v1.Node)
+			tc.enqueueNode(node, tc.tagNodesResources)
+		},
+		UpdateFunc: func(oldObj, newObj interface{}) {
+			node := newObj.(*v1.Node)
+			// Check if tagging is required by inspecting the labels. This check here prevents us from putting a tagged node into the
+			// work queue. We check this again before tagging the node to make sure that between when a node was put in the work queue
+			// and when it gets tagged, there might be another event which put the same item in the work queue
+			// (since the node won't have the labels yet) and hence prevents us from making an unnecessary EC2 call.
+			if !tc.isTaggingRequired(node) {
+				klog.Infof("Skip putting node %s in work queue since it was already tagged earlier.", node.GetName())
+				return
+			}
+
+			tc.enqueueNode(node, tc.tagNodesResources)
+		},
+		DeleteFunc: func(obj interface{}) {
+			node := obj.(*v1.Node)
+			tc.enqueueNode(node, tc.untagNodeResources)
+		},
 	})
 
 	return tc, nil
@@ -147,7 +175,7 @@ func (tc *Controller) process() bool {
 		return false
 	}
 
-	klog.Infof("Starting to process %v", obj)
+	klog.Infof("Starting to process %s", obj)
 
 	err := func(obj interface{}) error {
 		defer tc.workqueue.Done(obj)
@@ -155,18 +183,26 @@ func (tc *Controller) process() bool {
 		workItem, ok := obj.(*workItem)
 		if !ok {
 			tc.workqueue.Forget(obj)
-			err := fmt.Errorf("expected workItem in workqueue but got %#v", obj)
+			err := fmt.Errorf("expected workItem in workqueue but got %s", obj)
 			utilruntime.HandleError(err)
 			return nil
 		}
 
 		timeTaken := time.Since(workItem.enqueueTime).Seconds()
 		recordWorkItemLatencyMetrics(workItemDequeuingTimeWorkItemMetric, timeTaken)
+		klog.Infof("Dequeuing latency %s", timeTaken)
 
 		instanceID, err := awsv1.KubernetesInstanceID(workItem.node.Spec.ProviderID).MapToAWSInstanceID()
 		if err != nil {
 			err = fmt.Errorf("Error in getting instanceID for node %s, error: %v", workItem.node.GetName(), err)
 			utilruntime.HandleError(err)
+			return nil
+		}
+		klog.Infof("Instance ID of work item %s is %s", workItem, instanceID)
+
+		if awsv1.IsFargateNode(string(instanceID)) {
+			klog.Infof("Skip processing the node %s since it is a Fargate node", instanceID)
+			tc.workqueue.Forget(obj)
 			return nil
 		}
 
@@ -182,12 +218,13 @@ func (tc *Controller) process() bool {
 				return fmt.Errorf("error processing work item '%v': %s, requeuing count %d", workItem, err.Error(), workItem.requeuingCount)
 			}
 
-			klog.Errorf("error processing work item '%v': %s, requeuing count exceeded", workItem, err.Error())
+			klog.Errorf("error processing work item %s: %s, requeuing count exceeded", workItem, err.Error())
 			recordWorkItemErrorMetrics(errorsAfterRetriesExhaustedWorkItemErrorMetric, string(instanceID))
 		} else {
-			klog.Infof("Finished processing %v", workItem)
+			klog.Infof("Finished processing %s", workItem)
 			timeTaken = time.Since(workItem.enqueueTime).Seconds()
 			recordWorkItemLatencyMetrics(workItemProcessingTimeWorkItemMetric, timeTaken)
+			klog.Infof("Processing latency %s", timeTaken)
 		}
 
 		tc.workqueue.Forget(obj)
@@ -195,7 +232,7 @@ func (tc *Controller) process() bool {
 	}(obj)
 
 	if err != nil {
-		klog.Errorf("Error occurred while processing %v", obj)
+		klog.Errorf("Error occurred while processing %s", obj)
 		utilruntime.HandleError(err)
 	}
 
@@ -221,16 +258,28 @@ func (tc *Controller) tagNodesResources(node *v1.Node) error {
 // tagEc2Instances applies the provided tags to each EC2 instance in
 // the cluster.
 func (tc *Controller) tagEc2Instance(node *v1.Node) error {
+	if !tc.isTaggingRequired(node) {
+		klog.Infof("Skip tagging node %s since it was already tagged earlier.", node.GetName())
+		return nil
+	}
+
 	instanceID, _ := awsv1.KubernetesInstanceID(node.Spec.ProviderID).MapToAWSInstanceID()
 
 	err := tc.cloud.TagResource(string(instanceID), tc.tags)
 
 	if err != nil {
-		klog.Errorf("Error in tagging EC2 instance for node %s, error: %v", node.GetName(), err)
+		klog.Errorf("Error in tagging EC2 instance %s for node %s, error: %v", instanceID, node.GetName(), err)
 		return err
 	}
 
-	klog.Infof("Successfully tagged %s with %v", instanceID, tc.tags)
+	labels := map[string]string{taggingControllerLabelKey: tc.getChecksumOfTags()}
+	klog.Infof("Successfully tagged %s with %v. Labeling the nodes with tagging controller labels now.", instanceID, tc.tags)
+	if !nodehelpers.AddOrUpdateLabelsOnNode(tc.kubeClient, labels, node) {
+		klog.Errorf("Couldn't apply labels %s to node %s.", labels, node.GetName())
+		return fmt.Errorf("couldn't apply labels %s to node %s", labels, node.GetName())
+	}
+
+	klog.Infof("Successfully labeled node %s with %v.", node.GetName(), labels)
 
 	return nil
 }
@@ -259,7 +308,7 @@ func (tc *Controller) untagEc2Instance(node *v1.Node) error {
 	err := tc.cloud.UntagResource(string(instanceID), tc.tags)
 
 	if err != nil {
-		klog.Errorf("Error in untagging EC2 instance for node %s, error: %v", node.GetName(), err)
+		klog.Errorf("Error in untagging EC2 instance %s for node %s, error: %v", instanceID, node.GetName(), err)
 		return err
 	}
 
@@ -270,8 +319,7 @@ func (tc *Controller) untagEc2Instance(node *v1.Node) error {
 
 // enqueueNode takes in the object and an
 // action for the object for a workitem and enqueue to the workqueue
-func (tc *Controller) enqueueNode(obj interface{}, action func(node *v1.Node) error) {
-	node := obj.(*v1.Node)
+func (tc *Controller) enqueueNode(node *v1.Node, action func(node *v1.Node) error) {
 	item := &workItem{
 		node:           node,
 		action:         action,
@@ -280,4 +328,25 @@ func (tc *Controller) enqueueNode(obj interface{}, action func(node *v1.Node) er
 	}
 	tc.workqueue.Add(item)
 	klog.Infof("Added %s to the workqueue", item)
+}
+
+func (tc *Controller) isTaggingRequired(node *v1.Node) bool {
+	if node.Labels == nil {
+		return true
+	}
+
+	if labelValue, ok := node.Labels[taggingControllerLabelKey]; !ok || labelValue != tc.getChecksumOfTags() {
+		return true
+	}
+
+	return false
+}
+
+func (tc *Controller) getChecksumOfTags() string {
+	tags := []string{}
+	for key, value := range tc.tags {
+		tags = append(tags, key+"="+value)
+	}
+	sort.Strings(tags)
+	return fmt.Sprintf("%x", md5.Sum([]byte(strings.Join(tags, ","))))
 }
