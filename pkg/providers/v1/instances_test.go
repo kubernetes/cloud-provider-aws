@@ -80,6 +80,14 @@ func TestMapToAWSInstanceIDs(t *testing.T) {
 			Kubernetes:  "",
 			ExpectError: true,
 		},
+		{
+			Kubernetes: "aws:///us-west-2c/1abc-2def/fargate-ip-192-168-164-88.internal",
+			Aws:        "fargate-ip-192-168-164-88.internal",
+		},
+		{
+			Kubernetes: "aws:///us-west-2c/1abc-2def/fargate-192.168.164.88",
+			Aws:        "fargate-192.168.164.88",
+		},
 	}
 
 	for _, test := range tests {
