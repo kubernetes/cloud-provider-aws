@@ -27,6 +27,7 @@ var (
 			Name:           "cloudprovider_aws_tagging_controller_work_item_duration_seconds",
 			Help:           "workitem latency of workitem being in the queue and time it takes to process",
 			StabilityLevel: metrics.ALPHA,
+			Buckets:        metrics.ExponentialBuckets(0.5, 1.5, 20),
 		},
 		[]string{"latency_type"})
 
