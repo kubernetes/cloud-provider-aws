@@ -18,11 +18,12 @@ In the case that we are backporting a fix to the 1.22 compatible controller:
 
 If you just need to create a release for the latest Kubernetes version that the project currently supports, you can skip creating the release branch.  Instead, your steps would be:
 
-1. Create the release commit.
-2. Create a PR to merge the release commit, and get it reviewed and merged.
-3. Create the release and tag.
+1. Edit the `version.txt` file and update the release version.
+2. Create the release commit.
+3. Create a PR to merge the release commit, and get it reviewed and merged.  This will trigger a github action which will automatically create the release tag.
 4. Once the image builds in staging, create a PR to promote it to prod.
 5. Create the commit to update helm charts and example config with the new prod image tag.
+6. Create the release.
 
 ## Choosing the Release Version
 
