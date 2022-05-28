@@ -19,7 +19,7 @@ set -o pipefail
 set -o nounset
 
 function test_run_id() {
-    echo "$(date '+%Y%m%d%H%M%S')"
+    date '+%Y%m%d%H%M%S'
 }
 
 test_run_id="$(test_run_id)"
