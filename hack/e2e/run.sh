@@ -75,12 +75,6 @@ if [[ ! -f "${repo_root}/e2e.test" ]]; then
     exit 1
 fi
 
-if [[ -z "${SSH_PUBLIC_KEY_PATH}" ]]; then
-    ssh_key_path=${test_run}/sshkey
-    ssh-keygen -b 2048 -t rsa -f ${ssh_key_path} -q -N ""
-    SSH_PUBLIC_KEY_PATH=${ssh_key_path}.pub
-fi
-
 yes_or_no="^(yes|no)$"
 
 if [[ ! "${UP}" =~ $yes_or_no ]]; then
@@ -137,7 +131,6 @@ if [[ "${UP}" = "yes" ]]; then
       --create-args="--zones=${ZONES} --node-size=m5.large --master-size=m5.large --override=cluster.spec.kubeAPIServer.cloudProvider=external --override=cluster.spec.kubeControllerManager.cloudProvider=external --override=cluster.spec.kubelet.cloudProvider=external --override=cluster.spec.cloudControllerManager.cloudProvider=aws --override=cluster.spec.cloudControllerManager.image=${IMAGE_NAME}:${IMAGE_TAG} --override=spec.cloudConfig.awsEBSCSIDriver.enabled=true" \
       --admin-access="0.0.0.0/0" \
       --kubernetes-version="${KUBERNETES_VERSION}" \
-      --ssh-public-key="${SSH_PUBLIC_KEY_PATH}" \
       --kops-version-marker=https://storage.googleapis.com/kops-ci/bin/latest-ci-updown-green.txt \
 
       # Use the kops tester once we have a way of consuming an arbitrary e2e.test binary.
