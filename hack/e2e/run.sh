@@ -47,7 +47,7 @@ UP="${UP:-yes}"
 # if DOWN==yes, delete cluster after test
 DOWN="${DOWN:-yes}"
 
-KUBERNETES_VERSION="${KUBERNETES_VERSION:-v1.24.0-alpha.2}"
+KUBERNETES_VERSION="${KUBERNETES_VERSION:-v1.24.1}"
 CLUSTER_NAME="${CLUSTER_NAME:-test-cluster-${test_run_id}.k8s.local}"
 KOPS_STATE_STORE="${KOPS_STATE_STORE:-}"
 REGION="${AWS_REGION:-us-west-2}"

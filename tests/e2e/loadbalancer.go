@@ -20,10 +20,12 @@ import (
 	clientset "k8s.io/client-go/kubernetes"
 	"k8s.io/kubernetes/test/e2e/framework"
 	e2eservice "k8s.io/kubernetes/test/e2e/framework/service"
+	admissionapi "k8s.io/pod-security-admission/api"
 )
 
 var _ = Describe("[cloud-provider-aws-e2e] loadbalancer", func() {
 	f := framework.NewDefaultFramework("cloud-provider-aws")
+	f.NamespacePodSecurityEnforceLevel = admissionapi.LevelPrivileged
 
 	var (
 		cs clientset.Interface
