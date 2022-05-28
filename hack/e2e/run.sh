@@ -48,7 +48,7 @@ UP="${UP:-yes}"
 DOWN="${DOWN:-yes}"
 
 KUBERNETES_VERSION="${KUBERNETES_VERSION:-v1.24.0-alpha.2}"
-CLUSTER_NAME="test-cluster-${test_run_id}.k8s.local"
+CLUSTER_NAME="${CLUSTER_NAME:-test-cluster-${test_run_id}.k8s.local}"
 KOPS_STATE_STORE="${KOPS_STATE_STORE:-}"
 REGION="${AWS_REGION:-us-west-2}"
 ZONES="${AWS_AVAILABILITY_ZONES:-us-west-2a,us-west-2b,us-west-2c}"
