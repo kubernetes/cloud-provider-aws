@@ -364,6 +364,7 @@ type EC2 interface {
 	DescribeSubnets(*ec2.DescribeSubnetsInput) ([]*ec2.Subnet, error)
 
 	CreateTags(*ec2.CreateTagsInput) (*ec2.CreateTagsOutput, error)
+	DeleteTags(input *ec2.DeleteTagsInput) (*ec2.DeleteTagsOutput, error)
 
 	DescribeRouteTables(request *ec2.DescribeRouteTablesInput) ([]*ec2.RouteTable, error)
 	CreateRoute(request *ec2.CreateRouteInput) (*ec2.CreateRouteOutput, error)
@@ -1177,6 +1178,14 @@ func (s *awsSdkEC2) CreateTags(request *ec2.CreateTagsInput) (*ec2.CreateTagsOut
 	return resp, err
 }
 
+func (s *awsSdkEC2) DeleteTags(request *ec2.DeleteTagsInput) (*ec2.DeleteTagsOutput, error) {
+	requestTime := time.Now()
+	resp, err := s.ec2.DeleteTags(request)
+	timeTaken := time.Since(requestTime).Seconds()
+	recordAWSMetric("delete_tags", timeTaken, err)
+	return resp, err
+}
+
 func (s *awsSdkEC2) DescribeRouteTables(request *ec2.DescribeRouteTablesInput) ([]*ec2.RouteTable, error) {
 	results := []*ec2.RouteTable{}
 	var nextToken *string
@@ -1428,6 +1437,11 @@ func newAWSCloud(cfg CloudConfig, awsServices Services) (*Cloud, error) {
 	return awsCloud, nil
 }
 
+// NewAWSCloud calls and return new aws cloud from newAWSCloud with the supplied configuration
+func NewAWSCloud(cfg CloudConfig, awsServices Services) (*Cloud, error) {
+	return newAWSCloud(cfg, awsServices)
+}
+
 // isRegionValid accepts an AWS region name and returns if the region is a
 // valid region known to the AWS SDK. Considers the region returned from the
 // EC2 metadata service to be a valid region as it's only available on a host
@@ -1624,7 +1638,7 @@ func (c *Cloud) NodeAddressesByProviderID(ctx context.Context, providerID string
 		return nil, err
 	}
 
-	if isFargateNode(string(instanceID)) {
+	if IsFargateNode(string(instanceID)) {
 		eni, err := c.describeNetworkInterfaces(string(instanceID))
 		if eni == nil || err != nil {
 			return nil, err
@@ -1667,7 +1681,7 @@ func (c *Cloud) InstanceExistsByProviderID(ctx context.Context, providerID strin
 		return false, err
 	}
 
-	if isFargateNode(string(instanceID)) {
+	if IsFargateNode(string(instanceID)) {
 		eni, err := c.describeNetworkInterfaces(string(instanceID))
 		return eni != nil, err
 	}
@@ -1707,7 +1721,7 @@ func (c *Cloud) InstanceShutdownByProviderID(ctx context.Context, providerID str
 		return false, err
 	}
 
-	if isFargateNode(string(instanceID)) {
+	if IsFargateNode(string(instanceID)) {
 		eni, err := c.describeNetworkInterfaces(string(instanceID))
 		return eni != nil, err
 	}
@@ -1768,7 +1782,7 @@ func (c *Cloud) InstanceTypeByProviderID(ctx context.Context, providerID string)
 		return "", err
 	}
 
-	if isFargateNode(string(instanceID)) {
+	if IsFargateNode(string(instanceID)) {
 		return "", nil
 	}
 
@@ -1877,7 +1891,7 @@ func (c *Cloud) GetZoneByProviderID(ctx context.Context, providerID string) (clo
 		return cloudprovider.Zone{}, err
 	}
 
-	if isFargateNode(string(instanceID)) {
+	if IsFargateNode(string(instanceID)) {
 		eni, err := c.describeNetworkInterfaces(string(instanceID))
 		if eni == nil || err != nil {
 			return cloudprovider.Zone{}, err
@@ -5070,8 +5084,8 @@ func (c *Cloud) getFullInstance(nodeName types.NodeName) (*awsInstance, *ec2.Ins
 	return awsInstance, instance, err
 }
 
-// isFargateNode returns true if given node runs on Fargate compute
-func isFargateNode(nodeName string) bool {
+// IsFargateNode returns true if given node runs on Fargate compute
+func IsFargateNode(nodeName string) bool {
 	return strings.HasPrefix(nodeName, fargateNodeNamePrefix)
 }
 
