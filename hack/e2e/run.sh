@@ -19,7 +19,7 @@ set -o pipefail
 set -o nounset
 
 function test_run_id() {
-    echo "$(date '+%Y%m%d%H%M%S')"
+    date '+%Y%m%d%H%M%S'
 }
 
 test_run_id="$(test_run_id)"
@@ -48,7 +48,7 @@ UP="${UP:-yes}"
 DOWN="${DOWN:-yes}"
 
 KUBERNETES_VERSION="${KUBERNETES_VERSION:-v1.24.0-alpha.2}"
-CLUSTER_NAME="test-cluster-${test_run_id}.k8s.local"
+CLUSTER_NAME="${CLUSTER_NAME:-test-cluster-${test_run_id}.k8s.local}"
 KOPS_STATE_STORE="${KOPS_STATE_STORE:-}"
 REGION="${AWS_REGION:-us-west-2}"
 ZONES="${AWS_AVAILABILITY_ZONES:-us-west-2a,us-west-2b,us-west-2c}"
@@ -73,12 +73,6 @@ fi
 if [[ ! -f "${repo_root}/e2e.test" ]]; then
     echo "Missing e2e.test binary"
     exit 1
-fi
-
-if [[ -z "${SSH_PUBLIC_KEY_PATH}" ]]; then
-    ssh_key_path=${test_run}/sshkey
-    ssh-keygen -b 2048 -t rsa -f ${ssh_key_path} -q -N ""
-    SSH_PUBLIC_KEY_PATH=${ssh_key_path}.pub
 fi
 
 yes_or_no="^(yes|no)$"
@@ -127,7 +121,14 @@ aws ecr get-login-password --region "${REGION}" | docker login --username AWS --
 docker tag "${BUILD_IMAGE}" "${IMAGE_NAME}:${IMAGE_TAG}"
 docker push "${IMAGE_NAME}:${IMAGE_TAG}"
 
+function kops-finish {
+    "${test_run}"/kops delete cluster --name "${CLUSTER_NAME}" --yes
+}
+
 if [[ "${UP}" = "yes" ]]; then
+
+    trap kops-finish EXIT
+
     kubetest2 kops \
       -v 2 \
       --up \
@@ -137,7 +138,6 @@ if [[ "${UP}" = "yes" ]]; then
       --create-args="--zones=${ZONES} --node-size=m5.large --master-size=m5.large --override=cluster.spec.kubeAPIServer.cloudProvider=external --override=cluster.spec.kubeControllerManager.cloudProvider=external --override=cluster.spec.kubelet.cloudProvider=external --override=cluster.spec.cloudControllerManager.cloudProvider=aws --override=cluster.spec.cloudControllerManager.image=${IMAGE_NAME}:${IMAGE_TAG} --override=spec.cloudConfig.awsEBSCSIDriver.enabled=true" \
       --admin-access="0.0.0.0/0" \
       --kubernetes-version="${KUBERNETES_VERSION}" \
-      --ssh-public-key="${SSH_PUBLIC_KEY_PATH}" \
       --kops-version-marker=https://storage.googleapis.com/kops-ci/bin/latest-ci-updown-green.txt \
 
       # Use the kops tester once we have a way of consuming an arbitrary e2e.test binary.
@@ -151,7 +151,3 @@ fi
 pushd ./tests/e2e
 ginkgo . -p -nodes="${GINKGO_NODES}" -v --focus="${GINKGO_FOCUS}" --skip="${GINKGO_SKIP}" "" -- -kubeconfig="${KUBECONFIG}" -report-dir="${test_run}" -gce-zone="${ZONES%,*}" "${EXPANDED_TEST_EXTRA_FLAGS}"
 popd
-
-if [[ "${DOWN}" = "yes" ]]; then
-    ${test_run}/kops delete cluster --name "${CLUSTER_NAME}" --yes
-fi
