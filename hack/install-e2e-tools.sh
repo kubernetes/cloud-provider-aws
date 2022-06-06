@@ -26,7 +26,7 @@ if [[ -n ${INSTALL_PATH} ]]; then
     export GOBIN="${INSTALL_PATH}"
 fi
 
-cd $(mktemp -d) > /dev/null
+cd "$(mktemp -d)" > /dev/null
 
 echo " + Installing kubetest2"
 go install "sigs.k8s.io/kubetest2@latest"
@@ -39,10 +39,6 @@ if [[ -z "${KOPS_ROOT}" ]]; then
     KOPS_ROOT="$(pwd)/kops"
 fi
 
-cd "${KOPS_ROOT}/tests/e2e" > /dev/null
+cd "${KOPS_ROOT}" > /dev/null
 
-echo " + Installing kubetest2-tester-kops"
-go install ./kubetest2-tester-kops
-
-echo " + Installing kubetest2-kops"
-go install ./kubetest2-kops
+make test-e2e-install
