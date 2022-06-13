@@ -75,7 +75,6 @@ function install_kops() {
     fi
 }
 
-export KOPS_FEATURE_FLAGS=EnableExternalCloudController
 install_kustomize
 install_kops
 validate
@@ -84,9 +83,9 @@ echo "Generating cluster configuration at ${OUTPUT}/cluster.yaml"
 mkdir -p ${OUTPUT}
 cluster_yaml="${OUTPUT}/cluster.yaml"
 
-${KUSTOMIZE} build ${REPO_ROOT}/examples/kops/overlays/cloud-controller-manager > ${cluster_yaml}
-${KOPS} create -f ${cluster_yaml} --v=2
-${KOPS} update cluster --v=2 --name ${CLUSTER_NAME} --yes --admin
+${KUSTOMIZE} build ${REPO_ROOT}/examples/kops-new-cluster/overlays/cloud-controller-manager > ${cluster_yaml}
+${KOPS} create -f ${cluster_yaml}
+${KOPS} update cluster ${CLUSTER_NAME} --yes --admin
 
 echo "In order to clean up the cluster, run the following:"
-echo "  ${KOPS} delete cluster ${CLUSTER_NAME} --v=2 --yes"
+echo "  ${KOPS} delete cluster ${CLUSTER_NAME} --yes"
