@@ -74,6 +74,14 @@ docker-build:
 		--platform linux/amd64,linux/arm64 \
 		--tag $(IMAGE) .
 
+.PHONY: ko
+ko:
+	hack/install-ko.sh
+
+.PHONY: ko-build
+ko-build: ko
+	KO_DOCKER_REPO="$(IMAGE_REPOSITORY)" GOFLAGS="-ldflags=-X=k8s.io/component-base/version.gitVersion=$(VERSION)" ko build --tags ${VERSION}  --platform=linux/amd64,linux/arm64 --bare ./cmd/aws-cloud-controller-manager/
+
 .PHONY: e2e.test
 e2e.test:
 	pushd tests/e2e > /dev/null && \
