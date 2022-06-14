@@ -13,7 +13,6 @@
 # limitations under the License.
 #
 
-.EXPORT_ALL_VARIABLES:
 
 SHELL := /bin/bash
 GOOS ?= $(shell go env GOOS)
@@ -21,7 +20,8 @@ GOARCH ?= $(shell go env GOARCH)
 GOPROXY ?= $(shell go env GOPROXY)
 GIT_VERSION := $(shell git describe --dirty --tags --match='v*')
 VERSION ?= $(GIT_VERSION)
-IMAGE ?= amazon/cloud-controller-manager:$(VERSION)
+IMAGE_REPOSITORY ?= amazon/cloud-controller-manager
+IMAGE ?= $(IMAGE_REPOSITORY):$(VERSION)
 OUTPUT ?= $(shell pwd)/_output
 INSTALL_PATH ?= $(OUTPUT)/bin
 LDFLAGS ?= -w -s -X k8s.io/component-base/version.gitVersion=$(VERSION)
@@ -69,10 +69,18 @@ docker-build-arm64:
 .PHONY: docker-build
 docker-build:
 	docker buildx build --output=type=registry \
-		--build-arg LDFLAGS=$(LDFLAGS) \
+		--build-arg LDFLAGS="$(LDFLAGS)" \
 		--build-arg GOPROXY=$(GOPROXY) \
 		--platform linux/amd64,linux/arm64 \
 		--tag $(IMAGE) .
+
+.PHONY: ko
+ko:
+	hack/install-ko.sh
+
+.PHONY: ko-build
+ko-build: ko
+	KO_DOCKER_REPO="$(IMAGE_REPOSITORY)" GOFLAGS="-ldflags=-X=k8s.io/component-base/version.gitVersion=$(VERSION)" ko build --tags ${VERSION}  --platform=linux/amd64,linux/arm64 --bare ./cmd/aws-cloud-controller-manager/
 
 .PHONY: e2e.test
 e2e.test:

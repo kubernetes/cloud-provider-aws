@@ -1,0 +1,1 @@
+defaultBaseImage: registry.k8s.io/build-image/go-runner:v2.3.1-go1.18.3-bullseye.0
