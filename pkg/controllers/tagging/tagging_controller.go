@@ -16,6 +16,7 @@ package tagging
 import (
 	"crypto/md5"
 	"fmt"
+	"golang.org/x/time/rate"
 	v1 "k8s.io/api/core/v1"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	"k8s.io/apimachinery/pkg/util/wait"
@@ -83,6 +84,8 @@ type Controller struct {
 
 	// Representing the resources to tag
 	resources []string
+
+	rateLimitEnabled bool
 }
 
 // NewTaggingController creates a NewTaggingController object
@@ -92,12 +95,31 @@ func NewTaggingController(
 	cloud cloudprovider.Interface,
 	nodeMonitorPeriod time.Duration,
 	tags map[string]string,
-	resources []string) (*Controller, error) {
+	resources []string,
+	rateLimit float64,
+	burstLimit int) (*Controller, error) {
 
 	awsCloud, ok := cloud.(*awsv1.Cloud)
 	if !ok {
 		err := fmt.Errorf("tagging controller does not support %v provider", cloud.ProviderName())
 		return nil, err
+	}
+
+	var rateLimiter workqueue.RateLimiter
+	var rateLimitEnabled bool
+	if rateLimit > 0.0 && burstLimit > 0 {
+		klog.Infof("Rate limit enabled on controller with rate %f and burst %d.", rateLimit, burstLimit)
+		// This is the workqueue.DefaultControllerRateLimiter() but in case where throttling is enabled on the controller,
+		// the rate and burst values are set to the provided values.
+		rateLimiter = workqueue.NewMaxOfRateLimiter(
+			workqueue.NewItemExponentialFailureRateLimiter(5*time.Millisecond, 1000*time.Second),
+			&workqueue.BucketRateLimiter{Limiter: rate.NewLimiter(rate.Limit(rateLimit), burstLimit)},
+		)
+		rateLimitEnabled = true
+	} else {
+		klog.Infof("Rate limit disabled on controller.")
+		rateLimiter = workqueue.DefaultControllerRateLimiter()
+		rateLimitEnabled = false
 	}
 
 	registerMetrics()
@@ -107,9 +129,10 @@ func NewTaggingController(
 		cloud:             awsCloud,
 		tags:              tags,
 		resources:         resources,
-		workqueue:         workqueue.NewNamedRateLimitingQueue(workqueue.DefaultControllerRateLimiter(), "Tagging"),
+		workqueue:         workqueue.NewNamedRateLimitingQueue(rateLimiter, "Tagging"),
 		nodesSynced:       nodeInformer.Informer().HasSynced,
 		nodeMonitorPeriod: nodeMonitorPeriod,
+		rateLimitEnabled:  rateLimitEnabled,
 	}
 
 	// Use shared informer to listen to add/update/delete of nodes. Note that any nodes
@@ -326,8 +349,14 @@ func (tc *Controller) enqueueNode(node *v1.Node, action func(node *v1.Node) erro
 		requeuingCount: 0,
 		enqueueTime:    time.Now(),
 	}
-	tc.workqueue.Add(item)
-	klog.Infof("Added %s to the workqueue", item)
+
+	if tc.rateLimitEnabled {
+		tc.workqueue.AddRateLimited(item)
+		klog.Infof("Added %s to the workqueue (rate-limited)", item)
+	} else {
+		tc.workqueue.Add(item)
+		klog.Infof("Added %s to the workqueue (without any rate-limit)", item)
+	}
 }
 
 func (tc *Controller) isTaggingRequired(node *v1.Node) bool {

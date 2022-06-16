@@ -41,6 +41,7 @@ func Test_NodesJoiningAndLeaving(t *testing.T) {
 		currNode         *v1.Node
 		toBeTagged       bool
 		expectedMessages []string
+		rateLimited      bool
 	}{
 		{
 			name: "node0 joins the cluster, but fail to tag.",
@@ -68,7 +69,22 @@ func Test_NodesJoiningAndLeaving(t *testing.T) {
 				},
 			},
 			toBeTagged:       true,
-			expectedMessages: []string{"Successfully tagged i-0001"},
+			expectedMessages: []string{"Successfully tagged i-0001", "to the workqueue (without any rate-limit)"},
+		},
+		{
+			name: "node0 joins the cluster (rate-limited).",
+			currNode: &v1.Node{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:              "node0",
+					CreationTimestamp: metav1.Date(2012, 1, 1, 0, 0, 0, 0, time.UTC),
+				},
+				Spec: v1.NodeSpec{
+					ProviderID: "i-0001",
+				},
+			},
+			toBeTagged:       true,
+			expectedMessages: []string{"Successfully tagged i-0001", "to the workqueue (rate-limited)"},
+			rateLimited:      true,
 		},
 		{
 			name: "node0 joins the cluster and was tagged earlier with different tags.",
@@ -176,12 +192,18 @@ func Test_NodesJoiningAndLeaving(t *testing.T) {
 				tags:              map[string]string{"key2": "value2", "key1": "value1"},
 				resources:         []string{"instance"},
 				workqueue:         workqueue.NewNamedRateLimitingQueue(workqueue.DefaultControllerRateLimiter(), "Tagging"),
+				rateLimitEnabled:  testcase.rateLimited,
 			}
 
 			if testcase.toBeTagged {
 				tc.enqueueNode(testcase.currNode, tc.tagNodesResources)
 			} else {
 				tc.enqueueNode(testcase.currNode, tc.untagNodeResources)
+			}
+
+			if tc.rateLimitEnabled {
+				// If rate limit is enabled, sleep for 10 ms to wait for the item to be added to the queue since the base delay is 5 ms.
+				time.Sleep(10 * time.Millisecond)
 			}
 
 			for tc.workqueue.Len() > 0 {
