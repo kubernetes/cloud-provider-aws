@@ -1,3 +1,47 @@
+## v1.22.3
+* [Cherry Pick from master to 1.22] [FIXES] [Tagging Controller] Fix issues in tagging controller ([#389](https://github.com/kubernetes/cloud-provider-aws/pull/389), @saurav-agarwalla)
+
+## v1.21.2
+* [Cherry Pick from master to 1.21] [FIXES] [Tagging Controller] Fix issues in tagging controller ([#390](https://github.com/kubernetes/cloud-provider-aws/pull/390), @saurav-agarwalla)
+
+## v1.20.2
+* Automated cherry pick of #223: Add ENI support for nodes(for Fargate nodes)
+#387: Fix issues in tagging controller ([#392](https://github.com/kubernetes/cloud-provider-aws/pull/392), @saurav-agarwalla)
+
+## v1.21.1
+* Automated cherry pick of #376: Stop tagging latest for release branches ([#382](https://github.com/kubernetes/cloud-provider-aws/pull/382), @hakman)
+* Update cloud build config for v1.21 ([#374](https://github.com/kubernetes/cloud-provider-aws/pull/374), @hakman)
+* Cherry pick E2E test changes and fix failing tagging controller test for 1.21 ([#369](https://github.com/kubernetes/cloud-provider-aws/pull/369), @saurav-agarwalla)
+* Bump dependencies ([#332](https://github.com/kubernetes/cloud-provider-aws/pull/332), @nckturner)
+
+## v1.20.1
+* Automated cherry pick of #376: Stop tagging latest for release branches ([#383](https://github.com/kubernetes/cloud-provider-aws/pull/383), @hakman)
+* Update cloud build config for v1.20 ([#375](https://github.com/kubernetes/cloud-provider-aws/pull/375), @hakman)
+* Cherry pick E2E test changes and fix failing tagging controller test for 1.20 ([#370](https://github.com/kubernetes/cloud-provider-aws/pull/370), @saurav-agarwalla)
+* go fmt release-1.20 ([#371](https://github.com/kubernetes/cloud-provider-aws/pull/371), @nckturner)
+
+## v1.20.0
+* Automated cherry pick of #308: Add tagging controller configuration
+  #334: Stop retrying failed workitem after a certain amount of ([#361](https://github.com/kubernetes/cloud-provider-aws/pull/361), @saurav-agarwalla)
+* Release 1.20 ([#183](https://github.com/kubernetes/cloud-provider-aws/pull/183), @ayberk)
+
+## v1.21.0
+* Automated cherry pick of #308: Add tagging controller configuration
+  #334: Stop retrying failed workitem after a certain amount of ([#358](https://github.com/kubernetes/cloud-provider-aws/pull/358), @saurav-agarwalla)
+* Add support for consuming web identity credentials ([#238](https://github.com/kubernetes/cloud-provider-aws/pull/238), @olemarkus)
+* Add support for returning IPv6 node addresses ([#230](https://github.com/kubernetes/cloud-provider-aws/pull/230), @hakman)
+* Add ENI support for nodes(for Fargate nodes) ([#223](https://github.com/kubernetes/cloud-provider-aws/pull/223), @SaranBalaji90)
+* Use kustomize for example manifest ([#221](https://github.com/kubernetes/cloud-provider-aws/pull/221), @nckturner)
+
+## v1.22.1
+* Automated cherry pick of #308: Add tagging controller configuration
+  #334: Stop retrying failed workitem after a certain amount of ([#357](https://github.com/kubernetes/cloud-provider-aws/pull/357), @saurav-agarwalla)
+* Automated cherry pick of #345: Double load balancer timeout from 5 mins to 10 ([#347](https://github.com/kubernetes/cloud-provider-aws/pull/347), @wongma7)
+
+## v1.23.1
+* Automated cherry pick of #352: Use short git tag for version and images ([#353](https://github.com/kubernetes/cloud-provider-aws/pull/353), @hakman)
+* Automated cherry pick of #345: Double load balancer timeout from 5 mins to 10 ([#346](https://github.com/kubernetes/cloud-provider-aws/pull/346), @wongma7)
+
 ## v1.24.0
 * Cherry picks ([#356](https://github.com/kubernetes/cloud-provider-aws/pull/356), @nckturner)
 * Update Go to v1.18.1 ([#355](https://github.com/kubernetes/cloud-provider-aws/pull/355), @hakman)
