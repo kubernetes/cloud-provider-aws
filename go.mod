@@ -8,6 +8,7 @@ require (
 	github.com/google/go-cmp v0.5.5
 	github.com/spf13/pflag v1.0.5
 	github.com/stretchr/testify v1.6.1
+	golang.org/x/time v0.0.0-20200630173020-3af7569d3a1e
 	gopkg.in/gcfg.v1 v1.2.0
 	gopkg.in/warnings.v0 v0.1.1 // indirect
 	k8s.io/api v0.20.15
