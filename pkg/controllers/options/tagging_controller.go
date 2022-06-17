@@ -21,14 +21,20 @@ import (
 // TaggingControllerOptions contains the inputs that can
 // be used in the tagging controller
 type TaggingControllerOptions struct {
-	Tags      map[string]string
-	Resources []string
+	Tags       map[string]string
+	Resources  []string
+	RateLimit  float64
+	BurstLimit int
 }
 
 // AddFlags add the additional flags for the controller
 func (o *TaggingControllerOptions) AddFlags(fs *pflag.FlagSet) {
 	fs.StringToStringVar(&o.Tags, "tags", o.Tags, "Tags to apply to AWS resources in the tagging controller, in a form of key=value.")
 	fs.StringArrayVar(&o.Resources, "resources", o.Resources, "AWS resources name to add/remove tags in the tagging controller.")
+	fs.Float64Var(&o.RateLimit, "tagging-controller-rate-limit", o.RateLimit,
+		"Steady-state rate limit (per sec) at which the controller processes items in its queue. A value of zero (default) disables rate limiting.")
+	fs.IntVar(&o.BurstLimit, "tagging-controller-burst-limit", o.BurstLimit,
+		"Burst limit at which the controller processes items in its queue. A value of zero (default) disables rate limiting.")
 }
 
 // Validate checks for errors from user input
@@ -39,6 +45,14 @@ func (o *TaggingControllerOptions) Validate() error {
 
 	if len(o.Resources) == 0 {
 		return fmt.Errorf("--resources must not be empty")
+	}
+
+	if o.RateLimit < 0.0 {
+		return fmt.Errorf("--tagging-controller-rate-limit should not be less than zero")
+	}
+
+	if o.BurstLimit < 0 {
+		return fmt.Errorf("--tagging-controller-burst-limit should not be less than zero")
 	}
 
 	for _, r := range o.Resources {
