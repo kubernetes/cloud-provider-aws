@@ -3,24 +3,24 @@ module k8s.io/cloud-provider-aws
 go 1.18
 
 require (
-	github.com/aws/aws-sdk-go v1.43.32
-	github.com/golang/mock v1.5.0
-	github.com/google/go-cmp v0.5.5
+	github.com/aws/aws-sdk-go v1.44.37
+	github.com/golang/mock v1.6.0
+	github.com/google/go-cmp v0.5.8
 	github.com/spf13/pflag v1.0.5
-	github.com/stretchr/testify v1.7.0
-	gopkg.in/gcfg.v1 v1.2.0
-	k8s.io/api v0.24.1
-	k8s.io/apimachinery v0.24.1
-	k8s.io/client-go v0.24.1
-	k8s.io/cloud-provider v0.24.1
-	k8s.io/code-generator v0.24.1
-	k8s.io/component-base v0.24.1
-	k8s.io/controller-manager v0.24.1
-	k8s.io/csi-translation-lib v0.24.1
+	github.com/stretchr/testify v1.7.2
+	gopkg.in/gcfg.v1 v1.2.3
+	k8s.io/api v0.24.2
+	k8s.io/apimachinery v0.24.2
+	k8s.io/client-go v0.24.2
+	k8s.io/cloud-provider v0.24.2
+	k8s.io/code-generator v0.24.2
+	k8s.io/component-base v0.24.2
+	k8s.io/controller-manager v0.24.2
+	k8s.io/csi-translation-lib v0.24.2
 	k8s.io/klog/v2 v2.60.1
-	k8s.io/kubelet v0.24.1
+	k8s.io/kubelet v0.24.2
 	k8s.io/utils v0.0.0-20220210201930-3a6ce19ff2f9
-	sigs.k8s.io/yaml v1.2.0
+	sigs.k8s.io/yaml v1.3.0
 )
 
 require (
@@ -105,9 +105,9 @@ require (
 	gopkg.in/natefinch/lumberjack.v2 v2.0.0 // indirect
 	gopkg.in/warnings.v0 v0.1.2 // indirect
 	gopkg.in/yaml.v2 v2.4.0 // indirect
-	gopkg.in/yaml.v3 v3.0.0-20210107192922-496545a6307b // indirect
-	k8s.io/apiserver v0.24.1 // indirect
-	k8s.io/component-helpers v0.24.1 // indirect
+	gopkg.in/yaml.v3 v3.0.1 // indirect
+	k8s.io/apiserver v0.24.2 // indirect
+	k8s.io/component-helpers v0.24.2 // indirect
 	k8s.io/gengo v0.0.0-20211129171323-c02415ce4185 // indirect
 	k8s.io/kube-openapi v0.0.0-20220328201542-3ee0da9b0b42 // indirect
 	sigs.k8s.io/apiserver-network-proxy/konnectivity-client v0.0.30 // indirect
