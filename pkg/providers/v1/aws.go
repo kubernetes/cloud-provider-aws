@@ -310,6 +310,13 @@ var backendProtocolMapping = map[string]string{
 	"tcp":   "ssl",
 }
 
+var backendProtocolToAwsEnumMapping = map[string]string{
+	"tcp":   elbv2.ProtocolEnumTcp,
+	"tls":   elbv2.ProtocolEnumTls,
+	"http":  elbv2.ProtocolEnumHttp,
+	"https": elbv2.ProtocolEnumHttps,
+}
+
 // MaxReadThenCreateRetries sets the maximum number of attempts we will make when
 // we read to see if something exists and then try to create it if we didn't find it.
 // This can fail once in a consistent system if done in parallel
@@ -618,29 +625,29 @@ type CloudConfig struct {
 		// KubernetesClusterID is the cluster id we'll use to identify our cluster resources
 		KubernetesClusterID string
 
-		//The aws provider creates an inbound rule per load balancer on the node security
-		//group. However, this can run into the AWS security group rule limit of 50 if
-		//many LoadBalancers are created.
+		// The aws provider creates an inbound rule per load balancer on the node security
+		// group. However, this can run into the AWS security group rule limit of 50 if
+		// many LoadBalancers are created.
 		//
-		//This flag disables the automatic ingress creation. It requires that the user
-		//has setup a rule that allows inbound traffic on kubelet ports from the
-		//local VPC subnet (so load balancers can access it). E.g. 10.82.0.0/16 30000-32000.
+		// This flag disables the automatic ingress creation. It requires that the user
+		// has setup a rule that allows inbound traffic on kubelet ports from the
+		// local VPC subnet (so load balancers can access it). E.g. 10.82.0.0/16 30000-32000.
 		DisableSecurityGroupIngress bool
 
-		//AWS has a hard limit of 500 security groups. For large clusters creating a security group for each ELB
-		//can cause the max number of security groups to be reached. If this is set instead of creating a new
-		//Security group for each ELB this security group will be used instead.
+		// AWS has a hard limit of 500 security groups. For large clusters creating a security group for each ELB
+		// can cause the max number of security groups to be reached. If this is set instead of creating a new
+		// Security group for each ELB this security group will be used instead.
 		ElbSecurityGroup string
 
-		//During the instantiation of an new AWS cloud provider, the detected region
-		//is validated against a known set of regions.
+		// During the instantiation of an new AWS cloud provider, the detected region
+		// is validated against a known set of regions.
 		//
-		//In a non-standard, AWS like environment (e.g. Eucalyptus), this check may
-		//be undesirable.  Setting this to true will disable the check and provide
-		//a warning that the check was skipped.  Please note that this is an
-		//experimental feature and work-in-progress for the moment.  If you find
-		//yourself in an non-AWS cloud and open an issue, please indicate that in the
-		//issue body.
+		// In a non-standard, AWS like environment (e.g. Eucalyptus), this check may
+		// be undesirable.  Setting this to true will disable the check and provide
+		// a warning that the check was skipped.  Please note that this is an
+		// experimental feature and work-in-progress for the moment.  If you find
+		// yourself in an non-AWS cloud and open an issue, please indicate that in the
+		// issue body.
 		DisableStrictZoneCheck bool
 
 		// NodeIPFamilies determines which IP addresses are added to node objects and their ordering.
@@ -4006,7 +4013,7 @@ func (c *Cloud) EnsureLoadBalancer(ctx context.Context, clusterName string, apiS
 			continue
 		}
 
-		if isNLB(annotations) {
+		if isNLB(annotations) || isNone(annotations) {
 			portMapping := nlbPortMapping{
 				FrontendPort:     int64(port.Port),
 				FrontendProtocol: string(port.Protocol),
@@ -4018,6 +4025,12 @@ func (c *Cloud) EnsureLoadBalancer(ctx context.Context, clusterName string, apiS
 				return nil, err
 			}
 
+			if isNone(annotations) {
+				portMapping.HealthCheckConfig.Protocol = elbv2.ProtocolEnumHttp
+				portMapping.HealthCheckConfig.Port = "10256" // ProxyHealthzPort
+				portMapping.HealthCheckConfig.Path = "/healthz"
+			}
+
 			certificateARN := annotations[ServiceAnnotationLoadBalancerCertificate]
 			if port.Protocol != v1.ProtocolUDP && certificateARN != "" && (sslPorts == nil || sslPorts.numbers.Has(int64(port.Port)) || sslPorts.names.Has(port.Name)) {
 				portMapping.FrontendProtocol = elbv2.ProtocolEnumTls
@@ -4026,6 +4039,19 @@ func (c *Cloud) EnsureLoadBalancer(ctx context.Context, clusterName string, apiS
 
 				if backendProtocol := annotations[ServiceAnnotationLoadBalancerBEProtocol]; backendProtocol == "ssl" {
 					portMapping.TrafficProtocol = elbv2.ProtocolEnumTls
+				}
+			}
+
+			if isNone(annotations) {
+				instanceProtocol := annotations[ServiceAnnotationLoadBalancerBEProtocol]
+				if instanceProtocol == "" {
+					portMapping.TrafficProtocol = backendProtocolToAwsEnumMapping["tcp"]
+				} else {
+					protocol := backendProtocolToAwsEnumMapping[instanceProtocol]
+					if protocol == "" {
+						return nil, fmt.Errorf("invalid backend protocol %s", ServiceAnnotationLoadBalancerBEProtocol)
+					}
+					portMapping.TrafficProtocol = protocol
 				}
 			}
 
@@ -4060,6 +4086,59 @@ func (c *Cloud) EnsureLoadBalancer(ctx context.Context, clusterName string, apiS
 		internalELB = false
 	} else if internalAnnotation != "" {
 		internalELB = true
+	}
+
+	if isNone(annotations) {
+		if path, healthCheckNodePort := servicehelpers.GetServiceHealthCheckPathPort(apiService); path != "" {
+			for i := range v2Mappings {
+				v2Mappings[i].HealthCheckConfig.Port = strconv.Itoa(int(healthCheckNodePort))
+				v2Mappings[i].HealthCheckConfig.Path = path
+				v2Mappings[i].HealthCheckConfig.Protocol = elbv2.ProtocolEnumHttp
+			}
+		}
+
+		loadBalancerName := c.GetLoadBalancerName(ctx, clusterName, apiService)
+		serviceName := types.NamespacedName{Namespace: apiService.Namespace, Name: apiService.Name}
+
+		instanceIDs := []string{}
+		for id := range instances {
+			instanceIDs = append(instanceIDs, string(id))
+		}
+
+		// Get additional tags set by the user
+		tags := getKeyValuePropertiesFromAnnotation(annotations, ServiceAnnotationLoadBalancerAdditionalTags)
+		// Add default tags
+		tags[TagNameKubernetesService] = serviceName.String()
+		tags = c.tagging.buildTags(ResourceLifecycleOwned, tags)
+
+		for i, mapping := range v2Mappings {
+			tgNameWithSuffix := generateTgName(loadBalancerName, strconv.Itoa(i))
+			existingTg, err := c.describeTargetGroup(tgNameWithSuffix)
+			if err != nil {
+				return nil, err
+			}
+
+			_, err = c.ensureTargetGroup(
+				existingTg,
+				serviceName,
+				mapping,
+				instanceIDs,
+				c.vpcID,
+				tags,
+				tgNameWithSuffix,
+			)
+			if err != nil {
+				return nil, err
+			}
+		}
+
+		return &v1.LoadBalancerStatus{Ingress: []v1.LoadBalancerIngress{
+			{
+				IP:       "0.0.0.0",
+				Hostname: "none",
+			},
+		},
+		}, nil
 	}
 
 	if isNLB(annotations) {
@@ -4380,6 +4459,35 @@ func (c *Cloud) GetLoadBalancer(ctx context.Context, clusterName string, service
 	}
 	loadBalancerName := c.GetLoadBalancerName(ctx, clusterName, service)
 
+	if isNone(service.Annotations) {
+		tgCount := 0
+		portCount := len(service.Spec.Ports)
+		for i, _ := range service.Spec.Ports {
+			tgNameWithSuffix := generateTgName(loadBalancerName, strconv.Itoa(i))
+			tg, err := c.describeTargetGroup(tgNameWithSuffix)
+			if err != nil {
+				return nil, false, err
+			}
+
+			if tg != nil {
+				tgCount++
+			}
+		}
+		if tgCount == 0 {
+			return nil, false, nil
+		} else if tgCount < portCount {
+			return nil, true, nil
+		} else {
+			return &v1.LoadBalancerStatus{[]v1.LoadBalancerIngress{
+				{
+					IP:       "0.0.0.0",
+					Hostname: "none",
+				},
+			},
+			}, true, nil
+		}
+	}
+
 	if isNLB(service.Annotations) {
 		lb, err := c.describeLoadBalancerv2(loadBalancerName)
 		if err != nil {
@@ -4643,6 +4751,26 @@ func (c *Cloud) EnsureLoadBalancerDeleted(ctx context.Context, clusterName strin
 	}
 	loadBalancerName := c.GetLoadBalancerName(ctx, clusterName, service)
 
+	if isNone(service.Annotations) {
+		for i, _ := range service.Spec.Ports {
+			tgNameWithSuffix := generateTgName(loadBalancerName, strconv.Itoa(i))
+			tg, err := c.describeTargetGroup(tgNameWithSuffix)
+			if err != nil {
+				return err
+			}
+			if tg == nil {
+				klog.Info("Target group already deleted: ", loadBalancerName)
+			}
+
+			_, err = c.elbv2.DeleteTargetGroup(&elbv2.DeleteTargetGroupInput{TargetGroupArn: tg.TargetGroupArn})
+			if err != nil {
+				return err
+			}
+		}
+
+		return nil
+	}
+
 	if isNLB(service.Annotations) {
 		lb, err := c.describeLoadBalancerv2(loadBalancerName)
 		if err != nil {
@@ -4755,7 +4883,7 @@ func (c *Cloud) EnsureLoadBalancerDeleted(ctx context.Context, clusterName strin
 			sgID := aws.StringValue(sg.GroupId)
 
 			if sgID == c.cfg.Global.ElbSecurityGroup {
-				//We don't want to delete a security group that was defined in the Cloud Configuration.
+				// We don't want to delete a security group that was defined in the Cloud Configuration.
 				continue
 			}
 			if sgID == "" {
@@ -4833,6 +4961,10 @@ func (c *Cloud) UpdateLoadBalancer(ctx context.Context, clusterName string, serv
 		return err
 	}
 	loadBalancerName := c.GetLoadBalancerName(ctx, clusterName, service)
+	if isNone(service.Annotations) {
+		_, err = c.EnsureLoadBalancer(ctx, clusterName, service, nodes)
+		return err
+	}
 	if isNLB(service.Annotations) {
 		lb, err := c.describeLoadBalancerv2(loadBalancerName)
 		if err != nil {
@@ -5178,6 +5310,10 @@ func getInitialAttachDetachDelay(status string) time.Duration {
 		return volumeDetachmentStatusInitialDelay
 	}
 	return volumeAttachmentStatusInitialDelay
+}
+
+func generateTgName(prefix, suffix string) string {
+	return prefix[0:32-1-len(suffix)] + "-" + suffix
 }
 
 // describeNetworkInterfaces returns network interface information for the given DNS name.

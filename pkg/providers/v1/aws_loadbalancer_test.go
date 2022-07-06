@@ -172,6 +172,40 @@ func TestIsNLB(t *testing.T) {
 	}
 }
 
+func TestLBIsNone(t *testing.T) {
+	tests := []struct {
+		name string
+
+		annotations map[string]string
+		want        bool
+	}{
+		{
+			"None LB annotation provided",
+			map[string]string{"service.beta.kubernetes.io/aws-load-balancer-type": "none"},
+			true,
+		},
+		{
+			"None annotation has invalid value",
+			map[string]string{"service.beta.kubernetes.io/aws-load-balancer-type": "elb"},
+			false,
+		},
+		{
+			"None annotation absent",
+			map[string]string{},
+			false,
+		},
+	}
+
+	for _, test := range tests {
+		t.Logf("Running test case %s", test.name)
+		got := isNone(test.annotations)
+
+		if got != test.want {
+			t.Errorf("Incorrect value for isNLB() case %s. Got %t, expected %t.", test.name, got, test.want)
+		}
+	}
+}
+
 func TestIsLBExternal(t *testing.T) {
 	tests := []struct {
 		name        string

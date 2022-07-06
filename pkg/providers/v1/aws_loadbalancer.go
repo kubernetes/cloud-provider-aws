@@ -576,7 +576,7 @@ func (c *Cloud) deleteListenerV2(listener *elbv2.Listener) error {
 }
 
 // ensureTargetGroup creates a target group with a set of instances.
-func (c *Cloud) ensureTargetGroup(targetGroup *elbv2.TargetGroup, serviceName types.NamespacedName, mapping nlbPortMapping, instances []string, vpcID string, tags map[string]string) (*elbv2.TargetGroup, error) {
+func (c *Cloud) ensureTargetGroup(targetGroup *elbv2.TargetGroup, serviceName types.NamespacedName, mapping nlbPortMapping, instances []string, vpcID string, tags map[string]string, tgName ...string) (*elbv2.TargetGroup, error) {
 	dirty := false
 	expectedTargets := c.computeTargetGroupExpectedTargets(instances, mapping.TrafficPort)
 	if targetGroup == nil {
@@ -595,6 +595,10 @@ func (c *Cloud) ensureTargetGroup(targetGroup *elbv2.TargetGroup, serviceName ty
 			HealthyThresholdCount:      aws.Int64(mapping.HealthCheckConfig.HealthyThreshold),
 			UnhealthyThresholdCount:    aws.Int64(mapping.HealthCheckConfig.UnhealthyThreshold),
 			// HealthCheckTimeoutSeconds:  Currently not configurable, 6 seconds for HTTP, 10 for TCP/HTTPS
+		}
+
+		if len(tgName) > 0 {
+			input.Name = aws.String(tgName[0])
 		}
 
 		if mapping.HealthCheckConfig.Protocol != elbv2.ProtocolEnumTcp {
@@ -619,6 +623,21 @@ func (c *Cloud) ensureTargetGroup(targetGroup *elbv2.TargetGroup, serviceName ty
 		}
 
 		targetGroup = result.TargetGroups[0]
+	}
+
+	{
+		if *targetGroup.Protocol != mapping.TrafficProtocol {
+			_, err := c.elbv2.DeleteTargetGroup(&elbv2.DeleteTargetGroupInput{TargetGroupArn: targetGroup.TargetGroupArn})
+			if err != nil {
+				return nil, err
+			}
+
+			var targetGroupName string
+			if len(tgName) > 0 {
+				targetGroupName = tgName[0]
+			}
+			return c.ensureTargetGroup(targetGroup, serviceName, mapping, instances, vpcID, tags, targetGroupName)
+		}
 	}
 
 	// handle instances in service
@@ -1649,4 +1668,26 @@ func filterTargetNodes(nodes []*v1.Node, annotations map[string]string) []*v1.No
 	}
 
 	return targetNodes
+}
+
+func isNone(annotations map[string]string) bool {
+	if annotations[ServiceAnnotationLoadBalancerType] == "none" {
+		return true
+	}
+	return false
+}
+
+func (c *Cloud) describeTargetGroup(tgName string) (*elbv2.TargetGroup, error) {
+	response, err := c.elbv2.DescribeTargetGroups(&elbv2.DescribeTargetGroupsInput{})
+	if err != nil {
+		return nil, fmt.Errorf("error describing target groups: %q", err)
+	}
+
+	for _, tg := range response.TargetGroups {
+		if *tg.TargetGroupName == tgName {
+			return tg, nil
+		}
+	}
+
+	return nil, nil
 }
