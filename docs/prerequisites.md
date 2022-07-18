@@ -1,5 +1,13 @@
 # Prerequisites
 
+## Node name conventions
+
+AWS supports two naming conventions: [IP-based or resource-based naming](https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/ec2-instance-naming.html).
+
+When _IP-based naming_ is used, the nodes must be named after the instance followed by the regional domain name (`ip-xxx-xxx-xxx-xxx.ec2.<region>.internal`). If you have custom domain name set in the DHCP options, you must set `--hostname-override` on kube-proxy and kubelet to match the above-mentioned naming convention.
+
+When _resource based naming_ is used, the node must be named after the instance without any domain name (`i-1234567890abcdefg`). Custom domain name may be used as long as the output of `hostname` does not include the domain name. `--hostname-override` should not be set on any components when using resource-based naming.
+
 ## IAM Policies
 For the `aws-cloud-controller-manager` to be able to communicate to AWS APIs, you will need to create a few IAM policies for your EC2 instances. The control plane (formerly master) policy is a bit open and can be scaled back depending on the use case. Adjust these based on your needs.
 

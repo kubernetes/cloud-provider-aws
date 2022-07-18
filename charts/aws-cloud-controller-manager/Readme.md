@@ -1,6 +1,6 @@
-# AWS Cloud-Controler-Manager Helm Chart
+# AWS cloud-controller-manager Helm Chart
 
-Installs the [aws cloud-controller-manager ](https://github.com/kubernetes/cloud-provider-aws).
+Installs the [aws cloud-controller-manager](https://github.com/kubernetes/cloud-provider-aws).
 
 ## Get Repo Info
 

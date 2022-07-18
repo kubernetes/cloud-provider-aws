@@ -7,11 +7,6 @@ spec:
     cloudProvider: aws
     configureCloudRoutes: false
     useServiceAccountCredentials: true
-  kubeControllerManager:
-    externalCloudVolumePlugin: aws
-  cloudProvider: aws
-  kubeAPIServer:
-    cloudProvider: external
-  kubelet:
-    cloudProvider: aws
-  kubernetesVersion: 1.21.0
+  cloudConfig:
+    awsEBSCSIDriver:
+      enabled: true

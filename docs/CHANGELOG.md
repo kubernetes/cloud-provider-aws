@@ -1,3 +1,85 @@
+## v1.22.3
+* [Cherry Pick from master to 1.22] [FIXES] [Tagging Controller] Fix issues in tagging controller ([#389](https://github.com/kubernetes/cloud-provider-aws/pull/389), @saurav-agarwalla)
+
+## v1.21.2
+* [Cherry Pick from master to 1.21] [FIXES] [Tagging Controller] Fix issues in tagging controller ([#390](https://github.com/kubernetes/cloud-provider-aws/pull/390), @saurav-agarwalla)
+
+## v1.20.2
+* Automated cherry pick of #223: Add ENI support for nodes(for Fargate nodes)
+#387: Fix issues in tagging controller ([#392](https://github.com/kubernetes/cloud-provider-aws/pull/392), @saurav-agarwalla)
+
+## v1.21.1
+* Automated cherry pick of #376: Stop tagging latest for release branches ([#382](https://github.com/kubernetes/cloud-provider-aws/pull/382), @hakman)
+* Update cloud build config for v1.21 ([#374](https://github.com/kubernetes/cloud-provider-aws/pull/374), @hakman)
+* Cherry pick E2E test changes and fix failing tagging controller test for 1.21 ([#369](https://github.com/kubernetes/cloud-provider-aws/pull/369), @saurav-agarwalla)
+* Bump dependencies ([#332](https://github.com/kubernetes/cloud-provider-aws/pull/332), @nckturner)
+
+## v1.20.1
+* Automated cherry pick of #376: Stop tagging latest for release branches ([#383](https://github.com/kubernetes/cloud-provider-aws/pull/383), @hakman)
+* Update cloud build config for v1.20 ([#375](https://github.com/kubernetes/cloud-provider-aws/pull/375), @hakman)
+* Cherry pick E2E test changes and fix failing tagging controller test for 1.20 ([#370](https://github.com/kubernetes/cloud-provider-aws/pull/370), @saurav-agarwalla)
+* go fmt release-1.20 ([#371](https://github.com/kubernetes/cloud-provider-aws/pull/371), @nckturner)
+
+## v1.20.0
+* Automated cherry pick of #308: Add tagging controller configuration
+  #334: Stop retrying failed workitem after a certain amount of ([#361](https://github.com/kubernetes/cloud-provider-aws/pull/361), @saurav-agarwalla)
+* Release 1.20 ([#183](https://github.com/kubernetes/cloud-provider-aws/pull/183), @ayberk)
+
+## v1.21.0
+* Automated cherry pick of #308: Add tagging controller configuration
+  #334: Stop retrying failed workitem after a certain amount of ([#358](https://github.com/kubernetes/cloud-provider-aws/pull/358), @saurav-agarwalla)
+* Add support for consuming web identity credentials ([#238](https://github.com/kubernetes/cloud-provider-aws/pull/238), @olemarkus)
+* Add support for returning IPv6 node addresses ([#230](https://github.com/kubernetes/cloud-provider-aws/pull/230), @hakman)
+* Add ENI support for nodes(for Fargate nodes) ([#223](https://github.com/kubernetes/cloud-provider-aws/pull/223), @SaranBalaji90)
+* Use kustomize for example manifest ([#221](https://github.com/kubernetes/cloud-provider-aws/pull/221), @nckturner)
+
+## v1.22.1
+* Automated cherry pick of #308: Add tagging controller configuration
+  #334: Stop retrying failed workitem after a certain amount of ([#357](https://github.com/kubernetes/cloud-provider-aws/pull/357), @saurav-agarwalla)
+* Automated cherry pick of #345: Double load balancer timeout from 5 mins to 10 ([#347](https://github.com/kubernetes/cloud-provider-aws/pull/347), @wongma7)
+
+## v1.23.1
+* Automated cherry pick of #352: Use short git tag for version and images ([#353](https://github.com/kubernetes/cloud-provider-aws/pull/353), @hakman)
+* Automated cherry pick of #345: Double load balancer timeout from 5 mins to 10 ([#346](https://github.com/kubernetes/cloud-provider-aws/pull/346), @wongma7)
+
+## v1.24.0
+* Cherry picks ([#356](https://github.com/kubernetes/cloud-provider-aws/pull/356), @nckturner)
+* Update Go to v1.18.1 ([#355](https://github.com/kubernetes/cloud-provider-aws/pull/355), @hakman)
+* Explain short tag with comment ([#354](https://github.com/kubernetes/cloud-provider-aws/pull/354), @hakman)
+* Use short git tag for version and images ([#352](https://github.com/kubernetes/cloud-provider-aws/pull/352), @hakman)
+* Trim date prefix from tag in GCB image build ([#350](https://github.com/kubernetes/cloud-provider-aws/pull/350), @rifelpet)
+* [Issue #325] Added retry count to abort workitem after a few failed retries ([#334](https://github.com/kubernetes/cloud-provider-aws/pull/334), @nguyenkndinh)
+* Bump k8s.io deps to 1.24.0 ([#344](https://github.com/kubernetes/cloud-provider-aws/pull/344), @olemarkus)
+* Double load balancer timeout from 5 mins to 10 ([#345](https://github.com/kubernetes/cloud-provider-aws/pull/345), @wongma7)
+* Update changelog and readme with v1.23.0 and v1.24.0-alpha.0 ([#337](https://github.com/kubernetes/cloud-provider-aws/pull/337), @nckturner)
+* Docs ([#336](https://github.com/kubernetes/cloud-provider-aws/pull/336), @nckturner)
+
+## v1.24.0-alpha.0
+* chart: Add extraVolumes and extraVolumeMounts ([#333](https://github.com/kubernetes/cloud-provider-aws/pull/333), @jkroepke)
+* Add environment and securityContexts ([#328](https://github.com/kubernetes/cloud-provider-aws/pull/328), @jkroepke)
+* Bump dependencies ([#330](https://github.com/kubernetes/cloud-provider-aws/pull/330), @nckturner)
+* Issue# 306: Added tagging controller ([#308](https://github.com/kubernetes/cloud-provider-aws/pull/308), @nguyenkndinh)
+* Bump k8s version to v1.24.0-alpha.2 ([#320](https://github.com/kubernetes/cloud-provider-aws/pull/320), @nckturner)
+* Fix route controller create/delete spam: use instanceIDToNodeName in case node name != private DNS ([#319](https://github.com/kubernetes/cloud-provider-aws/pull/319), @wongma7)
+* Fix version ([#317](https://github.com/kubernetes/cloud-provider-aws/pull/317), @nckturner)
+* add sts regional endpoint logic ([#313](https://github.com/kubernetes/cloud-provider-aws/pull/313), @prasita123)
+* Get e2e tests working in prow ([#312](https://github.com/kubernetes/cloud-provider-aws/pull/312), @nckturner)
+* E2E framework ([#304](https://github.com/kubernetes/cloud-provider-aws/pull/304), @nckturner)
+* Remove metadata funcs ([#305](https://github.com/kubernetes/cloud-provider-aws/pull/305), @olemarkus)
+
+## v1.23.0
+* Bump dependency versions ([#329](https://github.com/kubernetes/cloud-provider-aws/pull/329), @nckturner)
+* Fix route controller create/delete spam: use instanceIDToNodeName in case node name != private DNS ([#319](https://github.com/kubernetes/cloud-provider-aws/pull/319), @wongma7)
+* Fix version ([#317](https://github.com/kubernetes/cloud-provider-aws/pull/317), @nckturner)
+* add sts regional endpoint logic ([#313](https://github.com/kubernetes/cloud-provider-aws/pull/313), @prasita123)
+* Get e2e tests working in prow ([#312](https://github.com/kubernetes/cloud-provider-aws/pull/312), @nckturner)
+* E2E framework ([#304](https://github.com/kubernetes/cloud-provider-aws/pull/304), @nckturner)
+* Remove metadata funcs ([#305](https://github.com/kubernetes/cloud-provider-aws/pull/305), @olemarkus)
+* Update charts for v1.23.0-alpha.0 ([#298](https://github.com/kubernetes/cloud-provider-aws/pull/298), @nckturner)
+
+## v1.22.0
+* Bump dependencies ([#331](https://github.com/kubernetes/cloud-provider-aws/pull/331), @nckturner)
+
 ## v1.23.0-alpha.0
 * Tag on create ([#293](https://github.com/kubernetes/cloud-provider-aws/pull/293), @olemarkus)
 * Use go-runner as base image ([#295](https://github.com/kubernetes/cloud-provider-aws/pull/295), @wongma7)

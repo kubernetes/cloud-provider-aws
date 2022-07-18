@@ -26,11 +26,11 @@ limitations under the License.
 package main
 
 import (
-	"math/rand"
-	"os"
-	"time"
-
 	"k8s.io/apimachinery/pkg/util/wait"
+	cloudprovider "k8s.io/cloud-provider"
+	"k8s.io/cloud-provider-aws/pkg/controllers/tagging"
+	awsv1 "k8s.io/cloud-provider-aws/pkg/providers/v1"
+	awsv2 "k8s.io/cloud-provider-aws/pkg/providers/v2"
 	"k8s.io/cloud-provider/app"
 	"k8s.io/cloud-provider/options"
 	cliflag "k8s.io/component-base/cli/flag"
@@ -38,10 +38,9 @@ import (
 	_ "k8s.io/component-base/metrics/prometheus/clientgo" // for client metric registration
 	_ "k8s.io/component-base/metrics/prometheus/version"  // for version metric registration
 	"k8s.io/klog/v2"
-
-	cloudprovider "k8s.io/cloud-provider"
-	awsv1 "k8s.io/cloud-provider-aws/pkg/providers/v1"
-	awsv2 "k8s.io/cloud-provider-aws/pkg/providers/v2"
+	"math/rand"
+	"os"
+	"time"
 
 	cloudcontrollerconfig "k8s.io/cloud-provider/app/config"
 )
@@ -49,8 +48,6 @@ import (
 const (
 	enableAlphaV2EnvVar = "ENABLE_ALPHA_V2"
 )
-
-var version string
 
 func main() {
 	rand.Seed(time.Now().UTC().UnixNano())
@@ -64,11 +61,23 @@ func main() {
 	}
 
 	controllerInitializers := app.DefaultInitFuncConstructors
+	taggingControllerWrapper := tagging.ControllerWrapper{}
 	fss := cliflag.NamedFlagSets{}
+	taggingControllerWrapper.Options.AddFlags(fss.FlagSet("tagging controller"))
+
+	taggingControllerConstructor := app.ControllerInitFuncConstructor{
+		InitContext: app.ControllerInitContext{
+			ClientName: tagging.TaggingControllerClientName,
+		},
+		Constructor: taggingControllerWrapper.StartTaggingControllerWrapper,
+	}
+
+	controllerInitializers[tagging.TaggingControllerKey] = taggingControllerConstructor
+	app.ControllersDisabledByDefault.Insert(tagging.TaggingControllerKey)
 	command := app.NewCloudControllerManagerCommand(opts, cloudInitializer, controllerInitializers, fss, wait.NeverStop)
 
 	if err := command.Execute(); err != nil {
-		os.Exit(1)
+		klog.Fatalf("unable to execute command: %v", err)
 	}
 }
 

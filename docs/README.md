@@ -47,10 +47,11 @@ The AWS cloud provider is released with a specific semantic version that correla
 
 | Kubernetes Version          | Latest AWS Cloud Provider Release Version     |
 |-----------------------------|-----------------------------------------------|
-| v1.23                       | v1.23.0-alpha.0                               |
-| v1.22                       | v1.22.0-alpha.1                               |
-| v1.21                       | v1.21.0-alpha.0                               |
-| v1.20                       | v1.20.0-alpha.0                               |
+| v1.24                       | v1.24.0                                       |
+| v1.23                       | v1.23.1                                       |
+| v1.22                       | v1.22.3                                       |
+| v1.21                       | v1.21.2                                       |
+| v1.20                       | v1.20.2                                       |
 | v1.19                       | v1.19.0-alpha.1                               |
 | v1.18                       | v1.18.0-alpha.1                               |
 
@@ -61,6 +62,9 @@ The in-tree cloud provider code has mostly stopped accepting new features, so fu
 
 ### AWS Cloud Controller Manager
 The AWS Cloud Controller Manager is the controller that is primarily responsible for creating and updating AWS loadbalancers (classic and NLB) and node lifecycle management.  The controller loops that are migrating out of the kube controller manager include the route controller, the service controller, the node controller, and the node lifecycle controller.  See the [cloud controller manager KEP](https://github.com/kubernetes/enhancements/tree/master/keps/sig-cloud-provider/2392-cloud-controller-manager) for more details.
+
+##### Container Images
+AWS Cloud Controller Managed container images are available in `registry.k8s.io/provider-aws/cloud-controller-manager`.
 
 ### AWS Credential Provider
 The AWS credential provider is a binary that is executed by kubelet to provide credentials for images in ECR.  Refer to the [credential provider extraction KEP](https://github.com/kubernetes/enhancements/tree/master/keps/sig-cloud-provider/2133-out-of-tree-credential-provider) for more details.

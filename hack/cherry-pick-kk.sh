@@ -4,6 +4,9 @@ set -o errexit
 set -o pipefail
 set -o nounset
 
+# This script will attempt to cherry pick a commit from the legacy in-tree provider, and
+# rewrite the paths to make it compatible with this repository.
+
 UPSTREAM_SHA="${UPSTREAM_SHA:-}"
 REWRITE_PATH="${REWRITE_PATH:-pkg/providers/v1}"
 LEGACY_PROVIDER_PATH="${LEGACY_PROVIDER_PATH:-staging/src/k8s.io/legacy-cloud-providers/aws}"

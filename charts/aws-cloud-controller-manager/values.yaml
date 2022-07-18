@@ -5,7 +5,7 @@ args:
   - --cloud-provider=aws
 
 image:
-    repository: us.gcr.io/k8s-artifacts-prod/provider-aws/cloud-controller-manager
+    repository: registry.k8s.io/provider-aws/cloud-controller-manager
     tag: v1.23.0-alpha.0
 
 # nameOverride overrides `cloud-controller-manager.fullname`
@@ -105,6 +105,13 @@ resources:
     cpu: 200m
   #   memory: 300Mi
 
+# env -- Pod environment variables
+env: {}
+# securityContext -- Container Security Context.
+securityContext: {}
+# podSecurityContext -- Pods Security Context.
+podSecurityContext: {}
+
 # tolerations -- List of node taints to tolerate (requires Kubernetes >= 1.6).
 tolerations:
 - key: node.cloudprovider.kubernetes.io/uninitialized
@@ -120,3 +127,6 @@ roleBindingName: cloud-controller-manager:apiserver-authentication-reader
 serviceAccountName: cloud-controller-manager
 
 roleName: extension-apiserver-authentication-reader
+
+extraVolumes: []
+extraVolumeMounts: []
