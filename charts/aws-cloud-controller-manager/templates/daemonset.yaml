@@ -20,7 +20,16 @@ spec:
         k8s-app:  {{ template "cloud-controller-manager.name" . }}
     spec:
       tolerations: {{ toYaml ( .Values.tolerations | default .Values.tolerations ) | nindent 8 }}
-      nodeSelector: {{ toYaml ( .Values.nodeSelector | default .Values.nodeSelector ) | nindent 8 }}
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+              - matchExpressions:
+                - key: node-role.kubernetes.io/master
+                  operator: Exists
+              - matchExpressions:
+                - key: node-role.kubernetes.io/control-plane
+                  operator: Exists
       priorityClassName: system-node-critical
       serviceAccountName: {{.Values.serviceAccountName}}
       {{- if .Values.hostNetworking }}

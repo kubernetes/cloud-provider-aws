@@ -11,10 +11,6 @@ image:
 # nameOverride overrides `cloud-controller-manager.fullname`
 nameOverride: "aws-cloud-controller-manager"
 
-# nodeSelector -- Node labels for pod assignment. Ref: https://kubernetes.io/docs/user-guide/node-selection/.
-nodeSelector:
-  node-role.kubernetes.io/master: ""
-
 clusterRoleRules:
 - apiGroups:
   - ""
@@ -106,11 +102,13 @@ resources:
   #   memory: 300Mi
 
 # env -- Pod environment variables
-env: {}
+env: []
 # securityContext -- Container Security Context.
 securityContext: {}
 # podSecurityContext -- Pods Security Context.
 podSecurityContext: {}
+
+hostNetworking: true
 
 # tolerations -- List of node taints to tolerate (requires Kubernetes >= 1.6).
 tolerations:
@@ -118,6 +116,8 @@ tolerations:
   value: "true"
   effect: NoSchedule
 - key: node-role.kubernetes.io/master
+  effect: NoSchedule
+- key: node-role.kubernetes.io/control-plane
   effect: NoSchedule
 
 clusterRoleName : system:cloud-controller-manager
