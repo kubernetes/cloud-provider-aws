@@ -25,6 +25,11 @@ IMAGE ?= $(IMAGE_REPOSITORY):$(VERSION)
 OUTPUT ?= $(shell pwd)/_output
 INSTALL_PATH ?= $(OUTPUT)/bin
 LDFLAGS ?= -w -s -X k8s.io/component-base/version.gitVersion=$(VERSION)
+ROOT ?= $(shell pwd)
+UPLOAD ?= $(OUTPUT)/upload
+GCS_LOCATION ?= gs://must-override
+GCS_URL = $(GCS_LOCATION:gs://%=https://storage.googleapis.com/%)
+LATEST_FILE ?= latest-ci.txt
 
 .PHONY: aws-cloud-controller-manager
 aws-cloud-controller-manager:
@@ -150,3 +155,31 @@ install-e2e-tools:
 .PHONY: print-image-tag
 print-image-tag:
 	@echo $(IMAGE)
+
+.PHONY: gsutil
+gsutil:
+	hack/install-gsutil.sh
+
+# gcs-upload builds provider-aws and uploads to GCS
+.PHONY: gcs-upload
+gcs-upload: gsutil version-dist
+	@echo "== Uploading provider-aws =="
+	gsutil -h "Cache-Control:private, max-age=0, no-transform" -m cp -n -r ${UPLOAD}/provider-aws/* ${GCS_LOCATION}
+
+# gcs-upload-tag runs gcs-upload to upload, then uploads a version-marker to LATEST_FILE
+.PHONY: gcs-upload-and-tag
+gcs-upload-and-tag: gsutil gcs-upload
+	echo "${GCS_URL}${VERSION}" > ${UPLOAD}/latest.txt
+	gsutil -h "Cache-Control:private, max-age=0, no-transform" cp ${UPLOAD}/latest.txt ${GCS_LOCATION}${LATEST_FILE}
+
+.PHONY: copy-bins-for-upload
+copy-bins-for-upload:
+    cp ecr-credential-provider $(UPLOAD)
+
+# CloudBuild artifacts
+# We hash some artifacts, so that we have can know that they were not modified after being built.
+.PHONY: cloudbuild-artifacts
+cloudbuild-artifacts: copy-bins-for-upload
+	mkdir -p ${ROOT}/cloudbuild/
+	cd ${UPLOAD}/provider-aws/; find . -type f | sort | xargs sha256sum > ${ROOT}/cloudbuild/files.sha256
+	cd ${ROOT}/cloudbuild/; find -type f | sort | xargs sha256sum > ${BUILDER_OUTPUT}/output
