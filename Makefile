@@ -30,6 +30,20 @@ UPLOAD ?= $(OUTPUT)/upload
 GCS_LOCATION ?= gs://must-override
 GCS_URL = $(GCS_LOCATION:gs://%=https://storage.googleapis.com/%)
 LATEST_FILE ?= latest-ci.txt
+BUILD=$(ROOT)/.build
+DIST=$(BUILD)/dist
+GCFLAGS?=
+OSARCH=$(shell go env GOOS)/$(shell go env GOARCH)
+GITSHA := $(shell cd ${ROOT}; git describe --always)
+GOPATH_1ST:=$(shell go env | grep GOPATH | cut -f 2 -d '"' | sed 's/ /\\ /g')
+BUILDFLAGS="-trimpath"
+
+ifdef STATIC_BUILD
+  CGO_ENABLED=0
+  export CGO_ENABLED
+  EXTRA_BUILDFLAGS=-installsuffix cgo
+  EXTRA_LDFLAGS=-s -w
+endif
 
 .PHONY: aws-cloud-controller-manager
 aws-cloud-controller-manager:
@@ -160,6 +174,75 @@ print-image-tag:
 gsutil:
 	hack/install-gsutil.sh
 
+.PHONY: crossbuild-provider-aws-linux-amd64 crossbuild-provider-aws-linux-arm64
+crossbuild-provider-aws-linux-amd64 crossbuild-provider-aws-linux-arm64: crossbuild-provider-aws-linux-%:
+	mkdir -p ${DIST}/linux/$*
+	GOOS=linux GOARCH=$* go build ${GCFLAGS} ${BUILDFLAGS} ${EXTRA_BUILDFLAGS} -o ${DIST}/linux/$*/provider-aws ${LDFLAGS}"${EXTRA_LDFLAGS} -X k8s.io/provider-aws.Version=${VERSION} -X k8s.io/provider-aws.GitVersion=${GITSHA}" k8s.io/provider-aws/cmd/provider-aws
+
+.PHONY: crossbuild-provider-aws-darwin-amd64 crossbuild-provider-aws-darwin-arm64
+crossbuild-provider-aws-darwin-amd64 crossbuild-provider-aws-darwin-arm64: crossbuild-provider-aws-darwin-%:
+	mkdir -p ${DIST}/darwin/$*
+	GOOS=darwin GOARCH=$* go build ${GCFLAGS} ${BUILDFLAGS} ${EXTRA_BUILDFLAGS} -o ${DIST}/darwin/$*/provider-aws ${LDFLAGS}"${EXTRA_LDFLAGS} -X k8s.io/provider-aws.Version=${VERSION} -X k8s.io/provider-aws.GitVersion=${GITSHA}" k8s.io/provider/cmd/provider
+
+.PHONY: crossbuild-provider-aws-windows-amd64
+crossbuild-provider-aws-windows-amd64:
+	mkdir -p ${DIST}/windows/amd64
+	GOOS=windows GOARCH=amd64 go build ${GCFLAGS} ${BUILDFLAGS} ${EXTRA_BUILDFLAGS} -o ${DIST}/windows/amd64/provider-aws.exe ${LDFLAGS}"${EXTRA_LDFLAGS} -X k8s.io/provider-aws.Version=${VERSION} -X k8s.io/provider-aws.GitVersion=${GITSHA}" k8s.io/provider-aws/cmd/provider-aws
+
+.PHONY: crossbuild
+crossbuild: crossbuild-provider-aws
+
+.PHONY: crossbuild-provider-aws
+crossbuild: crossbuild-provider-aws-linux-amd64 crossbuild-provider-aws-linux-arm64 crossbuild-provider-aws-darwin-amd64 crossbuild-provider-aws-darwin-arm64 crossbuild-provider-aws-windows-amd64
+
+.PHONY: nodeup-amd64 nodeup-arm64
+nodeup-amd64 nodeup-arm64: nodeup-%:
+	mkdir -p ${DIST}/linux/$*
+	GOOS=linux GOARCH=$* go build ${GCFLAGS} ${BUILDFLAGS} ${EXTRA_BUILDFLAGS} -o ${DIST}/linux/$*/nodeup ${LDFLAGS}"${EXTRA_LDFLAGS} -X k8s.io/provider-aws.Version=${VERSION} -X k8s.io/provider-aws.GitVersion=${GITSHA}" k8s.io/provider-aws/cmd/nodeup
+
+.PHONY: nodeup
+nodeup: nodeup-amd64
+
+.phony: nodeup-install # install channels to local $gopath/bin
+nodeup-install: nodeup
+	cp ${DIST}/${OSARCH}/channels ${GOPATH_1ST}/bin
+
+# dev-upload-nodeup uploads nodeup
+.PHONY: version-dist-nodeup version-dist-nodeup-amd64 version-dist-nodeup-arm64
+version-dist-nodeup: version-dist-nodeup-amd64 version-dist-nodeup-arm64
+
+version-dist-nodeup-amd64 version-dist-nodeup-arm64: version-dist-nodeup-%: nodeup-%
+	mkdir -p ${UPLOAD}/provider-aws/${VERSION}/linux/$*/
+	cp -fp ${DIST}/linux/$*/nodeup ${UPLOAD}/provider-aws/${VERSION}/linux/$*/nodeup
+	tools/sha256 ${UPLOAD}/provider-aws/${VERSION}/linux/$*/nodeup ${UPLOAD}/provider-aws/${VERSION}/linux/$*/nodeup.sha256
+
+
+# dev-upload-linux-amd64 does a faster build and uploads to GCS / S3
+.PHONY: dev-version-dist dev-version-dist-amd64 dev-version-dist-arm64
+dev-version-dist: dev-version-dist-amd64 dev-version-dist-arm64
+
+dev-version-dist-amd64 dev-version-dist-arm64: dev-version-dist-%: version-dist-nodeup-% version-dist-channels-% version-dist-protokube-% version-dist-kops-controller-% version-dist-kube-apiserver-healthcheck-% version-dist-dns-controller-%
+
+
+.PHONY: version-dist
+version-dist: dev-version-dist-amd64 dev-version-dist-arm64 crossbuild
+	mkdir -p ${UPLOAD}/provider-aws/${VERSION}/linux/amd64/
+	mkdir -p ${UPLOAD}/provider-aws/${VERSION}/linux/arm64/
+	mkdir -p ${UPLOAD}/provider-aws/${VERSION}/darwin/amd64/
+	mkdir -p ${UPLOAD}/provider-aws/${VERSION}/darwin/arm64/
+	mkdir -p ${UPLOAD}/provider-aws/${VERSION}/windows/amd64/
+	cp ${DIST}/linux/amd64/provider-aws ${UPLOAD}/provider-aws/${VERSION}/linux/amd64/provider-aws
+	tools/sha256 ${UPLOAD}/provider-aws/${VERSION}/linux/amd64/provider-aws ${UPLOAD}/provider-aws/${VERSION}/linux/amd64/provider-aws.sha256
+	cp ${DIST}/linux/arm64/provider-aws ${UPLOAD}/provider-aws/${VERSION}/linux/arm64/provider-aws
+	tools/sha256 ${UPLOAD}/provider-aws/${VERSION}/linux/arm64/provider-aws ${UPLOAD}/provider-aws/${VERSION}/linux/arm64/provider-aws.sha256
+	cp ${DIST}/darwin/amd64/provider-aws ${UPLOAD}/provider-aws/${VERSION}/darwin/amd64/provider-aws
+	tools/sha256 ${UPLOAD}/provider-aws/${VERSION}/darwin/amd64/provider-aws ${UPLOAD}/provider-aws/${VERSION}/darwin/amd64/provider-aws.sha256
+	cp ${DIST}/darwin/arm64/provider-aws ${UPLOAD}/provider-aws/${VERSION}/darwin/arm64/provider-aws
+	tools/sha256 ${UPLOAD}/provider-aws/${VERSION}/darwin/arm64/provider-aws ${UPLOAD}/provider-aws/${VERSION}/darwin/arm64/provider-aws.sha256
+	cp ${DIST}/windows/amd64/provider-aws.exe ${UPLOAD}/provider-aws/${VERSION}/windows/amd64/provider-aws.exe
+	tools/sha256 ${UPLOAD}/provider-aws/${VERSION}/windows/amd64/provider-aws.exe ${UPLOAD}/provider-aws/${VERSION}/windows/amd64/provider-aws.exe.sha256
+
+
 # gcs-upload builds provider-aws and uploads to GCS
 .PHONY: gcs-upload
 gcs-upload: gsutil version-dist
@@ -174,7 +257,7 @@ gcs-upload-and-tag: gsutil gcs-upload
 
 .PHONY: copy-bins-for-upload
 copy-bins-for-upload:
-    cp ecr-credential-provider $(UPLOAD)
+	cp ecr-credential-provider $(UPLOAD)
 
 # CloudBuild artifacts
 # We hash some artifacts, so that we have can know that they were not modified after being built.
