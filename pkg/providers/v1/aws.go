@@ -176,7 +176,9 @@ const ServiceAnnotationLoadBalancerSSLNegotiationPolicy = "service.beta.kubernet
 // ServiceAnnotationLoadBalancerBEProtocol is the annotation used on the service
 // to specify the protocol spoken by the backend (pod) behind a listener.
 // If `http` (default) or `https`, an HTTPS listener that terminates the
-//  connection and parses headers is created.
+//
+//	connection and parses headers is created.
+//
 // If set to `ssl` or `tcp`, a "raw" SSL listener is used.
 // If set to `http` and `aws-load-balancer-ssl-cert` is not used then
 // a HTTP listener is used.
@@ -3697,8 +3699,8 @@ func (c *Cloud) buildELBSecurityGroupList(serviceName types.NamespacedName, load
 
 // sortELBSecurityGroupList returns a list of sorted securityGroupIDs based on the original order
 // from buildELBSecurityGroupList. The logic is:
-//  * securityGroups specified by ServiceAnnotationLoadBalancerSecurityGroups appears first in order
-//  * securityGroups specified by ServiceAnnotationLoadBalancerExtraSecurityGroups appears last in order
+//   - securityGroups specified by ServiceAnnotationLoadBalancerSecurityGroups appears first in order
+//   - securityGroups specified by ServiceAnnotationLoadBalancerExtraSecurityGroups appears last in order
 func (c *Cloud) sortELBSecurityGroupList(securityGroupIDs []string, annotations map[string]string) {
 	annotatedSGList := getSGListFromAnnotation(annotations[ServiceAnnotationLoadBalancerSecurityGroups])
 	annotatedExtraSGList := getSGListFromAnnotation(annotations[ServiceAnnotationLoadBalancerExtraSecurityGroups])
