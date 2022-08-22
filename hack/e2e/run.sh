@@ -153,5 +153,6 @@ ginkgo . -p -nodes="${GINKGO_NODES}" -v --focus="${GINKGO_FOCUS}" --skip="${GINK
 popd
 
 if [[ "${DOWN}" = "yes" ]]; then
+    echo "cleaning up kops"
     ${test_run}/kops delete cluster --name "${CLUSTER_NAME}" --yes
 fi
