@@ -233,7 +233,7 @@ func nodeAddressesForInstance(instance *ec2.Instance) ([]v1.NodeAddress, error) 
 
 // getInstanceProviderID returns the provider ID of an instance which is ultimately set in the node.Spec.ProviderID field.
 // The well-known format for a node's providerID is:
-//    * aws:///<availability-zone>/<instance-id>
+//   - aws:///<availability-zone>/<instance-id>
 func getInstanceProviderID(instance *ec2.Instance) (string, error) {
 	if aws.StringValue(instance.Placement.AvailabilityZone) == "" {
 		return "", errors.New("instance availability zone was not set")
@@ -247,9 +247,10 @@ func getInstanceProviderID(instance *ec2.Instance) (string, error) {
 }
 
 // parseInstanceIDFromProviderID parses the node's instance ID based on the following formats:
-//   * aws://<availability-zone>/<instance-id>
-//   * aws:///<instance-id>
-//   * <instance-id>
+//   - aws://<availability-zone>/<instance-id>
+//   - aws:///<instance-id>
+//   - <instance-id>
+//
 // This function always assumes a valid providerID format was provided.
 func parseInstanceIDFromProviderID(providerID string) (string, error) {
 	// trim the provider name prefix 'aws://', renaming providerID should contain metadata in one of the following formats:
