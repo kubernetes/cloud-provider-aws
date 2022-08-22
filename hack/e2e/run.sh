@@ -146,6 +146,6 @@ ginkgo . -p -nodes="${GINKGO_NODES}" -v --focus="${GINKGO_FOCUS}" --skip="${GINK
 popd
 
 if [[ "${DOWN}" = "yes" ]]; then
-    echo "cleaning up kops"
-    ${test_run}/kops delete cluster --name "${CLUSTER_NAME}" --yes
+    # This should be changed to ${test_run}/kops once https://github.com/kubernetes/kops/pull/13217 is merged.
+    ${test_run}/${test_run_id}/kops delete cluster --name "${CLUSTER_NAME}" --yes
 fi
