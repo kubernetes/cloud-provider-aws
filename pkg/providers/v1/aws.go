@@ -1261,15 +1261,13 @@ func init() {
 		var creds *credentials.Credentials
 		if cfg.Global.RoleARN != "" {
 			klog.Infof("Using AWS assumed role %v", cfg.Global.RoleARN)
-			provider := &stscreds.AssumeRoleProvider{
-				Client:  sts.New(sess),
-				RoleARN: cfg.Global.RoleARN,
-			}
-
 			creds = credentials.NewChainCredentials(
 				[]credentials.Provider{
 					&credentials.EnvProvider{},
-					provider,
+					assumeRoleProvider(&stscreds.AssumeRoleProvider{
+						Client:  sts.New(sess),
+						RoleARN: cfg.Global.RoleARN,
+					}),
 				})
 		}
 
