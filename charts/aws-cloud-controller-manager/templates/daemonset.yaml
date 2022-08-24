@@ -21,6 +21,7 @@ spec:
     spec:
       tolerations: {{ toYaml ( .Values.tolerations | default .Values.tolerations ) | nindent 8 }}
       nodeSelector: {{ toYaml ( .Values.nodeSelector | default .Values.nodeSelector ) | nindent 8 }}
+      dnsPolicy: {{ .Values.dnsPolicy }}
       priorityClassName: system-node-critical
       serviceAccountName: {{.Values.serviceAccountName}}
       {{- if .Values.hostNetworking }}
