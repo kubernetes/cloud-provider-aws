@@ -4950,6 +4950,13 @@ func IsFargateNode(nodeName string) bool {
 	return strings.HasPrefix(nodeName, fargateNodeNamePrefix)
 }
 
+// extract private ip address from node name
+func nodeNameToIpAddress(nodeName string) string {
+	nodeName = strings.TrimPrefix(nodeName, privateDNSNamePrefix)
+	nodeName = strings.Split(nodeName, ".")[0]
+	return strings.ReplaceAll(nodeName, "-", ".")
+}
+
 func (c *Cloud) nodeNameToProviderID(nodeName types.NodeName) (InstanceID, error) {
 	if len(nodeName) == 0 {
 		return "", fmt.Errorf("no nodeName provided")
@@ -5014,11 +5021,13 @@ func (c *Cloud) describeNetworkInterfaces(nodeName string) (*ec2.NetworkInterfac
 	}
 
 	// when enableDnsSupport is set to false in a VPC, interface will not have private DNS names.
+	// convert node name to ip address because ip-name based and resource-named EC2 resources
+	// may have different privateDNSName formats but same privateIpAddress format
 	if strings.HasPrefix(eniEndpoint, privateDNSNamePrefix) {
-		filters = append(filters, newEc2Filter("private-dns-name", eniEndpoint))
-	} else {
-		filters = append(filters, newEc2Filter("private-ip-address", eniEndpoint))
+		eniEndpoint = nodeNameToIpAddress(eniEndpoint)
 	}
+
+	filters = append(filters, newEc2Filter("private-ip-address", eniEndpoint))
 
 	request := &ec2.DescribeNetworkInterfacesInput{
 		Filters: filters,
