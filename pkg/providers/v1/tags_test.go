@@ -20,10 +20,16 @@ limitations under the License.
 package aws
 
 import (
+	"bytes"
+	"errors"
+	"flag"
+	"os"
 	"testing"
 
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/service/ec2"
+	"github.com/stretchr/testify/assert"
+	"k8s.io/klog/v2"
 )
 
 func TestFilterTags(t *testing.T) {
@@ -181,5 +187,109 @@ func TestHasClusterTag(t *testing.T) {
 		if result != g.Expected {
 			t.Errorf("Unexpected result for tags %v: %t", g.Tags, result)
 		}
+	}
+}
+
+func TestTagResource(t *testing.T) {
+	testFlags := flag.NewFlagSet("TestTagResource", flag.ExitOnError)
+	klog.InitFlags(testFlags)
+	testFlags.Parse([]string{"--logtostderr=false"})
+	awsServices := NewFakeAWSServices(TestClusterID)
+	c, err := newAWSCloud(CloudConfig{}, awsServices)
+	if err != nil {
+		t.Errorf("Error building aws cloud: %v", err)
+		return
+	}
+
+	tests := []struct {
+		name            string
+		instanceID      string
+		err             error
+		expectedMessage string
+	}{
+		{
+			name:            "tagging successful",
+			instanceID:      "i-random",
+			err:             nil,
+			expectedMessage: "Done calling create-tags to EC2",
+		},
+		{
+			name:            "tagging failed due to unknown error",
+			instanceID:      "i-error",
+			err:             errors.New("Unable to tag"),
+			expectedMessage: "Error occurred trying to tag resources",
+		},
+		{
+			name:            "tagging failed due to resource not found error",
+			instanceID:      "i-not-found",
+			err:             nil,
+			expectedMessage: "Couldn't find resource when trying to tag it hence skipping it",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var logBuf bytes.Buffer
+			klog.SetOutput(&logBuf)
+			defer func() {
+				klog.SetOutput(os.Stderr)
+			}()
+
+			err := c.TagResource(tt.instanceID, nil)
+			assert.Equal(t, tt.err, err)
+			assert.Contains(t, logBuf.String(), tt.expectedMessage)
+		})
+	}
+}
+
+func TestUntagResource(t *testing.T) {
+	testFlags := flag.NewFlagSet("TestUntagResource", flag.ExitOnError)
+	klog.InitFlags(testFlags)
+	testFlags.Parse([]string{"--logtostderr=false"})
+	awsServices := NewFakeAWSServices(TestClusterID)
+	c, err := newAWSCloud(CloudConfig{}, awsServices)
+	if err != nil {
+		t.Errorf("Error building aws cloud: %v", err)
+		return
+	}
+
+	tests := []struct {
+		name            string
+		instanceID      string
+		err             error
+		expectedMessage string
+	}{
+		{
+			name:            "untagging successful",
+			instanceID:      "i-random",
+			err:             nil,
+			expectedMessage: "Done calling delete-tags to EC2",
+		},
+		{
+			name:            "untagging failed due to unknown error",
+			instanceID:      "i-error",
+			err:             errors.New("Unable to remove tag"),
+			expectedMessage: "Error occurred trying to untag resources",
+		},
+		{
+			name:            "untagging failed due to resource not found error",
+			instanceID:      "i-not-found",
+			err:             nil,
+			expectedMessage: "Couldn't find resource when trying to untag it hence skipping it",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var logBuf bytes.Buffer
+			klog.SetOutput(&logBuf)
+			defer func() {
+				klog.SetOutput(os.Stderr)
+			}()
+
+			err := c.UntagResource(tt.instanceID, nil)
+			assert.Equal(t, tt.err, err)
+			assert.Contains(t, logBuf.String(), tt.expectedMessage)
+		})
 	}
 }
