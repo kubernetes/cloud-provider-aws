@@ -106,7 +106,7 @@ resources:
   #   memory: 300Mi
 
 # env -- Pod environment variables
-env: {}
+env: []
 # securityContext -- Container Security Context.
 securityContext: {}
 # podSecurityContext -- Pods Security Context.
