@@ -5126,7 +5126,7 @@ func nodeNameToIPAddress(nodeName string) string {
 	nodeName = strings.Split(nodeName, ".")[0]
 	return strings.ReplaceAll(nodeName, "-", ".")
 }
-	
+
 func (c *Cloud) nodeNameToProviderID(nodeName types.NodeName) (InstanceID, error) {
 	if len(nodeName) == 0 {
 		return "", fmt.Errorf("no nodeName provided")
