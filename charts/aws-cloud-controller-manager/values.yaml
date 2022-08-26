@@ -106,7 +106,7 @@ resources:
   #   memory: 300Mi
 
 # env -- Pod environment variables
-env: {}
+env: []
 # securityContext -- Container Security Context.
 securityContext: {}
 # podSecurityContext -- Pods Security Context.
@@ -121,6 +121,9 @@ tolerations:
   effect: NoSchedule
 - key: node-role.kubernetes.io/control-plane
   effect: NoSchedule  
+
+# dnsPolicy -- dnsPolicy of deamonset pods. Should be set to Default if deployed as a deamonset on control-plane nodes to resolve properly
+dnsPolicy: Default
 
 clusterRoleName : system:cloud-controller-manager
 
