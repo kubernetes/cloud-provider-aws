@@ -4951,7 +4951,7 @@ func IsFargateNode(nodeName string) bool {
 }
 
 // extract private ip address from node name
-func nodeNameToIpAddress(nodeName string) string {
+func nodeNameToIPAddress(nodeName string) string {
 	nodeName = strings.TrimPrefix(nodeName, privateDNSNamePrefix)
 	nodeName = strings.Split(nodeName, ".")[0]
 	return strings.ReplaceAll(nodeName, "-", ".")
@@ -5024,7 +5024,7 @@ func (c *Cloud) describeNetworkInterfaces(nodeName string) (*ec2.NetworkInterfac
 	// convert node name to ip address because ip-name based and resource-named EC2 resources
 	// may have different privateDNSName formats but same privateIpAddress format
 	if strings.HasPrefix(eniEndpoint, privateDNSNamePrefix) {
-		eniEndpoint = nodeNameToIpAddress(eniEndpoint)
+		eniEndpoint = nodeNameToIPAddress(eniEndpoint)
 	}
 
 	filters = append(filters, newEc2Filter("private-ip-address", eniEndpoint))
