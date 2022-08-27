@@ -3070,7 +3070,7 @@ func TestNodeAddressesForFargate(t *testing.T) {
 	awsServices := newMockedFakeAWSServices(TestClusterID)
 	c, _ := newAWSCloud(CloudConfig{}, awsServices)
 
-	nodeAddresses, _ := c.NodeAddressesByProviderID(context.TODO(), "aws:///us-west-2c/1abc-2def/fargate-ip-192.168.164.88")
+	nodeAddresses, _ := c.NodeAddressesByProviderID(context.TODO(), "aws:///us-west-2c/1abc-2def/fargate-ip-return-private-dns-name.us-west-2.compute.internal")
 	verifyNodeAddressesForFargate(t, true, nodeAddresses)
 }
 
@@ -3099,6 +3099,15 @@ func TestInstanceExistsByProviderIDForFargate(t *testing.T) {
 	c, _ := newAWSCloud(CloudConfig{}, awsServices)
 
 	instanceExist, err := c.InstanceExistsByProviderID(context.TODO(), "aws:///us-west-2c/1abc-2def/fargate-192.168.164.88")
+	assert.Nil(t, err)
+	assert.True(t, instanceExist)
+}
+
+func TestInstanceExistsByProviderIDWithNodeNameForFargate(t *testing.T) {
+	awsServices := newMockedFakeAWSServices(TestClusterID)
+	c, _ := newAWSCloud(CloudConfig{}, awsServices)
+
+	instanceExist, err := c.InstanceExistsByProviderID(context.TODO(), "aws:///us-west-2c/1abc-2def/fargate-ip-192-168-164-88.us-west-2.compute.internal")
 	assert.Nil(t, err)
 	assert.True(t, instanceExist)
 }
