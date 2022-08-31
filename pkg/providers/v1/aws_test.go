@@ -3113,6 +3113,17 @@ func TestInstanceExistsByProviderIDWithNodeNameForFargate(t *testing.T) {
 	assert.True(t, instanceExist)
 }
 
+func TestInstanceExistsByProviderIDForInstanceNotFound(t *testing.T) {
+	mockedEC2API := newMockedEC2API()
+	c := &Cloud{ec2: &awsSdkEC2{ec2: mockedEC2API}}
+
+	mockedEC2API.On("DescribeInstances", mock.Anything).Return(&ec2.DescribeInstancesOutput{}, awserr.New("InvalidInstanceID.NotFound", "Instance not found", nil))
+
+	instanceExists, err := c.InstanceExistsByProviderID(context.TODO(), "aws:///us-west-2c/1abc-2def/i-not-found")
+	assert.Nil(t, err)
+	assert.False(t, instanceExists)
+}
+
 func TestInstanceNotExistsByProviderIDForFargate(t *testing.T) {
 	awsServices := newMockedFakeAWSServices(TestClusterID)
 	c, _ := newAWSCloud(CloudConfig{}, awsServices)
