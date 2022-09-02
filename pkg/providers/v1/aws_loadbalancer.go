@@ -33,6 +33,7 @@ import (
 	"github.com/aws/aws-sdk-go/service/elbv2"
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/klog/v2"
+	"k8s.io/utils/net"
 
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
@@ -138,7 +139,7 @@ func getKeyValuePropertiesFromAnnotation(annotations map[string]string, annotati
 }
 
 // ensureLoadBalancerv2 ensures a v2 load balancer is created
-func (c *Cloud) ensureLoadBalancerv2(namespacedName types.NamespacedName, loadBalancerName string, mappings []nlbPortMapping, instanceIDs, subnetIDs []string, internalELB bool, annotations map[string]string) (*elbv2.LoadBalancer, error) {
+func (c *Cloud) ensureLoadBalancerv2(namespacedName types.NamespacedName, loadBalancerName string, mappings []nlbPortMapping, instanceIDs, subnetIDs []string, internalELB bool, annotations map[string]string, dualStack bool) (*elbv2.LoadBalancer, error) {
 	loadBalancer, err := c.describeLoadBalancerv2(loadBalancerName)
 	if err != nil {
 		return nil, err
@@ -157,6 +158,9 @@ func (c *Cloud) ensureLoadBalancerv2(namespacedName types.NamespacedName, loadBa
 		createRequest := &elbv2.CreateLoadBalancerInput{
 			Type: aws.String(elbv2.LoadBalancerTypeEnumNetwork),
 			Name: aws.String(loadBalancerName),
+		}
+		if dualStack {
+			createRequest.IpAddressType = aws.String(elbv2.IpAddressTypeDualstack)
 		}
 		if internalELB {
 			createRequest.Scheme = aws.String("internal")
@@ -867,19 +871,25 @@ func (c *Cloud) updateInstanceSecurityGroupsForNLB(lbName string, instances map[
 func (c *Cloud) updateInstanceSecurityGroupForNLBTraffic(sgID string, sgPerms IPPermissionSet, ruleDesc string, protocol string, ports sets.Int64, cidrs []string) error {
 	desiredPerms := NewIPPermissionSet()
 	for port := range ports {
-		for _, cidr := range cidrs {
-			desiredPerms.Insert(&ec2.IpPermission{
-				IpProtocol: aws.String(protocol),
-				FromPort:   aws.Int64(port),
-				ToPort:     aws.Int64(port),
-				IpRanges: []*ec2.IpRange{
-					{
-						CidrIp:      aws.String(cidr),
-						Description: aws.String(ruleDesc),
-					},
-				},
-			})
+		perm := &ec2.IpPermission{
+			IpProtocol: aws.String(protocol),
+			FromPort:   aws.Int64(port),
+			ToPort:     aws.Int64(port),
 		}
+		for _, cidr := range cidrs {
+			if net.IsIPv4CIDRString(cidr) {
+				perm.IpRanges = append(perm.IpRanges, &ec2.IpRange{
+					CidrIp:      aws.String(cidr),
+					Description: aws.String(ruleDesc),
+				})
+			} else {
+				perm.Ipv6Ranges = append(perm.Ipv6Ranges, &ec2.Ipv6Range{
+					CidrIpv6:    aws.String(cidr),
+					Description: aws.String(ruleDesc),
+				})
+			}
+		}
+		desiredPerms.Insert(perm)
 	}
 
 	permsToGrant := desiredPerms.Difference(sgPerms)

@@ -3507,7 +3507,7 @@ func (c *Cloud) findSubnets() ([]*ec2.Subnet, error) {
 // Finds the subnets to use for an ELB we are creating.
 // Normal (Internet-facing) ELBs must use public subnets, so we skip private subnets.
 // Internal ELBs can use public or private subnets, but if we have a private subnet we should prefer that.
-func (c *Cloud) findELBSubnets(internalELB bool) ([]string, error) {
+func (c *Cloud) findELBSubnets(internalELB bool, dualStack bool) ([]string, error) {
 	vpcIDFilter := newEc2Filter("vpc-id", c.vpcID)
 
 	subnets, err := c.findSubnets()
@@ -3574,6 +3574,18 @@ func (c *Cloud) findELBSubnets(internalELB bool) ([]string, error) {
 			continue
 		}
 
+		// in case of dual-stack, prefer the subnet with IPv6 CIDR
+		if dualStack {
+			existingIsIPv6 := len(existing.Ipv6CidrBlockAssociationSet) > 0
+			subnetIsIPv6 := len(subnet.Ipv6CidrBlockAssociationSet) > 0
+			if existingIsIPv6 != subnetIsIPv6 {
+				if subnetIsIPv6 {
+					subnetsByAZ[az] = subnet
+				}
+				continue
+			}
+		}
+
 		// If we have two subnets for the same AZ we arbitrarily choose the one that is first lexicographically.
 		if strings.Compare(*existing.SubnetId, *subnet.SubnetId) > 0 {
 			klog.Warningf("Found multiple subnets in AZ %q; choosing %q between subnets %q and %q", az, *subnet.SubnetId, *existing.SubnetId, *subnet.SubnetId)
@@ -3628,7 +3640,7 @@ func (c *Cloud) getLoadBalancerSubnets(service *v1.Service, internalELB bool) ([
 	if exists := parseStringSliceAnnotation(service.Annotations, ServiceAnnotationLoadBalancerSubnets, &rawSubnetNameOrIDs); exists {
 		return c.resolveSubnetNameOrIDs(rawSubnetNameOrIDs)
 	}
-	return c.findELBSubnets(internalELB)
+	return c.findELBSubnets(internalELB, isDualStackService(service))
 }
 
 func (c *Cloud) resolveSubnetNameOrIDs(subnetNameOrIDs []string) ([]string, error) {
@@ -3890,6 +3902,9 @@ func (c *Cloud) getSubnetCidrs(subnetIDs []string) ([]string, error) {
 	cidrs := make([]string, 0, len(subnets))
 	for _, subnet := range subnets {
 		cidrs = append(cidrs, aws.StringValue(subnet.CidrBlock))
+		for _, as := range subnet.Ipv6CidrBlockAssociationSet {
+			cidrs = append(cidrs, aws.StringValue(as.Ipv6CidrBlock))
+		}
 	}
 	return cidrs, nil
 }
@@ -4090,6 +4105,7 @@ func (c *Cloud) EnsureLoadBalancer(ctx context.Context, clusterName string, apiS
 			subnetIDs,
 			internalELB,
 			annotations,
+			isDualStackService(apiService),
 		)
 		if err != nil {
 			return nil, err
@@ -4107,6 +4123,9 @@ func (c *Cloud) EnsureLoadBalancer(ctx context.Context, clusterName string, apiS
 		}
 		if len(sourceRangeCidrs) == 0 {
 			sourceRangeCidrs = append(sourceRangeCidrs, "0.0.0.0/0")
+		}
+		if isDualStackService(apiService) {
+			sourceRangeCidrs = append(sourceRangeCidrs, "::/0")
 		}
 
 		err = c.updateInstanceSecurityGroupsForNLB(loadBalancerName, instances, subnetCidrs, sourceRangeCidrs, v2Mappings)
@@ -5241,4 +5260,12 @@ func getRegionFromMetadata(cfg CloudConfig, metadata EC2Metadata) (string, strin
 	}
 
 	return regionName, zone, nil
+}
+
+func isDualStackService(s *v1.Service) bool {
+	if s.Spec.IPFamilyPolicy != nil &&
+		(*s.Spec.IPFamilyPolicy == v1.IPFamilyPolicyPreferDualStack || *s.Spec.IPFamilyPolicy == v1.IPFamilyPolicyRequireDualStack) {
+		return true
+	}
+	return false
 }
