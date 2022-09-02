@@ -1223,10 +1223,10 @@ func init() {
 			}
 		} else {
 			klog.Infof("Using AWS assumed role %v", cfg.Global.RoleARN)
-			provider = &stscreds.AssumeRoleProvider{
+			provider = assumeRoleProvider(&stscreds.AssumeRoleProvider{
 				Client:  sts.New(sess),
 				RoleARN: cfg.Global.RoleARN,
-			}
+			})
 		}
 
 		creds := credentials.NewChainCredentials(
