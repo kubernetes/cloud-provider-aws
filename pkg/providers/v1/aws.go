@@ -1223,15 +1223,18 @@ func init() {
 			}
 		} else {
 			klog.Infof("Using AWS assumed role %v", cfg.Global.RoleARN)
-			creds := credentials.NewChainCredentials(
-				[]credentials.Provider{
-					&credentials.EnvProvider{},
-					assumeRoleProvider(&stscreds.AssumeRoleProvider{
-						Client:  sts.New(sess),
-						RoleARN: cfg.Global.RoleARN,
-					}),
-				})
+			provider = assumeRoleProvider(&stscreds.AssumeRoleProvider{
+				Client:  sts.New(sess),
+				RoleARN: cfg.Global.RoleARN,
+			})
 		}
+
+		creds := credentials.NewChainCredentials(
+			[]credentials.Provider{
+				&credentials.EnvProvider{},
+				provider,
+				&credentials.SharedCredentialsProvider{},
+			})
 
 		aws := newAWSSDKProvider(creds, cfg)
 		return newAWSCloud(*cfg, aws)
