@@ -5,4 +5,7 @@ metadata:
   name: {{ .Values.clusterRoleName }}
   labels:
     helm.sh/chart: "{{ .Chart.Name }}-{{ .Chart.Version }}"
+    app.kubernetes.io/name: "{{ template "cloud-controller-manager.name" . }}"
+    app.kubernetes.io/managed-by: "{{ .Release.Service }}"
+    app.kubernetes.io/instance: "{{ .Release.Name }}"
 rules: {{ toYaml .Values.clusterRoleRules | nindent 2 -}}
