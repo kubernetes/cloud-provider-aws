@@ -3,7 +3,7 @@ module k8s.io/cloud-provider-aws
 go 1.17
 
 require (
-	github.com/aws/aws-sdk-go v1.43.32
+	github.com/aws/aws-sdk-go v1.44.107
 	github.com/golang/mock v1.4.4
 	github.com/google/go-cmp v0.5.5
 	github.com/stretchr/testify v1.7.0
@@ -106,7 +106,6 @@ require (
 	gopkg.in/yaml.v2 v2.4.0 // indirect
 	gopkg.in/yaml.v3 v3.0.0-20210107192922-496545a6307b // indirect
 	k8s.io/apiserver v0.22.8 // indirect
-	k8s.io/controller-manager v0.22.8 // indirect
 	k8s.io/gengo v0.0.0-20201214224949-b6c5ce23f027 // indirect
 	k8s.io/kube-openapi v0.0.0-20211109043538-20434351676c // indirect
 	sigs.k8s.io/apiserver-network-proxy/konnectivity-client v0.0.30 // indirect
