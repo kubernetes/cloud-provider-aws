@@ -202,14 +202,6 @@ func (c *instanceCache) describeAllInstancesCached(criteria cacheCriteria) (*all
 	return c.describeAllInstancesUncached()
 }
 
-// getSnapshot returns a snapshot if one exists
-func (c *instanceCache) getSnapshot() *allInstancesSnapshot {
-	c.mutex.Lock()
-	defer c.mutex.Unlock()
-
-	return c.snapshot
-}
-
 // olderThan is a simple helper to encapsulate timestamp comparison
 func (s *allInstancesSnapshot) olderThan(other *allInstancesSnapshot) bool {
 	// After() is technically broken by time changes until we have monotonic time
