@@ -102,20 +102,7 @@ func (e *ecrPlugin) GetCredentials(ctx context.Context, image string, args []str
 		return nil, errors.New("error parsing username and password from authorization token")
 	}
 
-	var cacheDuration *metav1.Duration
-	expiresAt := data.ExpiresAt
-	if expiresAt == nil {
-		// explicitly set cache duration to 0 if expiresAt was nil so that
-		// kubelet does not cache it in-memory
-		cacheDuration = &metav1.Duration{Duration: 0}
-	} else {
-		// halving duration in order to compensate for the time loss between
-		// the token creation and passing it all the way to kubelet.
-		duration := time.Duration((expiresAt.Unix() - time.Now().Unix()) / 2)
-		if duration > 0 {
-			cacheDuration = &metav1.Duration{Duration: duration}
-		}
-	}
+	cacheDuration := getCacheDuration(data.ExpiresAt)
 
 	return &v1alpha1.CredentialProviderResponse{
 		CacheKeyType:  v1alpha1.RegistryPluginCacheKeyType,
@@ -128,6 +115,24 @@ func (e *ecrPlugin) GetCredentials(ctx context.Context, image string, args []str
 		},
 	}, nil
 
+}
+
+// getCacheDuration calculates the credentials cache duration based on the ExpiresAt time from the authorization data
+func getCacheDuration(expiresAt *time.Time) *metav1.Duration {
+	var cacheDuration *metav1.Duration
+	if expiresAt == nil {
+		// explicitly set cache duration to 0 if expiresAt was nil so that
+		// kubelet does not cache it in-memory
+		cacheDuration = &metav1.Duration{Duration: 0}
+	} else {
+		// halving duration in order to compensate for the time loss between
+		// the token creation and passing it all the way to kubelet.
+		duration := time.Second * time.Duration((expiresAt.Unix()-time.Now().Unix())/2)
+		if duration > 0 {
+			cacheDuration = &metav1.Duration{Duration: duration}
+		}
+	}
+	return cacheDuration
 }
 
 // parseRepoURL parses and splits the registry URL
