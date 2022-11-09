@@ -29,6 +29,7 @@ import (
 
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/awserr"
+	"github.com/aws/aws-sdk-go/aws/request"
 	"github.com/aws/aws-sdk-go/service/ec2"
 	"github.com/aws/aws-sdk-go/service/ec2/ec2iface"
 	"github.com/aws/aws-sdk-go/service/elb"
@@ -3809,7 +3810,7 @@ func TestInstanceExistsByProviderIDForInstanceNotFound(t *testing.T) {
 	mockedEC2API := newMockedEC2API()
 	c := &Cloud{ec2: &awsSdkEC2{ec2: mockedEC2API}}
 
-	mockedEC2API.On("DescribeInstances", mock.Anything).Return(&ec2.DescribeInstancesOutput{}, awserr.New("InvalidInstanceID.NotFound", "Instance not found", nil))
+	mockedEC2API.On("DescribeInstancesWithContext", mock.Anything, mock.Anything).Return(&ec2.DescribeInstancesOutput{}, awserr.New("InvalidInstanceID.NotFound", "Instance not found", nil))
 
 	instanceExists, err := c.InstanceExistsByProviderID(context.TODO(), "aws:///us-west-2c/1abc-2def/i-not-found")
 	assert.Nil(t, err)
@@ -3866,6 +3867,11 @@ type MockedEC2API struct {
 	mock.Mock
 }
 
+func (m *MockedEC2API) DescribeInstancesWithContext(ctx context.Context, input *ec2.DescribeInstancesInput, opts ...request.Option) (*ec2.DescribeInstancesOutput, error) {
+	args := m.Called(ctx, input)
+	return args.Get(0).(*ec2.DescribeInstancesOutput), args.Error(1)
+}
+
 func (m *MockedEC2API) DescribeInstances(input *ec2.DescribeInstancesInput) (*ec2.DescribeInstancesOutput, error) {
 	args := m.Called(input)
 	return args.Get(0).(*ec2.DescribeInstancesOutput), args.Error(1)
@@ -3887,7 +3893,8 @@ func TestDescribeInstances(t *testing.T) {
 			&ec2.DescribeInstancesInput{},
 			func(mockedEc2 ec2iface.EC2API) {
 				m := mockedEc2.(*MockedEC2API)
-				m.On("DescribeInstances",
+				m.On("DescribeInstancesWithContext",
+					mock.Anything,
 					&ec2.DescribeInstancesInput{
 						MaxResults: aws.Int64(1000),
 					},
@@ -3897,7 +3904,8 @@ func TestDescribeInstances(t *testing.T) {
 					},
 					nil,
 				)
-				m.On("DescribeInstances",
+				m.On("DescribeInstancesWithContext",
+					mock.Anything,
 					&ec2.DescribeInstancesInput{
 						MaxResults: aws.Int64(1000),
 						NextToken:  aws.String("asdf"),
@@ -3916,7 +3924,8 @@ func TestDescribeInstances(t *testing.T) {
 			},
 			func(mockedEc2 ec2iface.EC2API) {
 				m := mockedEc2.(*MockedEC2API)
-				m.On("DescribeInstances",
+				m.On("DescribeInstancesWithContext",
+					mock.Anything,
 					&ec2.DescribeInstancesInput{
 						MaxResults: aws.Int64(3),
 					},
@@ -3934,7 +3943,8 @@ func TestDescribeInstances(t *testing.T) {
 			},
 			func(mockedEc2 ec2iface.EC2API) {
 				m := mockedEc2.(*MockedEC2API)
-				m.On("DescribeInstances",
+				m.On("DescribeInstancesWithContext",
+					mock.Anything,
 					&ec2.DescribeInstancesInput{
 						InstanceIds: []*string{aws.String("i-1234")},
 					},

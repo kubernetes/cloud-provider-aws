@@ -17,6 +17,7 @@ limitations under the License.
 package aws
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"sort"
@@ -141,6 +142,10 @@ type FakeEC2Impl struct {
 
 // DescribeInstances returns fake instance descriptions
 func (ec2i *FakeEC2Impl) DescribeInstances(request *ec2.DescribeInstancesInput) ([]*ec2.Instance, error) {
+	return ec2i.DescribeInstancesWithContext(context.Background(), request)
+}
+
+func (ec2i *FakeEC2Impl) DescribeInstancesWithContext(ctx context.Context, request *ec2.DescribeInstancesInput) ([]*ec2.Instance, error) {
 	matches := []*ec2.Instance{}
 	for _, instance := range ec2i.aws.instances {
 		if request.InstanceIds != nil {

@@ -17,11 +17,14 @@ limitations under the License.
 package aws
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
 	"io"
+	"io/ioutil"
 	"net"
+	"os"
 	"regexp"
 	"sort"
 	"strconv"
@@ -37,6 +40,7 @@ import (
 	"github.com/aws/aws-sdk-go/aws/endpoints"
 	"github.com/aws/aws-sdk-go/aws/request"
 	"github.com/aws/aws-sdk-go/aws/session"
+	"github.com/aws/aws-sdk-go/private/protocol/json/jsonutil"
 	"github.com/aws/aws-sdk-go/service/autoscaling"
 	"github.com/aws/aws-sdk-go/service/ec2"
 	"github.com/aws/aws-sdk-go/service/ec2/ec2iface"
@@ -323,6 +327,11 @@ const MaxReadThenCreateRetries = 30
 // need hardcoded defaults.
 const DefaultVolumeType = "gp2"
 
+// DescribeSelfInstanceTimeout is the amount of time we will wait for ec2 to give us
+// the our DescribeInstance information. If we fail to get a response, we will fallback
+// to other mechanisms to get the information or fail to initialize.
+const DescribeSelfInstanceTimeout = 1 * time.Minute
+
 // Services is an abstraction over AWS, to allow mocking/other implementations
 type Services interface {
 	Compute(region string) (EC2, error)
@@ -338,6 +347,7 @@ type Services interface {
 // TODO: Should we rename this to AWS (EBS & ELB are not technically part of EC2)
 type EC2 interface {
 	// Query EC2 for instances matching the filter
+	DescribeInstancesWithContext(context.Context, *ec2.DescribeInstancesInput) ([]*ec2.Instance, error)
 	DescribeInstances(request *ec2.DescribeInstancesInput) ([]*ec2.Instance, error)
 
 	// Attach a volume to an instance
@@ -647,6 +657,8 @@ type CloudConfig struct {
 
 		// NodeIPFamilies determines which IP addresses are added to node objects and their ordering.
 		NodeIPFamilies []string
+
+		OfflineCacheLocation string
 	}
 	// [ServiceOverride "1"]
 	//  Service = s3
@@ -991,6 +1003,10 @@ func (c *Cloud) CurrentNodeName(ctx context.Context, hostname string) (types.Nod
 
 // Implementation of EC2.Instances
 func (s *awsSdkEC2) DescribeInstances(request *ec2.DescribeInstancesInput) ([]*ec2.Instance, error) {
+	return s.DescribeInstancesWithContext(context.Background(), request)
+}
+
+func (s *awsSdkEC2) DescribeInstancesWithContext(ctx context.Context, request *ec2.DescribeInstancesInput) ([]*ec2.Instance, error) {
 	// Instances are paged
 	results := []*ec2.Instance{}
 	var nextToken *string
@@ -1003,10 +1019,10 @@ func (s *awsSdkEC2) DescribeInstances(request *ec2.DescribeInstancesInput) ([]*e
 	}
 
 	for {
-		response, err := s.ec2.DescribeInstances(request)
+		response, err := s.ec2.DescribeInstancesWithContext(ctx, request)
 		if err != nil {
 			recordAWSMetric("describe_instance", 0, err)
-			return nil, fmt.Errorf("error listing AWS instances: %q", err)
+			return nil, fmt.Errorf("error listing AWS instances: %w", err)
 		}
 
 		for _, reservation := range response.Reservations {
@@ -1354,7 +1370,7 @@ func newAWSCloud(cfg CloudConfig, awsServices Services) (*Cloud, error) {
 		klog.Warningf("Strict AWS zone checking is disabled.  Proceeding with zone: %s", zone)
 	}
 
-	ec2, err := awsServices.Compute(regionName)
+	ec2Srvc, err := awsServices.Compute(regionName)
 	if err != nil {
 		return nil, fmt.Errorf("error creating AWS EC2 client: %v", err)
 	}
@@ -1380,7 +1396,7 @@ func newAWSCloud(cfg CloudConfig, awsServices Services) (*Cloud, error) {
 	}
 
 	awsCloud := &Cloud{
-		ec2:      ec2,
+		ec2:      ec2Srvc,
 		elb:      elb,
 		elbv2:    elbv2,
 		asg:      asg,
@@ -1395,39 +1411,59 @@ func newAWSCloud(cfg CloudConfig, awsServices Services) (*Cloud, error) {
 	awsCloud.instanceCache.cloud = awsCloud
 
 	tagged := cfg.Global.KubernetesClusterTag != "" || cfg.Global.KubernetesClusterID != ""
-	if cfg.Global.VPC != "" && (cfg.Global.SubnetID != "" || cfg.Global.RoleARN != "") && tagged {
-		// When the master is running on a different AWS account, cloud provider or on-premise
-		// build up a dummy instance and use the VPC from the nodes account
-		klog.Info("Master is configured to run on a different AWS account, different cloud provider or on-premises")
-		awsCloud.selfAWSInstance = &awsInstance{
-			nodeName: "master-dummy",
-			vpcID:    cfg.Global.VPC,
-			subnetID: cfg.Global.SubnetID,
-		}
-		awsCloud.vpcID = cfg.Global.VPC
-	} else {
-		selfAWSInstance, err := awsCloud.buildSelfAWSInstance()
+	var selfAWSInstance *awsInstance
+
+	if !tagged {
+		// We want to fetch the hostname via the EC2 metadata service
+		// (`GetMetadata("local-hostname")`): But see #11543 - we need to use
+		// the EC2 API to get the privateDnsName in case of a private DNS zone
+		// e.g. mydomain.io, because the metadata service returns the wrong
+		// hostname.  Once we're doing that, we might as well get all our
+		// information from the instance returned by the EC2 API - it is a
+		// single API call to get all the information, and it means we don't
+		// have two code paths.
+		myDescribeInstance, err := awsCloud.describeSelfInstance()
 		if err != nil {
 			return nil, err
 		}
-		awsCloud.selfAWSInstance = selfAWSInstance
-		awsCloud.vpcID = selfAWSInstance.vpcID
-	}
 
-	if cfg.Global.KubernetesClusterTag != "" || cfg.Global.KubernetesClusterID != "" {
+		selfAWSInstance, err = awsCloud.buildSelfAWSInstance(myDescribeInstance)
+		if err != nil {
+			return nil, err
+		}
+
+		if err := awsCloud.tagging.initFromTags(myDescribeInstance.Tags); err != nil {
+			return nil, err
+		}
+	} else {
+		if cfg.Global.VPC != "" && (cfg.Global.SubnetID != "" || cfg.Global.RoleARN != "") {
+			// When the master is running on a different AWS account, cloud provider or on-premise
+			// build up a dummy instance and use the VPC from the nodes account
+			klog.Info("Master is configured to run on a different AWS account, different cloud provider or on-premises")
+			selfAWSInstance = &awsInstance{
+				nodeName: "master-dummy",
+				vpcID:    cfg.Global.VPC,
+				subnetID: cfg.Global.SubnetID,
+			}
+		} else {
+			myDescribeInstance, err := awsCloud.describeSelfInstance()
+			if err != nil {
+				return nil, err
+			}
+
+			selfAWSInstance, err = awsCloud.buildSelfAWSInstance(myDescribeInstance)
+			if err != nil {
+				return nil, err
+			}
+		}
+
 		if err := awsCloud.tagging.init(cfg.Global.KubernetesClusterTag, cfg.Global.KubernetesClusterID); err != nil {
 			return nil, err
 		}
-	} else {
-		// TODO: Clean up double-API query
-		info, err := awsCloud.selfAWSInstance.describeInstance()
-		if err != nil {
-			return nil, err
-		}
-		if err := awsCloud.tagging.initFromTags(info.Tags); err != nil {
-			return nil, err
-		}
 	}
+
+	awsCloud.selfAWSInstance = selfAWSInstance
+	awsCloud.vpcID = selfAWSInstance.vpcID
 
 	if len(cfg.Global.NodeIPFamilies) == 0 {
 		cfg.Global.NodeIPFamilies = []string{"ipv4"}
@@ -1995,11 +2031,6 @@ func newAWSInstance(ec2Service EC2, instance *ec2.Instance) *awsInstance {
 	return self
 }
 
-// Gets the full information about this instance from the EC2 API
-func (i *awsInstance) describeInstance() (*ec2.Instance, error) {
-	return describeInstance(i.ec2, InstanceID(i.awsID))
-}
-
 // Gets the mountDevice already assigned to the volume, or assigns an unused mountDevice.
 // If the volume is already assigned, this will return the existing mountDevice with alreadyAttached=true.
 // Otherwise the mountDevice is assigned by finding the first available mountDevice, and it is returned with alreadyAttached=false.
@@ -2382,29 +2413,92 @@ func (d *awsDisk) deleteVolume() (bool, error) {
 	return true, nil
 }
 
-// Builds the awsInstance for the EC2 instance on which we are running.
-// This is called when the AWSCloud is initialized, and should not be called otherwise (because the awsInstance for the local instance is a singleton with drive mapping state)
-func (c *Cloud) buildSelfAWSInstance() (*awsInstance, error) {
-	if c.selfAWSInstance != nil {
-		panic("do not call buildSelfAWSInstance directly")
-	}
+func (c *Cloud) describeSelfInstance() (*ec2.Instance, error) {
 	instanceID, err := c.metadata.GetMetadata("instance-id")
 	if err != nil {
 		return nil, fmt.Errorf("error fetching instance-id from ec2 metadata service: %q", err)
 	}
+	ctx, cancelFn := context.WithTimeout(context.Background(), DescribeSelfInstanceTimeout)
+	defer cancelFn()
 
-	// We want to fetch the hostname via the EC2 metadata service
-	// (`GetMetadata("local-hostname")`): But see #11543 - we need to use
-	// the EC2 API to get the privateDnsName in case of a private DNS zone
-	// e.g. mydomain.io, because the metadata service returns the wrong
-	// hostname.  Once we're doing that, we might as well get all our
-	// information from the instance returned by the EC2 API - it is a
-	// single API call to get all the information, and it means we don't
-	// have two code paths.
-	instance, err := c.getInstanceByID(instanceID)
+	instance, err := describeInstanceWithContext(ctx, c.ec2, InstanceID(instanceID))
 	if err != nil {
-		return nil, fmt.Errorf("error finding instance %s: %q", instanceID, err)
+		// if the error is network related then we should try to read from disk
+		var awsError awserr.Error
+		if ok := errors.As(err, &awsError); ok && awsError.OrigErr() != nil {
+			err = awsError.OrigErr()
+		}
+
+		var netErr net.Error
+		if errors.As(err, &netErr) || errors.Is(err, context.DeadlineExceeded) {
+			klog.Info("falling back to disk cache, network error detected")
+			return c.fetchSelfInstanceFromCache(instanceID)
+		} else {
+			return nil, fmt.Errorf("error calling ec2 for self instance")
+		}
 	}
+	c.storeSelfInstanceToCache(instance)
+	return instance, nil
+}
+
+func (c *Cloud) storeSelfInstanceToCache(instance *ec2.Instance) {
+	if c.cfg.Global.OfflineCacheLocation == "" {
+		return
+	}
+	fileLocation := c.cfg.Global.OfflineCacheLocation
+	f, err := os.Create(fileLocation)
+	if err != nil {
+		klog.Warningf("error storing cache to disk, couldn't create or truncate file: %s", err)
+		return
+	}
+	serializedData, err := jsonutil.BuildJSON(instance)
+	if err != nil {
+		klog.Warningf("error storing cache to disk, couldn't serialize describe call: %s", err)
+		return
+	}
+
+	_, err = f.Write(serializedData)
+	if err != nil {
+		klog.Warningf("error storing cache to disk, failed to write serialized data: %s", err)
+		return
+	}
+}
+
+func (c *Cloud) fetchSelfInstanceFromCache(instanceId string) (*ec2.Instance, error) {
+	if c.cfg.Global.OfflineCacheLocation == "" {
+		return nil, fmt.Errorf("unable to fetch instance from disk, offline cache location is not set")
+	}
+	fileLocation := c.cfg.Global.OfflineCacheLocation
+	f, err := os.Open(fileLocation)
+	if err != nil {
+		return nil, fmt.Errorf("error opening describe self instance cache: %w", err)
+	}
+
+	b, err := ioutil.ReadAll(f)
+	if err != nil {
+		return nil, fmt.Errorf("error reading describe self instance cache: %w", err)
+	}
+
+	res := &ec2.Instance{}
+	err = jsonutil.UnmarshalJSON(res, bytes.NewBuffer(b))
+	if err != nil {
+		return nil, fmt.Errorf("error unmarshalling describe self instance cache: %w", err)
+	}
+
+	if res.InstanceId == nil || *res.InstanceId != instanceId {
+		return nil, fmt.Errorf("cache containes a differente instance id definition, expected %s but got %s", instanceId, *res.InstanceId)
+	}
+
+	return res, nil
+}
+
+// Builds the awsInstance for the EC2 instance on which we are running.
+// This is called when the AWSCloud is initialized, and should not be called otherwise (because the awsInstance for the local instance is a singleton with drive mapping state)
+func (c *Cloud) buildSelfAWSInstance(instance *ec2.Instance) (*awsInstance, error) {
+	if c.selfAWSInstance != nil {
+		panic("do not call buildSelfAWSInstance directly")
+	}
+
 	return newAWSInstance(c.ec2, instance), nil
 }
 

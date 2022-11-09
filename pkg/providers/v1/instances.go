@@ -17,6 +17,7 @@ limitations under the License.
 package aws
 
 import (
+	"context"
 	"fmt"
 	"net/url"
 	"regexp"
@@ -121,16 +122,21 @@ func mapToAWSInstanceIDsTolerant(nodes []*v1.Node) []InstanceID {
 	return instanceIDs
 }
 
-// Gets the full information about this instance from the EC2 API
 func describeInstance(ec2Client EC2, instanceID InstanceID) (*ec2.Instance, error) {
+	return describeInstanceWithContext(context.Background(), ec2Client, instanceID)
+}
+
+// Gets the full information about this instance from the EC2 API
+func describeInstanceWithContext(ctx context.Context, ec2Client EC2, instanceID InstanceID) (*ec2.Instance, error) {
 	request := &ec2.DescribeInstancesInput{
 		InstanceIds: []*string{instanceID.awsString()},
 	}
 
-	instances, err := ec2Client.DescribeInstances(request)
+	instances, err := ec2Client.DescribeInstancesWithContext(ctx, request)
 	if err != nil {
 		return nil, err
 	}
+
 	if len(instances) == 0 {
 		return nil, fmt.Errorf("no instances found for instance: %s", instanceID)
 	}
