@@ -248,3 +248,22 @@ func TestRegistryPatternMatch(t *testing.T) {
 		}
 	}
 }
+
+func Test_getCacheDuration(t *testing.T) {
+	testcases := []struct {
+		ExpiresAt *time.Time
+		Expected  time.Duration
+	}{
+		{nil, 0},
+		{aws.Time(time.Now().Add(12 * time.Hour)), 6 * time.Hour},
+	}
+
+	for _, tc := range testcases {
+		actual := getCacheDuration(tc.ExpiresAt)
+		if actual == nil {
+			t.Errorf("unexpected nil value returned for test value %v", tc.ExpiresAt)
+		} else if actual.Round(time.Second) != tc.Expected {
+			t.Errorf("unexpected duration value: want %v, got %v", tc.Expected, actual.Duration)
+		}
+	}
+}

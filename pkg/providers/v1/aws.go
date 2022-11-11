@@ -173,7 +173,9 @@ const ServiceAnnotationLoadBalancerSSLNegotiationPolicy = "service.beta.kubernet
 // ServiceAnnotationLoadBalancerBEProtocol is the annotation used on the service
 // to specify the protocol spoken by the backend (pod) behind a listener.
 // If `http` (default) or `https`, an HTTPS listener that terminates the
-//  connection and parses headers is created.
+//
+//	connection and parses headers is created.
+//
 // If set to `ssl` or `tcp`, a "raw" SSL listener is used.
 // If set to `http` and `aws-load-balancer-ssl-cert` is not used then
 // a HTTP listener is used.
@@ -236,9 +238,9 @@ const ServiceAnnotationLoadBalancerTargetNodeLabels = "service.beta.kubernetes.i
 // subnetID or subnetName from different AZs
 // By default, the controller will auto-discover the subnets. If there are multiple subnets per AZ, auto-discovery
 // will break the tie in the following order -
-//   1. prefer the subnet with the correct role tag. kubernetes.io/role/elb for public and kubernetes.io/role/internal-elb for private access
-//   2. prefer the subnet with the cluster tag kubernetes.io/cluster/<Cluster Name>
-//   3. prefer the subnet that is first in lexicographic order
+//  1. prefer the subnet with the correct role tag. kubernetes.io/role/elb for public and kubernetes.io/role/internal-elb for private access
+//  2. prefer the subnet with the cluster tag kubernetes.io/cluster/<Cluster Name>
+//  3. prefer the subnet that is first in lexicographic order
 const ServiceAnnotationLoadBalancerSubnets = "service.beta.kubernetes.io/aws-load-balancer-subnets"
 
 // Event key when a volume is stuck on attaching state when being attached to a volume
@@ -1939,6 +1941,10 @@ func isAWSErrorInstanceNotFound(err error) bool {
 		if awsError.Code() == ec2.UnsuccessfulInstanceCreditSpecificationErrorCodeInvalidInstanceIdNotFound {
 			return true
 		}
+	} else if strings.Contains(err.Error(), ec2.UnsuccessfulInstanceCreditSpecificationErrorCodeInvalidInstanceIdNotFound) {
+		// In places like https://github.com/kubernetes/cloud-provider-aws/blob/1c6194aad0122ab44504de64187e3d1a7415b198/pkg/providers/v1/aws.go#L1007,
+		// the error has been transformed into something else so check the error string to see if it contains the error code we're looking for.
+		return true
 	}
 
 	return false
@@ -3806,8 +3812,8 @@ func (c *Cloud) buildELBSecurityGroupList(serviceName types.NamespacedName, load
 
 // sortELBSecurityGroupList returns a list of sorted securityGroupIDs based on the original order
 // from buildELBSecurityGroupList. The logic is:
-//  * securityGroups specified by ServiceAnnotationLoadBalancerSecurityGroups appears first in order
-//  * securityGroups specified by ServiceAnnotationLoadBalancerExtraSecurityGroups appears last in order
+//   - securityGroups specified by ServiceAnnotationLoadBalancerSecurityGroups appears first in order
+//   - securityGroups specified by ServiceAnnotationLoadBalancerExtraSecurityGroups appears last in order
 func (c *Cloud) sortELBSecurityGroupList(securityGroupIDs []string, annotations map[string]string) {
 	annotatedSGList := getSGListFromAnnotation(annotations[ServiceAnnotationLoadBalancerSecurityGroups])
 	annotatedExtraSGList := getSGListFromAnnotation(annotations[ServiceAnnotationLoadBalancerExtraSecurityGroups])
@@ -5087,6 +5093,13 @@ func IsFargateNode(nodeName string) bool {
 	return strings.HasPrefix(nodeName, fargateNodeNamePrefix)
 }
 
+// extract private ip address from node name
+func nodeNameToIPAddress(nodeName string) string {
+	nodeName = strings.TrimPrefix(nodeName, privateDNSNamePrefix)
+	nodeName = strings.Split(nodeName, ".")[0]
+	return strings.ReplaceAll(nodeName, "-", ".")
+}
+
 func (c *Cloud) nodeNameToInstanceID(nodeName types.NodeName) (InstanceID, error) {
 	if strings.HasPrefix(string(nodeName), rbnNamePrefix) {
 		return InstanceID(nodeName), nil
@@ -5188,11 +5201,13 @@ func (c *Cloud) describeNetworkInterfaces(nodeName string) (*ec2.NetworkInterfac
 	}
 
 	// when enableDnsSupport is set to false in a VPC, interface will not have private DNS names.
+	// convert node name to ip address because ip-name based and resource-named EC2 resources
+	// may have different privateDNSName formats but same privateIpAddress format
 	if strings.HasPrefix(eniEndpoint, privateDNSNamePrefix) {
-		filters = append(filters, newEc2Filter("private-dns-name", eniEndpoint))
-	} else {
-		filters = append(filters, newEc2Filter("private-ip-address", eniEndpoint))
+		eniEndpoint = nodeNameToIPAddress(eniEndpoint)
 	}
+
+	filters = append(filters, newEc2Filter("private-ip-address", eniEndpoint))
 
 	request := &ec2.DescribeNetworkInterfacesInput{
 		Filters: filters,

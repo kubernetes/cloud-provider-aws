@@ -121,14 +121,7 @@ aws ecr get-login-password --region "${REGION}" | docker login --username AWS --
 docker tag "${BUILD_IMAGE}" "${IMAGE_NAME}:${IMAGE_TAG}"
 docker push "${IMAGE_NAME}:${IMAGE_TAG}"
 
-function kops-finish {
-    "${test_run}"/kops delete cluster --name "${CLUSTER_NAME}" --yes
-}
-
 if [[ "${UP}" = "yes" ]]; then
-
-    trap kops-finish EXIT
-
     kubetest2 kops \
       -v 2 \
       --up \
@@ -151,3 +144,8 @@ fi
 pushd ./tests/e2e
 ginkgo . -p -nodes="${GINKGO_NODES}" -v --focus="${GINKGO_FOCUS}" --skip="${GINKGO_SKIP}" "" -- -kubeconfig="${KUBECONFIG}" -report-dir="${test_run}" -gce-zone="${ZONES%,*}" "${EXPANDED_TEST_EXTRA_FLAGS}"
 popd
+
+if [[ "${DOWN}" = "yes" ]]; then
+    # This should be changed to ${test_run}/kops once https://github.com/kubernetes/kops/pull/13217 is merged.
+    ${test_run}/${test_run_id}/kops delete cluster --name "${CLUSTER_NAME}" --yes
+fi
