@@ -47,7 +47,7 @@ UP="${UP:-yes}"
 # if DOWN==yes, delete cluster after test
 DOWN="${DOWN:-yes}"
 
-KUBERNETES_VERSION="${KUBERNETES_VERSION:-v1.24.1}"
+KUBERNETES_VERSION="${KUBERNETES_VERSION:-v1.25.4}"
 CLUSTER_NAME="${CLUSTER_NAME:-test-cluster-${test_run_id}.k8s}"
 KOPS_STATE_STORE="${KOPS_STATE_STORE:-}"
 REGION="${AWS_REGION:-us-west-2}"
@@ -100,7 +100,7 @@ echo " + Cluster name:        ${CLUSTER_NAME}"
 echo " + Kubernetes version:  ${KUBERNETES_VERSION}"
 echo " + Focus:               ${GINKGO_FOCUS}"
 echo " + Skip:                ${GINKGO_SKIP}"
-echo " + Kops state store:    ${KOPS_STATE_STORE}"
+echo " + kOps state store:    ${KOPS_STATE_STORE}"
 echo " + SSH public key path: ${SSH_PUBLIC_KEY_PATH}"
 echo " + Test run ID:         ${test_run_id}"
 echo " + Kubetest run dir:    ${test_run}"
@@ -142,7 +142,7 @@ if [[ "${UP}" = "yes" ]]; then
 fi
 
 pushd ./tests/e2e
-ginkgo . -p -nodes="${GINKGO_NODES}" -v --focus="${GINKGO_FOCUS}" --skip="${GINKGO_SKIP}" "" -- -kubeconfig="${KUBECONFIG}" -report-dir="${test_run}" -gce-zone="${ZONES%,*}" "${EXPANDED_TEST_EXTRA_FLAGS}"
+ginkgo . -v -p --nodes="${GINKGO_NODES}" --focus="${GINKGO_FOCUS}" --skip="${GINKGO_SKIP}"
 popd
 
 if [[ "${DOWN}" = "yes" ]]; then
