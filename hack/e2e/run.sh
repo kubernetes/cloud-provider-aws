@@ -48,7 +48,7 @@ UP="${UP:-yes}"
 DOWN="${DOWN:-yes}"
 
 KUBERNETES_VERSION="${KUBERNETES_VERSION:-v1.22.7}"
-CLUSTER_NAME="test-cluster-${test_run_id}.k8s.local"
+CLUSTER_NAME="test-cluster-${test_run_id}.k8s"
 KOPS_STATE_STORE="${KOPS_STATE_STORE:-}"
 REGION="${AWS_REGION:-us-west-2}"
 ZONES="${AWS_AVAILABILITY_ZONES:-us-west-2a,us-west-2b,us-west-2c}"
@@ -134,7 +134,7 @@ if [[ "${UP}" = "yes" ]]; then
       --run-id="${test_run_id}" \
       --cloud-provider=aws \
       --cluster-name="${CLUSTER_NAME}" \
-      --create-args="--zones=${ZONES} --node-size=m5.large --master-size=m5.large --override=cluster.spec.kubeAPIServer.cloudProvider=external --override=cluster.spec.kubeControllerManager.cloudProvider=external --override=cluster.spec.kubelet.cloudProvider=external --override=cluster.spec.cloudControllerManager.cloudProvider=aws --override=cluster.spec.cloudControllerManager.image=${IMAGE_NAME}:${IMAGE_TAG} --override=spec.cloudConfig.awsEBSCSIDriver.enabled=true" \
+      --create-args="--dns=none --zones=${ZONES} --node-size=m5.large --master-size=m5.large --override=cluster.spec.kubeAPIServer.cloudProvider=external --override=cluster.spec.kubeControllerManager.cloudProvider=external --override=cluster.spec.kubelet.cloudProvider=external --override=cluster.spec.cloudControllerManager.cloudProvider=aws --override=cluster.spec.cloudControllerManager.image=${IMAGE_NAME}:${IMAGE_TAG} --override=spec.cloudConfig.awsEBSCSIDriver.enabled=true" \
       --admin-access="0.0.0.0/0" \
       --kubernetes-version="${KUBERNETES_VERSION}" \
       --ssh-public-key="${SSH_PUBLIC_KEY_PATH}" \
