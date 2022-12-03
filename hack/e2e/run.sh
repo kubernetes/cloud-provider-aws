@@ -142,7 +142,7 @@ if [[ "${UP}" = "yes" ]]; then
 fi
 
 pushd ./tests/e2e
-ginkgo . -p -nodes="${GINKGO_NODES}" -v --focus="${GINKGO_FOCUS}" --skip="${GINKGO_SKIP}" "" -- -kubeconfig="${KUBECONFIG}" -report-dir="${test_run}" -gce-zone="${ZONES%,*}" "${EXPANDED_TEST_EXTRA_FLAGS}"
+ginkgo . -v -p --nodes="${GINKGO_NODES}" --focus="${GINKGO_FOCUS}" --skip="${GINKGO_SKIP}"
 popd
 
 if [[ "${DOWN}" = "yes" ]]; then
