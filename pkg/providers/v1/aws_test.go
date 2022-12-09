@@ -1142,6 +1142,97 @@ func Test_findELBSubnets(t *testing.T) {
 	}
 }
 
+// Test for GetLoadBalancerName
+func TestGetLoadBalancerName(t *testing.T) {
+	awsServices := newMockedFakeAWSServices(TestClusterID)
+	c, err := newAWSCloud(CloudConfig{}, awsServices)
+	if err != nil {
+		t.Errorf("Error building aws cloud: %v", err)
+		return
+	}
+	tests := []struct {
+		name        string
+		service     *v1.Service
+		want        string
+	}{
+		{
+			name: "no_annotation",
+			service: &v1.Service{
+				ObjectMeta: metav1.ObjectMeta{
+					UID: "b7ddec37a771464f9e0ac26a6201f31e1f1f1e64",
+				},
+			},
+			want: "ab7ddec37a771464f9e0ac26a6201f31",
+		},
+		{
+			name: "name annotation validated by the regex",
+			service: &v1.Service{
+				ObjectMeta: metav1.ObjectMeta{
+					UID: "ig84n3a771464f9e0ac26a6201f31e1f1f1e6da5",
+					Annotations: map[string]string{
+						ServiceAnnotationLoadBalancerName: "this-is-a-valid-name",
+					},
+				},
+			},
+			want:        "this-is-a-valid-name",
+		},
+		{
+			name:  "name annotation not validated by the regex (hyphen first)",
+			service: &v1.Service{
+				ObjectMeta: metav1.ObjectMeta{
+					UID: "ac84fe3a771464f9e0ac26a6201f31e1f1f1e6a3",
+					Annotations: map[string]string{
+						ServiceAnnotationLoadBalancerName: "-this-is-not-a-valid-name",
+					},
+				},
+			},
+			want: "aac84fe3a771464f9e0ac26a6201f31e",
+		},
+		{
+			name:  "name annotation not validated by the regex (hyphen last)",
+			service: &v1.Service{
+				ObjectMeta: metav1.ObjectMeta{
+					UID: "18765876efg84n3a771464f9e0ac26a6201f31e1",
+					Annotations: map[string]string{
+						ServiceAnnotationLoadBalancerName: "this-is-not-a-valid-name-",
+					},
+				},
+			},
+			want: "a18765876efg84n3a771464f9e0ac26a",
+		},
+		{
+			name:  "name annotation not validated by the regex (too long)",
+			service: &v1.Service{
+				ObjectMeta: metav1.ObjectMeta{
+					UID: "b5c84n3a771464f9e0ac26a6201f31e1f1f1e6e2",
+					Annotations: map[string]string{
+						ServiceAnnotationLoadBalancerName: "this-is-a-too-long-not-valid-name",
+					},
+				},
+			},
+			want: "ab5c84n3a771464f9e0ac26a6201f31e",
+		},
+		{
+			name:  "name annotation not validated by the regex (special characters)",
+			service: &v1.Service{
+				ObjectMeta: metav1.ObjectMeta{
+					UID: "2d67e3a771464f9e0ac26a6201f31e1f1f1e6a3f",
+					Annotations: map[string]string{
+						ServiceAnnotationLoadBalancerName: "this-is-not-à-valid-name",
+					},
+				},
+			},
+			want: "a2d67e3a771464f9e0ac26a6201f31e1",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := c.GetLoadBalancerName(context.TODO(), TestClusterName, tt.service)
+			assert.Equal(t, tt.want, got)
+		})
+	}
+}
+
 func Test_getLoadBalancerSubnets(t *testing.T) {
 	awsServices := newMockedFakeAWSServices(TestClusterID)
 	c, err := newAWSCloud(CloudConfig{}, awsServices)

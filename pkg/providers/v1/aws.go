@@ -552,6 +552,7 @@ var _ cloudprovider.LoadBalancer = (*Cloud)(nil)
 var _ cloudprovider.Routes = (*Cloud)(nil)
 var _ cloudprovider.Zones = (*Cloud)(nil)
 var _ cloudprovider.PVLabeler = (*Cloud)(nil)
+var lbNameRegex = regexp.MustCompile(`^[a-zA-Z0-9-]{0,32}$`)
 
 // Cloud is an implementation of Interface, LoadBalancer and Instances for Amazon Web Services.
 type Cloud struct {
@@ -4414,18 +4415,16 @@ func (c *Cloud) GetLoadBalancer(ctx context.Context, clusterName string, service
 
 // GetLoadBalancerName is an implementation of LoadBalancer.GetLoadBalancerName
 func (c *Cloud) GetLoadBalancerName(ctx context.Context, clusterName string, service *v1.Service) string {
-	if val := service.Annotations[ServiceAnnotationLoadBalancerName]; val != nil {
-		r := regexp.MustCompile(`^[a-zA-Z0-9-]{0,32}`)
-		if r.MatchString(val) && val[0:1] != "-" && val[len(val)-1:] != "-" {
+	if val := service.Annotations[ServiceAnnotationLoadBalancerName]; val != "" {
+		if lbNameRegex.MatchString(val) && val[0:1] != "-" && val[len(val)-1:] != "-" {
 			return val
 		} else {
-			klog.Error("Error : AWS load balancer name, a maximum of 32 alphanumeric characters including hyphens are allowed, but the name must not begin or end with an hyphen.")
+			klog.Error(fmt.Sprintf("Error : '%v' a maximum of 32 alphanumeric characters including hyphens is allowed, but the name must not begin or end with an hyphen.", val))
 		}
-		return val
 	}
 
 	//AWS requires that the name of a load balancer is shorter than 32 bytes.
-	//Default implementation, currently deprecated
+	//Default implementation, currently cloudprovider.getDefaultLoadBalancerName(service) being deprecated
 	ret := "a" + string(service.UID)
 	ret = strings.Replace(ret, "-", "", -1)
 	if len(ret) > 32 {
