@@ -29,6 +29,7 @@ For the `aws-cloud-controller-manager` to be able to communicate to AWS APIs, yo
         "ec2:DescribeSecurityGroups",
         "ec2:DescribeSubnets",
         "ec2:DescribeVolumes",
+        "ec2:DescribeAvailabilityZones",
         "ec2:CreateSecurityGroup",
         "ec2:CreateTags",
         "ec2:CreateVolume",
