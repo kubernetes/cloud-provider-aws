@@ -47,8 +47,8 @@ UP="${UP:-yes}"
 # if DOWN==yes, delete cluster after test
 DOWN="${DOWN:-yes}"
 
-KUBERNETES_VERSION="${KUBERNETES_VERSION:-v1.24.1}"
-CLUSTER_NAME="${CLUSTER_NAME:-test-cluster-${test_run_id}.k8s.local}"
+KUBERNETES_VERSION="${KUBERNETES_VERSION:-v1.25.4}"
+CLUSTER_NAME="${CLUSTER_NAME:-test-cluster-${test_run_id}.k8s}"
 KOPS_STATE_STORE="${KOPS_STATE_STORE:-}"
 REGION="${AWS_REGION:-us-west-2}"
 ZONES="${AWS_AVAILABILITY_ZONES:-us-west-2a,us-west-2b,us-west-2c}"
@@ -100,7 +100,7 @@ echo " + Cluster name:        ${CLUSTER_NAME}"
 echo " + Kubernetes version:  ${KUBERNETES_VERSION}"
 echo " + Focus:               ${GINKGO_FOCUS}"
 echo " + Skip:                ${GINKGO_SKIP}"
-echo " + Kops state store:    ${KOPS_STATE_STORE}"
+echo " + kOps state store:    ${KOPS_STATE_STORE}"
 echo " + SSH public key path: ${SSH_PUBLIC_KEY_PATH}"
 echo " + Test run ID:         ${test_run_id}"
 echo " + Kubetest run dir:    ${test_run}"
@@ -121,21 +121,14 @@ aws ecr get-login-password --region "${REGION}" | docker login --username AWS --
 docker tag "${BUILD_IMAGE}" "${IMAGE_NAME}:${IMAGE_TAG}"
 docker push "${IMAGE_NAME}:${IMAGE_TAG}"
 
-function kops-finish {
-    "${test_run}"/kops delete cluster --name "${CLUSTER_NAME}" --yes
-}
-
 if [[ "${UP}" = "yes" ]]; then
-
-    trap kops-finish EXIT
-
     kubetest2 kops \
       -v 2 \
       --up \
       --run-id="${test_run_id}" \
       --cloud-provider=aws \
       --cluster-name="${CLUSTER_NAME}" \
-      --create-args="--zones=${ZONES} --node-size=m5.large --master-size=m5.large --override=cluster.spec.kubeAPIServer.cloudProvider=external --override=cluster.spec.kubeControllerManager.cloudProvider=external --override=cluster.spec.kubelet.cloudProvider=external --override=cluster.spec.cloudControllerManager.cloudProvider=aws --override=cluster.spec.cloudControllerManager.image=${IMAGE_NAME}:${IMAGE_TAG} --override=spec.cloudConfig.awsEBSCSIDriver.enabled=true" \
+      --create-args="--dns=none --zones=${ZONES} --node-size=m5.large --master-size=m5.large --override=cluster.spec.kubeAPIServer.cloudProvider=external --override=cluster.spec.kubeControllerManager.cloudProvider=external --override=cluster.spec.kubelet.cloudProvider=external --override=cluster.spec.cloudControllerManager.cloudProvider=aws --override=cluster.spec.cloudControllerManager.image=${IMAGE_NAME}:${IMAGE_TAG} --override=spec.cloudConfig.awsEBSCSIDriver.enabled=true" \
       --admin-access="0.0.0.0/0" \
       --kubernetes-version="${KUBERNETES_VERSION}" \
       --kops-version-marker=https://storage.googleapis.com/kops-ci/bin/latest-ci-updown-green.txt \
@@ -149,5 +142,10 @@ if [[ "${UP}" = "yes" ]]; then
 fi
 
 pushd ./tests/e2e
-ginkgo . -p -nodes="${GINKGO_NODES}" -v --focus="${GINKGO_FOCUS}" --skip="${GINKGO_SKIP}" "" -- -kubeconfig="${KUBECONFIG}" -report-dir="${test_run}" -gce-zone="${ZONES%,*}" "${EXPANDED_TEST_EXTRA_FLAGS}"
+ginkgo . -v -p --nodes="${GINKGO_NODES}" --focus="${GINKGO_FOCUS}" --skip="${GINKGO_SKIP}"
 popd
+
+if [[ "${DOWN}" = "yes" ]]; then
+    # This should be changed to ${test_run}/kops once https://github.com/kubernetes/kops/pull/13217 is merged.
+    ${test_run}/${test_run_id}/kops delete cluster --name "${CLUSTER_NAME}" --yes
+fi
