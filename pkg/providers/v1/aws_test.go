@@ -2591,10 +2591,10 @@ func TestRegionIsValid(t *testing.T) {
 	}
 
 	for _, region := range regions {
-		assert.True(t, isRegionValid(region, fake.metadata), "expected region '%s' to be valid but it was not", region)
+		assert.NoError(t, validateRegion(region, fake.metadata), "expected region '%s' to be valid but it was not", region)
 	}
 
-	assert.False(t, isRegionValid("pl-fake-991a", fake.metadata), "expected region 'pl-fake-991' to be invalid but it was not")
+	assert.Error(t, validateRegion("pl-fake-991a", fake.metadata), "expected region 'pl-fake-991' to be invalid but it was not")
 }
 
 const (
