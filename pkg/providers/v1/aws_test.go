@@ -999,6 +999,26 @@ func Test_findELBSubnets(t *testing.T) {
 		AvailabilityZone: aws.String("us-west-2c"),
 		SubnetId:         aws.String("subnet-notag"),
 	}
+	subnetLocalZone := &ec2.Subnet{
+		AvailabilityZone: aws.String("az-local"),
+		SubnetId:         aws.String("subnet-in-local-zone"),
+		Tags: []*ec2.Tag{
+			{
+				Key:   aws.String(c.tagging.clusterTagKey()),
+				Value: aws.String("owned"),
+			},
+		},
+	}
+	subnetWavelengthZone := &ec2.Subnet{
+		AvailabilityZone: aws.String("az-wavelength"),
+		SubnetId:         aws.String("subnet-in-wavelength-zone"),
+		Tags: []*ec2.Tag{
+			{
+				Key:   aws.String(c.tagging.clusterTagKey()),
+				Value: aws.String("owned"),
+			},
+		},
+	}
 
 	tests := []struct {
 		name        string
@@ -1119,6 +1139,17 @@ func Test_findELBSubnets(t *testing.T) {
 				"subnet-c0000001": true,
 				"subnet-notag":    true,
 				"subnet-other":    true,
+			},
+			want: []string{"subnet-a0000001", "subnet-b0000001", "subnet-c0000001"},
+		},
+		{
+			name: "exclude subnets from local and wavelenght zones",
+			subnets: []*ec2.Subnet{
+				subnetA0000001,
+				subnetB0000001,
+				subnetC0000001,
+				subnetLocalZone,
+				subnetWavelengthZone,
 			},
 			want: []string{"subnet-a0000001", "subnet-b0000001", "subnet-c0000001"},
 		},
@@ -2591,10 +2622,10 @@ func TestRegionIsValid(t *testing.T) {
 	}
 
 	for _, region := range regions {
-		assert.True(t, isRegionValid(region, fake.metadata), "expected region '%s' to be valid but it was not", region)
+		assert.NoError(t, validateRegion(region, fake.metadata), "expected region '%s' to be valid but it was not", region)
 	}
 
-	assert.False(t, isRegionValid("pl-fake-991a", fake.metadata), "expected region 'pl-fake-991' to be invalid but it was not")
+	assert.Error(t, validateRegion("pl-fake-991a", fake.metadata), "expected region 'pl-fake-991' to be invalid but it was not")
 }
 
 const (
@@ -3763,7 +3794,7 @@ func TestNodeAddressesForFargate(t *testing.T) {
 	awsServices := newMockedFakeAWSServices(TestClusterID)
 	c, _ := newAWSCloud(CloudConfig{}, awsServices)
 
-	nodeAddresses, _ := c.NodeAddressesByProviderID(context.TODO(), "aws:///us-west-2c/1abc-2def/fargate-ip-192.168.164.88")
+	nodeAddresses, _ := c.NodeAddressesByProviderID(context.TODO(), "aws:///us-west-2c/1abc-2def/fargate-ip-return-private-dns-name.us-west-2.compute.internal")
 	verifyNodeAddressesForFargate(t, true, nodeAddresses)
 }
 
@@ -3794,6 +3825,26 @@ func TestInstanceExistsByProviderIDForFargate(t *testing.T) {
 	instanceExist, err := c.InstanceExistsByProviderID(context.TODO(), "aws:///us-west-2c/1abc-2def/fargate-192.168.164.88")
 	assert.Nil(t, err)
 	assert.True(t, instanceExist)
+}
+
+func TestInstanceExistsByProviderIDWithNodeNameForFargate(t *testing.T) {
+	awsServices := newMockedFakeAWSServices(TestClusterID)
+	c, _ := newAWSCloud(CloudConfig{}, awsServices)
+
+	instanceExist, err := c.InstanceExistsByProviderID(context.TODO(), "aws:///us-west-2c/1abc-2def/fargate-ip-192-168-164-88.us-west-2.compute.internal")
+	assert.Nil(t, err)
+	assert.True(t, instanceExist)
+}
+
+func TestInstanceExistsByProviderIDForInstanceNotFound(t *testing.T) {
+	mockedEC2API := newMockedEC2API()
+	c := &Cloud{ec2: &awsSdkEC2{ec2: mockedEC2API}}
+
+	mockedEC2API.On("DescribeInstances", mock.Anything).Return(&ec2.DescribeInstancesOutput{}, awserr.New("InvalidInstanceID.NotFound", "Instance not found", nil))
+
+	instanceExists, err := c.InstanceExistsByProviderID(context.TODO(), "aws:///us-west-2c/1abc-2def/i-not-found")
+	assert.Nil(t, err)
+	assert.False(t, instanceExists)
 }
 
 func TestInstanceNotExistsByProviderIDForFargate(t *testing.T) {

@@ -23,6 +23,7 @@ import (
 	"strings"
 
 	"github.com/aws/aws-sdk-go/aws"
+	"github.com/aws/aws-sdk-go/aws/awserr"
 	"github.com/aws/aws-sdk-go/service/autoscaling"
 	"github.com/aws/aws-sdk-go/service/ec2"
 	"github.com/aws/aws-sdk-go/service/elb"
@@ -263,11 +264,37 @@ func (ec2i *FakeEC2Impl) RemoveSubnets() {
 	ec2i.Subnets = ec2i.Subnets[:0]
 }
 
+// DescribeAvailabilityZones returns fake availability zones
+// For every input returns a hardcoded list of fake availability zones for the moment
+func (ec2i *FakeEC2Impl) DescribeAvailabilityZones(request *ec2.DescribeAvailabilityZonesInput) ([]*ec2.AvailabilityZone, error) {
+	var azs []*ec2.AvailabilityZone
+
+	fakeZones := [5]string{"az-local", "az-wavelength", "us-west-2a", "us-west-2b", "us-west-2c"}
+	for _, name := range fakeZones {
+		var zoneType *string
+		switch name {
+		case "az-local":
+			zoneType = aws.String(localZoneType)
+		case "az-wavelength":
+			zoneType = aws.String(wavelengthZoneType)
+		default:
+			zoneType = aws.String(regularAvailabilityZoneType)
+		}
+		zone := &ec2.AvailabilityZone{ZoneName: aws.String(name), ZoneType: zoneType, ZoneId: aws.String(name)}
+		azs = append(azs, zone)
+	}
+	return azs, nil
+}
+
 // CreateTags is a mock for CreateTags from EC2
 func (ec2i *FakeEC2Impl) CreateTags(input *ec2.CreateTagsInput) (*ec2.CreateTagsOutput, error) {
 	for _, id := range input.Resources {
 		if *id == "i-error" {
 			return nil, errors.New("Unable to tag")
+		}
+
+		if *id == "i-not-found" {
+			return nil, awserr.New("InvalidInstanceID.NotFound", "Instance not found", nil)
 		}
 	}
 	return &ec2.CreateTagsOutput{}, nil
@@ -278,6 +305,10 @@ func (ec2i *FakeEC2Impl) DeleteTags(input *ec2.DeleteTagsInput) (*ec2.DeleteTags
 	for _, id := range input.Resources {
 		if *id == "i-error" {
 			return nil, errors.New("Unable to remove tag")
+		}
+
+		if *id == "i-not-found" {
+			return nil, awserr.New("InvalidInstanceID.NotFound", "Instance not found", nil)
 		}
 	}
 	return &ec2.DeleteTagsOutput{}, nil
@@ -716,7 +747,7 @@ func (ec2i *FakeEC2Impl) DescribeNetworkInterfaces(input *ec2.DescribeNetworkInt
 			return &ec2.DescribeNetworkInterfacesOutput{}, nil
 		}
 
-		if *filter.Name == "private-dns-name" {
+		if *filter.Values[0] == "return.private.dns.name" {
 			networkInterface[0].PrivateDnsName = aws.String("ip-1-2-3-4.compute.amazon.com")
 		}
 	}
