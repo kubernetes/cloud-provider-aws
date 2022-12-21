@@ -300,6 +300,12 @@ const (
 	volumeDetachedStatus = "detached"
 )
 
+const (
+	localZoneType               = "local-zone"
+	wavelengthZoneType          = "wavelength-zone"
+	regularAvailabilityZoneType = "availability-zone"
+)
+
 // awsTagNameMasterRoles is a set of well-known AWS tag names that indicate the instance is a master
 // The major consequence is that it is then not considered for AWS zone discovery for dynamic volume creation.
 var awsTagNameMasterRoles = sets.NewString("kubernetes.io/role/master", "k8s.io/role/master")
@@ -364,6 +370,8 @@ type EC2 interface {
 	RevokeSecurityGroupIngress(*ec2.RevokeSecurityGroupIngressInput) (*ec2.RevokeSecurityGroupIngressOutput, error)
 
 	DescribeSubnets(*ec2.DescribeSubnetsInput) ([]*ec2.Subnet, error)
+
+	DescribeAvailabilityZones(request *ec2.DescribeAvailabilityZonesInput) ([]*ec2.AvailabilityZone, error)
 
 	CreateTags(*ec2.CreateTagsInput) (*ec2.CreateTagsOutput, error)
 	DeleteTags(input *ec2.DeleteTagsInput) (*ec2.DeleteTagsOutput, error)
@@ -1156,6 +1164,15 @@ func (s *awsSdkEC2) DescribeSubnets(request *ec2.DescribeSubnetsInput) ([]*ec2.S
 	return response.Subnets, nil
 }
 
+func (s *awsSdkEC2) DescribeAvailabilityZones(request *ec2.DescribeAvailabilityZonesInput) ([]*ec2.AvailabilityZone, error) {
+	// AZs are not paged
+	response, err := s.ec2.DescribeAvailabilityZones(request)
+	if err != nil {
+		return nil, fmt.Errorf("error listing AWS availability zones: %q", err)
+	}
+	return response.AvailabilityZones, err
+}
+
 func (s *awsSdkEC2) CreateSecurityGroup(request *ec2.CreateSecurityGroupInput) (*ec2.CreateSecurityGroupOutput, error) {
 	return s.ec2.CreateSecurityGroup(request)
 }
@@ -1347,8 +1364,8 @@ func newAWSCloud(cfg CloudConfig, awsServices Services) (*Cloud, error) {
 	}
 
 	if !cfg.Global.DisableStrictZoneCheck {
-		if !isRegionValid(regionName, metadata) {
-			return nil, fmt.Errorf("not a valid AWS zone (unknown region): %s", zone)
+		if err := validateRegion(regionName, metadata); err != nil {
+			return nil, fmt.Errorf("not a valid AWS zone (unknown region): %s, %w", zone, err)
 		}
 	} else {
 		klog.Warningf("Strict AWS zone checking is disabled.  Proceeding with zone: %s", zone)
@@ -1442,16 +1459,17 @@ func NewAWSCloud(cfg CloudConfig, awsServices Services) (*Cloud, error) {
 	return newAWSCloud(cfg, awsServices)
 }
 
-// isRegionValid accepts an AWS region name and returns if the region is a
+// validateRegion accepts an AWS region name and returns if the region is a
 // valid region known to the AWS SDK. Considers the region returned from the
 // EC2 metadata service to be a valid region as it's only available on a host
 // running in a valid AWS region.
-func isRegionValid(region string, metadata EC2Metadata) bool {
-	// Does the AWS SDK know about the region?
+func validateRegion(region string, metadata EC2Metadata) error {
+	// Does the AWS SDK know about the region? Any region known by the SDK is a
+	// valid one.
 	for _, p := range endpoints.DefaultPartitions() {
 		for r := range p.Regions() {
 			if r == region {
-				return true
+				return nil
 			}
 		}
 	}
@@ -1460,20 +1478,27 @@ func isRegionValid(region string, metadata EC2Metadata) bool {
 	// requires an access request (for more details see):
 	// https://github.com/aws/aws-sdk-go/issues/1863
 	if region == "ap-northeast-3" {
-		return true
+		return nil
 	}
 
 	// Fallback to checking if the region matches the instance metadata region
 	// (ignoring any user overrides). This just accounts for running an old
 	// build of Kubernetes in a new region that wasn't compiled into the SDK
 	// when Kubernetes was built.
-	if az, err := getAvailabilityZone(metadata); err == nil {
-		if r, err := azToRegion(az); err == nil && region == r {
-			return true
-		}
+	az, err := getAvailabilityZone(metadata)
+	if err != nil {
+		return err
+	}
+	ec2Region, err := azToRegion(az)
+	if err != nil {
+		return err
+	}
+	if region != ec2Region {
+		return fmt.Errorf("region %s is not known, and does not match EC2 instance's region, %s",
+			region, ec2Region)
 	}
 
-	return false
+	return nil
 }
 
 // Initialize passes a Kubernetes clientBuilder interface to the cloud provider
@@ -3508,6 +3533,35 @@ func (c *Cloud) findSubnets() ([]*ec2.Subnet, error) {
 	return subnets, nil
 }
 
+// Returns a mapping between availability zone names and their types
+// Zone will not be included in the map in case it was not found in AWS by name
+func (c *Cloud) getZoneTypesByName(azNames []string) (map[string]string, error) {
+	if len(azNames) == 0 {
+		// if az names slice is empty, no need to make a request, return early with empty map
+		return map[string]string{}, nil
+	}
+	azFilter := newEc2Filter("zone-name", azNames...)
+	azRequest := &ec2.DescribeAvailabilityZonesInput{}
+	azRequest.Filters = []*ec2.Filter{azFilter}
+
+	azs, err := c.ec2.DescribeAvailabilityZones(azRequest)
+	if err != nil {
+		return nil, fmt.Errorf("error describe availability zones: %q", err)
+	}
+
+	azTypesMapping := make(map[string]string)
+	for _, az := range azs {
+		name := aws.StringValue(az.ZoneName)
+		zoneType := aws.StringValue(az.ZoneType)
+		if name == "" || zoneType == "" {
+			klog.Warningf("Ignoring zone with empty name/type: %v", az)
+			continue
+		}
+		azTypesMapping[name] = zoneType
+	}
+	return azTypesMapping, nil
+}
+
 // Finds the subnets to use for an ELB we are creating.
 // Normal (Internet-facing) ELBs must use public subnets, so we skip private subnets.
 // Internal ELBs can use public or private subnets, but if we have a private subnet we should prefer that.
@@ -3596,8 +3650,20 @@ func (c *Cloud) findELBSubnets(internalELB bool) ([]string, error) {
 
 	sort.Strings(azNames)
 
+	azTypesMapping, err := c.getZoneTypesByName(azNames)
+	if err != nil {
+		return nil, fmt.Errorf("error get availability zone types: %q", err)
+	}
+
 	var subnetIDs []string
 	for _, key := range azNames {
+		azType, found := azTypesMapping[key]
+		if found && azType != regularAvailabilityZoneType {
+			// take subnets only from zones with `availability-zone` type
+			// because another zone types (like local, wavelength and outpost zones)
+			// does not support NLB/CLB for the moment, only ALB.
+			continue
+		}
 		subnetIDs = append(subnetIDs, aws.StringValue(subnetsByAZ[key].SubnetId))
 	}
 

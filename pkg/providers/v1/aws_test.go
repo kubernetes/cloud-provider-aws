@@ -999,6 +999,26 @@ func Test_findELBSubnets(t *testing.T) {
 		AvailabilityZone: aws.String("us-west-2c"),
 		SubnetId:         aws.String("subnet-notag"),
 	}
+	subnetLocalZone := &ec2.Subnet{
+		AvailabilityZone: aws.String("az-local"),
+		SubnetId:         aws.String("subnet-in-local-zone"),
+		Tags: []*ec2.Tag{
+			{
+				Key:   aws.String(c.tagging.clusterTagKey()),
+				Value: aws.String("owned"),
+			},
+		},
+	}
+	subnetWavelengthZone := &ec2.Subnet{
+		AvailabilityZone: aws.String("az-wavelength"),
+		SubnetId:         aws.String("subnet-in-wavelength-zone"),
+		Tags: []*ec2.Tag{
+			{
+				Key:   aws.String(c.tagging.clusterTagKey()),
+				Value: aws.String("owned"),
+			},
+		},
+	}
 
 	tests := []struct {
 		name        string
@@ -1119,6 +1139,17 @@ func Test_findELBSubnets(t *testing.T) {
 				"subnet-c0000001": true,
 				"subnet-notag":    true,
 				"subnet-other":    true,
+			},
+			want: []string{"subnet-a0000001", "subnet-b0000001", "subnet-c0000001"},
+		},
+		{
+			name: "exclude subnets from local and wavelenght zones",
+			subnets: []*ec2.Subnet{
+				subnetA0000001,
+				subnetB0000001,
+				subnetC0000001,
+				subnetLocalZone,
+				subnetWavelengthZone,
 			},
 			want: []string{"subnet-a0000001", "subnet-b0000001", "subnet-c0000001"},
 		},
@@ -2591,10 +2622,10 @@ func TestRegionIsValid(t *testing.T) {
 	}
 
 	for _, region := range regions {
-		assert.True(t, isRegionValid(region, fake.metadata), "expected region '%s' to be valid but it was not", region)
+		assert.NoError(t, validateRegion(region, fake.metadata), "expected region '%s' to be valid but it was not", region)
 	}
 
-	assert.False(t, isRegionValid("pl-fake-991a", fake.metadata), "expected region 'pl-fake-991' to be invalid but it was not")
+	assert.Error(t, validateRegion("pl-fake-991a", fake.metadata), "expected region 'pl-fake-991' to be invalid but it was not")
 }
 
 const (
