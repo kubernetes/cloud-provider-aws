@@ -30,14 +30,7 @@ LDFLAGS ?= -w -s -X k8s.io/component-base/version.gitVersion=$(VERSION)
 UPLOAD ?= $(OUTPUT)/upload
 GCS_LOCATION ?= gs://test-ecr-build
 GCS_URL = $(GCS_LOCATION:gs://%=https://storage.googleapis.com/%)
-LATEST_FILE ?= latest-ci.txt
-BUILD=$(ROOT)/.build
-DIST=$(BUILD)/dist
-GCFLAGS?=
-BUILDFLAGS="-trimpath"
-EXTRA_BUILDFLAGS=-installsuffix cgo
-EXTRA_LDFLAGS=-s -w
-GITSHA := $(shell cd ${ROOT}; git describe --always)
+LATEST_FILE ?= latest-tag.txt
 
 .PHONY: aws-cloud-controller-manager
 aws-cloud-controller-manager:
@@ -55,12 +48,28 @@ ecr-credential-provider:
 		-o=ecr-credential-provider \
 		cmd/ecr-credential-provider/*.go
 
-.PHONY: ecr-credential-provider.exe
-ecr-credential-provider.exe:
-	 GO111MODULE=on CGO_ENABLED=0 GOOS=windows GOPROXY=$(GOPROXY) go build \
+.PHONY: ecr-credential-provider-linux-amd64
+ecr-credential-provider-linux-amd64:
+	GO111MODULE=on CGO_ENABLED=0 GOOS=linux GOARCH="amd64" GOPROXY=$(GOPROXY) go build \
 		-trimpath \
 		-ldflags="$(LDFLAGS)" \
-		-o=ecr-credential-provider.exe \
+		-o=ecr-credential-provider-linux-amd64 \
+		cmd/ecr-credential-provider/*.go
+
+.PHONY: ecr-credential-provider-linux-arm64
+ecr-credential-provider-linux-arm64:
+	GO111MODULE=on CGO_ENABLED=0 GOOS=linux GOARCH="arm64" GOPROXY=$(GOPROXY) go build \
+		-trimpath \
+		-ldflags="$(LDFLAGS)" \
+		-o=ecr-credential-provider-linux-arm64 \
+		cmd/ecr-credential-provider/*.go
+
+.PHONY: ecr-credential-provider-windows-amd64
+ecr-credential-provider-windows-amd64:
+	GO111MODULE=on CGO_ENABLED=0 GOOS=windows GOARCH="amd64" GOPROXY=$(GOPROXY) go build \
+		-trimpath \
+		-ldflags="$(LDFLAGS)" \
+		-o=ecr-credential-provider-windows-amd64 \
 		cmd/ecr-credential-provider/*.go
 
 .PHONY: docker-build-amd64
@@ -166,48 +175,39 @@ print-image-tag:
 
 .PHONY: gsutil
 gsutil:
-	/Users/prasita/Downloads/google-cloud-sdk/bin/gcloud info
-	/Users/prasita/Downloads/google-cloud-sdk/bin/gcloud config list
-	/Users/prasita/Downloads/google-cloud-sdk/bin/gcloud auth list
-# update to below cmd before commit and remove above 3 lines
-# hack/install-gsutil.sh
+	hack/install-gsutil.sh
 
-.PHONY: ecr-credential-provider-linux-amd64 ecr-credential-provider-linux-arm64
-ecr-credential-provider-linux-amd64 ecr-credential-provider-linux-arm64: ecr-credential-provider
-    mkdir -p ${DIST}/linux/$*
-    GOOS=linux GOARCH=$* go build ${GCFLAGS} ${BUILDFLAGS} ${EXTRA_BUILDFLAGS} -o ${DIST}/linux/$*/ecr-credential-provider ${LDFLAGS}“${EXTRA_LDFLAGS} -X k8s.io/ecr-credential-provider.Version=${VERSION} -X k8s.io/ecr-credential-provider.GitVersion=${GITSHA}" k8s.io/cloud-provider-aws/cmd/ecr-credential-provider/*.go
-
+# build ecr-credential-provider targets for different OS and ARCHs
 .PHONY: crossbuild-ecr-credential-provider
-crossbuild-ecr-credential-provider: ecr-credential-provider-linux-amd64 ecr-credential-provider-linux-arm64 ecr-credential-provider.exe 
+crossbuild-ecr-credential-provider: ecr-credential-provider-linux-amd64 ecr-credential-provider-linux-arm64 ecr-credential-provider-windows-amd64
 
 .PHONY: copy-bins-for-upload
 copy-bins-for-upload: crossbuild-ecr-credential-provider
 	mkdir -p ${UPLOAD}/provider-aws/${VERSION}/linux/amd64/
 	mkdir -p ${UPLOAD}/provider-aws/${VERSION}/linux/arm64/
-	mkdir -p ${UPLOAD}/provider-aws/windows
-	cp ${DIST}/linux/amd64/ecr-credential-provider ${UPLOAD}/provider-aws/${VERSION}/linux/amd64/ecr-credential-provider
-	hack/sha256 ${UPLOAD}/provider-aws/${VERSION}/linux/amd64/ecr-credential-provider ${UPLOAD}/provider-aws/${VERSION}/linux/amd64/ecr-credential-provider.sha256
-	cp ${DIST}/linux/arm64/ecr-credential-provider ${UPLOAD}/provider-aws/${VERSION}/linux/arm64/ecr-credential-provider
-	hack/sha256 ${UPLOAD}/provider-aws/${VERSION}/linux/arm64/ecr-credential-provider ${UPLOAD}/provider-aws/${VERSION}/linux/arm64/ecr-credential-provider.sha256
-	cp ecr-credential-provider.exe $(UPLOAD)/provider-aws/windows
-	hack/sha256 ${UPLOAD}/provider-aws/windows/ecr-credential-provider.exe ${UPLOAD}/provider-aws/windows/ecr-credential-provider.exe.sha256
+	mkdir -p ${UPLOAD}/provider-aws/${VERSION}/windows/amd64/
+	cp ecr-credential-provider-linux-amd64 ${UPLOAD}/provider-aws/${VERSION}/linux/amd64/ecr-credential-provider-linux-amd64
+	hack/sha256 ${UPLOAD}/provider-aws/${VERSION}/linux/amd64/ecr-credential-provider-linux-amd64 ${UPLOAD}/provider-aws/${VERSION}/linux/amd64/ecr-credential-provider-linux-amd64.sha256
+	cp ecr-credential-provider-linux-arm64 ${UPLOAD}/provider-aws/${VERSION}/linux/arm64/ecr-credential-provider-linux-arm64
+	hack/sha256 ${UPLOAD}/provider-aws/${VERSION}/linux/arm64/ecr-credential-provider-linux-arm64 ${UPLOAD}/provider-aws/${VERSION}/linux/arm64/ecr-credential-provider-linux-arm64.sha256
+	cp ecr-credential-provider-windows-amd64 $(UPLOAD)/provider-aws/${VERSION}/windows/amd64/ecr-credential-provider-windows-amd64
+	hack/sha256 ${UPLOAD}/provider-aws/${VERSION}/windows/amd64/ecr-credential-provider-windows-amd64 ${UPLOAD}/provider-aws/${VERSION}/windows/amd64/ecr-credential-provider-windows-amd64.sha256
 
-# gcs-upload builds provider-aws and uploads to GCS
+# gcs-upload builds provider-aws ecr-credential-provider binaries and uploads to GCS
 .PHONY: gcs-upload
 gcs-upload: gsutil copy-bins-for-upload
 	@echo "== Uploading provider-aws =="
-	/Users/prasita/Downloads/google-cloud-sdk/bin/gsutil -h "Cache-Control:private, max-age=0, no-transform" -m cp -n -r ${UPLOAD}/* ${GCS_LOCATION}
+	gsutil -h "Cache-Control:private, max-age=0, no-transform" -m cp -n -r ${UPLOAD}/* ${GCS_LOCATION}
 
 # gcs-upload-tag runs gcs-upload to upload, then uploads a version-marker to LATEST_FILE
 .PHONY: gcs-upload-and-tag
 gcs-upload-and-tag: gsutil gcs-upload
-	echo "${GCS_URL}-${VERSION}" > ${UPLOAD}/latest.txt
-	/Users/prasita/Downloads/google-cloud-sdk/bin/gsutil -h "Cache-Control:private, max-age=0, no-transform" cp ${UPLOAD}/latest.txt ${GCS_LOCATION}/${LATEST_FILE}
+	echo "${GCS_URL}-${VERSION}" > ${UPLOAD}/${LATEST_FILE}
+	gsutil -h "Cache-Control:private, max-age=0, no-transform" cp ${UPLOAD}/${LATEST_FILE} ${GCS_LOCATION}/${LATEST_FILE}
 
 # CloudBuild artifacts
 # We hash some artifacts, so that we have can know that they were not modified after being built.
 .PHONY: cloudbuild-artifacts
 cloudbuild-artifacts: gcs-upload-and-tag
-	mkdir -p ${ROOT}/cloudbuild/
-	cd ${UPLOAD}/provider-aws/; find . -type f | sort | xargs sha256sum > ${ROOT}/cloudbuild/files.sha256
-	cd ${ROOT}/cloudbuild/; find . -type f | sort | xargs sha256sum > ${OUTPUT}/cloudbuild_output
+	cd ${UPLOAD}/provider-aws/${VERSION}/; find . -type f | sort | xargs sha256sum > ${OUTPUT}/files.sha256
+	cd ${OUTPUT}/; find . -name *.sha256 | sort | xargs sha256sum > ${OUTPUT}/cloudbuild_output
