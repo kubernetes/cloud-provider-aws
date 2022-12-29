@@ -47,7 +47,7 @@ UP="${UP:-yes}"
 # if DOWN==yes, delete cluster after test
 DOWN="${DOWN:-yes}"
 
-KUBERNETES_VERSION="${KUBERNETES_VERSION:-v1.24.1}"
+KUBERNETES_VERSION="${KUBERNETES_VERSION:-v1.24.9}"
 CLUSTER_NAME="${CLUSTER_NAME:-test-cluster-${test_run_id}.k8s}"
 KOPS_STATE_STORE="${KOPS_STATE_STORE:-}"
 REGION="${AWS_REGION:-us-west-2}"
@@ -128,7 +128,7 @@ if [[ "${UP}" = "yes" ]]; then
       --run-id="${test_run_id}" \
       --cloud-provider=aws \
       --cluster-name="${CLUSTER_NAME}" \
-      --create-args="--dns=none --zones=${ZONES} --node-size=m5.large --master-size=m5.large --override=cluster.spec.kubeAPIServer.cloudProvider=external --override=cluster.spec.kubeControllerManager.cloudProvider=external --override=cluster.spec.kubelet.cloudProvider=external --override=cluster.spec.cloudControllerManager.cloudProvider=aws --override=cluster.spec.cloudControllerManager.image=${IMAGE_NAME}:${IMAGE_TAG} --override=spec.cloudConfig.awsEBSCSIDriver.enabled=true" \
+      --create-args="--dns=none --zones=${ZONES} --node-size=m5.large --master-size=m5.large --override=cluster.spec.kubeAPIServer.cloudProvider=external --override=cluster.spec.kubeControllerManager.cloudProvider=external --override=cluster.spec.kubelet.cloudProvider=external --override=cluster.spec.cloudControllerManager.cloudProvider=aws --override=cluster.spec.cloudControllerManager.image=${IMAGE_NAME}:${IMAGE_TAG} --override=spec.cloudProvider.aws.ebsCSIDriver.enabled=true" \
       --admin-access="0.0.0.0/0" \
       --kubernetes-version="${KUBERNETES_VERSION}" \
       --kops-version-marker=https://storage.googleapis.com/kops-ci/bin/latest-ci-updown-green.txt \
