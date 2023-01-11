@@ -34,4 +34,4 @@ Once you pass this config to the kubelet, every time it needs to fetch an image 
 **Note:** The credential provider will only be used if the image matches a path
 in the list.
 Globbing may be used, but each glob can only match a single subdomain segment.
-So "*.io" does not match "*.k8s.io".
+So `*.io` does not match `*.k8s.io`.
