@@ -7,6 +7,7 @@ approvers:
 - jaypipes
 - olemarkus
 - hakman
+- kishorj
 reviewers:
 - justinsb
 - nckturner
@@ -16,6 +17,7 @@ reviewers:
 - jaypipes
 - olemarkus
 - hakman
+- kishorj
 emeritus_approvers:
 - zmerlynn
 - gnufied
