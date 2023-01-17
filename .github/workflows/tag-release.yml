@@ -9,13 +9,11 @@ on:
       - version.txt
 
 jobs:
-  tag-release:
+  tag:
     if: ${{ github.repository == 'kubernetes/cloud-provider-aws' }}
-    runs-on: ubuntu-20.04
-
+    runs-on: ubuntu-latest
     permissions:
       contents: write
-
     steps:
       - uses: actions/checkout@v3
         with:
@@ -23,3 +21,27 @@ jobs:
       - run: /usr/bin/git config --global user.email actions@github.com
       - run: /usr/bin/git config --global user.name 'GitHub Actions Release Tagger'
       - run: hack/tag-release.sh
+        id: tag_release
+    outputs:
+      release_tag: ${{ steps.tag_release.outputs.release_tag }}
+
+  release:
+    needs: tag
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/create-release@v1
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        tag_name: ${{ needs.tag.outputs.release_tag }}
+        release_name: ${{ needs.tag.outputs.release_tag }}
+        body: |
+          AWS Cloud Provider
+          
+          The cloud provider now runs out-of-tree in a new component called aws-cloud-controller-manager.
+          The external provider preserves all existing behavior/functionality from the legacy in-tree provider.
+          
+          ## CHANGELOG
+          See [CHANGELOG](https://github.com/kubernetes/cloud-provider-aws/blob/master/docs/CHANGELOG.md) for full list of changes.
+        draft: false
+        prerelease: false
