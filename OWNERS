@@ -1,4 +1,5 @@
 approvers:
+- dims
 - justinsb
 - nckturner
 - M00nF1sh
@@ -7,7 +8,9 @@ approvers:
 - jaypipes
 - olemarkus
 - hakman
+- kishorj
 reviewers:
+- dims
 - justinsb
 - nckturner
 - M00nF1sh
@@ -16,6 +19,7 @@ reviewers:
 - jaypipes
 - olemarkus
 - hakman
+- kishorj
 emeritus_approvers:
 - zmerlynn
 - gnufied
