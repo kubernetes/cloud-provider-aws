@@ -28,8 +28,9 @@ LDFLAGS ?= -w -s -X k8s.io/component-base/version.gitVersion=$(VERSION)
 
 # flags for ecr-credential-provider artifact promotion
 UPLOAD ?= $(OUTPUT)/upload
-GCS_LOCATION ?= gs://test-ecr-build
+GCS_LOCATION ?= gs://k8s-staging-provider-aws/releases/
 GCS_URL = $(GCS_LOCATION:gs://%=https://storage.googleapis.com/%)
+BINARY_GIT_VERSION := $(shell git describe --tags --match='v*')
 LATEST_FILE ?= latest-tag.txt
 
 .PHONY: aws-cloud-controller-manager
@@ -183,31 +184,31 @@ crossbuild-ecr-credential-provider: ecr-credential-provider-linux-amd64 ecr-cred
 
 .PHONY: copy-bins-for-upload
 copy-bins-for-upload: crossbuild-ecr-credential-provider
-	mkdir -p ${UPLOAD}/provider-aws/${VERSION}/linux/amd64/
-	mkdir -p ${UPLOAD}/provider-aws/${VERSION}/linux/arm64/
-	mkdir -p ${UPLOAD}/provider-aws/${VERSION}/windows/amd64/
-	cp ecr-credential-provider-linux-amd64 ${UPLOAD}/provider-aws/${VERSION}/linux/amd64/ecr-credential-provider-linux-amd64
-	hack/sha256 ${UPLOAD}/provider-aws/${VERSION}/linux/amd64/ecr-credential-provider-linux-amd64 ${UPLOAD}/provider-aws/${VERSION}/linux/amd64/ecr-credential-provider-linux-amd64.sha256
-	cp ecr-credential-provider-linux-arm64 ${UPLOAD}/provider-aws/${VERSION}/linux/arm64/ecr-credential-provider-linux-arm64
-	hack/sha256 ${UPLOAD}/provider-aws/${VERSION}/linux/arm64/ecr-credential-provider-linux-arm64 ${UPLOAD}/provider-aws/${VERSION}/linux/arm64/ecr-credential-provider-linux-arm64.sha256
-	cp ecr-credential-provider-windows-amd64 $(UPLOAD)/provider-aws/${VERSION}/windows/amd64/ecr-credential-provider-windows-amd64
-	hack/sha256 ${UPLOAD}/provider-aws/${VERSION}/windows/amd64/ecr-credential-provider-windows-amd64 ${UPLOAD}/provider-aws/${VERSION}/windows/amd64/ecr-credential-provider-windows-amd64.sha256
+	mkdir -p ${UPLOAD}/provider-aws/${BINARY_GIT_VERSION}/linux/amd64/
+	mkdir -p ${UPLOAD}/provider-aws/${BINARY_GIT_VERSION}/linux/arm64/
+	mkdir -p ${UPLOAD}/provider-aws/${BINARY_GIT_VERSION}/windows/amd64/
+	cp ecr-credential-provider-linux-amd64 ${UPLOAD}/provider-aws/${BINARY_GIT_VERSION}/linux/amd64/ecr-credential-provider-linux-amd64
+	hack/sha256 ${UPLOAD}/provider-aws/${BINARY_GIT_VERSION}/linux/amd64/ecr-credential-provider-linux-amd64 ${UPLOAD}/provider-aws/${BINARY_GIT_VERSION}/linux/amd64/ecr-credential-provider-linux-amd64.sha256
+	cp ecr-credential-provider-linux-arm64 ${UPLOAD}/provider-aws/${BINARY_GIT_VERSION}/linux/arm64/ecr-credential-provider-linux-arm64
+	hack/sha256 ${UPLOAD}/provider-aws/${BINARY_GIT_VERSION}/linux/arm64/ecr-credential-provider-linux-arm64 ${UPLOAD}/provider-aws/${BINARY_GIT_VERSION}/linux/arm64/ecr-credential-provider-linux-arm64.sha256
+	cp ecr-credential-provider-windows-amd64 $(UPLOAD)/provider-aws/${BINARY_GIT_VERSION}/windows/amd64/ecr-credential-provider-windows-amd64
+	hack/sha256 ${UPLOAD}/provider-aws/${BINARY_GIT_VERSION}/windows/amd64/ecr-credential-provider-windows-amd64 ${UPLOAD}/provider-aws/${BINARY_GIT_VERSION}/windows/amd64/ecr-credential-provider-windows-amd64.sha256
 
 # gcs-upload builds provider-aws ecr-credential-provider binaries and uploads to GCS
 .PHONY: gcs-upload
 gcs-upload: gsutil copy-bins-for-upload
 	@echo "== Uploading provider-aws =="
-	gsutil -h "Cache-Control:private, max-age=0, no-transform" -m cp -n -r ${UPLOAD}/* ${GCS_LOCATION}
+	gsutil -h "Cache-Control:private, max-age=0, no-transform" -m cp -n -r ${UPLOAD}/provider-aws/* ${GCS_LOCATION}
 
 # gcs-upload-tag runs gcs-upload to upload, then uploads a version-marker to LATEST_FILE
 .PHONY: gcs-upload-and-tag
 gcs-upload-and-tag: gsutil gcs-upload
-	echo "${GCS_URL}-${VERSION}" > ${UPLOAD}/${LATEST_FILE}
+	echo "${GCS_URL}-${BINARY_GIT_VERSION}" > ${UPLOAD}/${LATEST_FILE}
 	gsutil -h "Cache-Control:private, max-age=0, no-transform" cp ${UPLOAD}/${LATEST_FILE} ${GCS_LOCATION}/${LATEST_FILE}
 
 # CloudBuild artifacts
 # We hash some artifacts, so that we have can know that they were not modified after being built.
 .PHONY: cloudbuild-artifacts
 cloudbuild-artifacts: gcs-upload-and-tag
-	cd ${UPLOAD}/provider-aws/${VERSION}/; find . -type f | sort | xargs sha256sum > ${OUTPUT}/files.sha256
+	cd ${UPLOAD}/provider-aws/${BINARY_GIT_VERSION}/; find . -type f | sort | xargs sha256sum > ${OUTPUT}/files.sha256
 	cd ${OUTPUT}/; find . -name *.sha256 | sort | xargs sha256sum > ${OUTPUT}/cloudbuild_output
