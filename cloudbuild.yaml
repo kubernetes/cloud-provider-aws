@@ -14,6 +14,16 @@ steps:
     - --output=type=registry
     - --platform=linux/amd64,linux/arm64
     - .
+  # Build cloudbuild artifacts (for attestation)
+  - name: 'docker.io/library/golang:1.19.5-bullseye'
+    id: cloudbuild-artifacts
+    entrypoint: make
+    env:
+    - PULL_BASE_REF=$_PULL_BASE_REF
+    - GCS_LOCATION=$_GCS_LOCATION
+    - LATEST_FILE=markers/${_PULL_BASE_REF}/latest-tag.txt
+    args:
+    - cloudbuild-artifacts
 substitutions:
   _GIT_TAG: 'v99999999-v12345'
   # Remove date prefix (first 10 characters) to create valid semver version:
