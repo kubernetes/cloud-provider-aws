@@ -3795,7 +3795,16 @@ func TestNodeAddressesForFargate(t *testing.T) {
 	c, _ := newAWSCloud(CloudConfig{}, awsServices)
 
 	nodeAddresses, _ := c.NodeAddressesByProviderID(context.TODO(), "aws:///us-west-2c/1abc-2def/fargate-ip-return-private-dns-name.us-west-2.compute.internal")
-	verifyNodeAddressesForFargate(t, true, nodeAddresses)
+	verifyNodeAddressesForFargate(t, "IPV4", true, nodeAddresses)
+}
+
+func TestNodeAddressesForFargateIPV6Family(t *testing.T) {
+	awsServices := newMockedFakeAWSServices(TestClusterID)
+	c, _ := newAWSCloud(CloudConfig{}, awsServices)
+	c.cfg.Global.NodeIPFamilies = []string{"ipv6"}
+
+	nodeAddresses, _ := c.NodeAddressesByProviderID(context.TODO(), "aws:///us-west-2c/1abc-2def/fargate-ip-return-private-dns-name-ipv6.us-west-2.compute.internal")
+	verifyNodeAddressesForFargate(t, "IPV6", true, nodeAddresses)
 }
 
 func TestNodeAddressesForFargatePrivateIP(t *testing.T) {
@@ -3803,10 +3812,10 @@ func TestNodeAddressesForFargatePrivateIP(t *testing.T) {
 	c, _ := newAWSCloud(CloudConfig{}, awsServices)
 
 	nodeAddresses, _ := c.NodeAddressesByProviderID(context.TODO(), "aws:///us-west-2c/1abc-2def/fargate-192.168.164.88")
-	verifyNodeAddressesForFargate(t, false, nodeAddresses)
+	verifyNodeAddressesForFargate(t, "IPV4", false, nodeAddresses)
 }
 
-func verifyNodeAddressesForFargate(t *testing.T, verifyPublicIP bool, nodeAddresses []v1.NodeAddress) {
+func verifyNodeAddressesForFargate(t *testing.T, ipFamily string, verifyPublicIP bool, nodeAddresses []v1.NodeAddress) {
 	if verifyPublicIP {
 		assert.Equal(t, 2, len(nodeAddresses))
 		assert.Equal(t, "ip-1-2-3-4.compute.amazon.com", nodeAddresses[1].Address)
@@ -3814,7 +3823,12 @@ func verifyNodeAddressesForFargate(t *testing.T, verifyPublicIP bool, nodeAddres
 	} else {
 		assert.Equal(t, 1, len(nodeAddresses))
 	}
-	assert.Equal(t, "1.2.3.4", nodeAddresses[0].Address)
+
+	if ipFamily == "IPV4" {
+		assert.Equal(t, "1.2.3.4", nodeAddresses[0].Address)
+	} else {
+		assert.Equal(t, "2001:db8:3333:4444:5555:6666:7777:8888", nodeAddresses[0].Address)
+	}
 	assert.Equal(t, v1.NodeInternalIP, nodeAddresses[0].Type)
 }
 
