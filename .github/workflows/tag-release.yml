@@ -3,14 +3,13 @@ name: tag-release
 on:
   push:
     branches:
-      - master
-      - 'release-*'
+      - test
     paths:
       - version.txt
 
 jobs:
   tag:
-    if: ${{ github.repository == 'kubernetes/cloud-provider-aws' }}
+    if: ${{ github.repository == 'gregfurman/cloud-provider-aws' }}
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -28,18 +27,31 @@ jobs:
   release:
     needs: tag
     runs-on: ubuntu-latest
+    permissions:
+        contents: write
     steps:
+    - uses: actions/checkout@v3
+      with:
+        fetch-depth: 0
+
+    - name: Setup Golang
+      uses: actions/setup-go@v2
+      with:
+        go-version: 1.19.2
+
     - name: Build Go Binary
       run: |
         GOOS=linux GOARCH=amd64 go build -o ecr-credential-provider cmd/ecr-credential-provider/*.go
 
-    - name: Upload Go Binary as Release Artifact
-      uses: actions/upload-artifact@v2
+    - uses: actions/upload-artifact@v2
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       with:
         name: ecr-credential-provider
         path: ecr-credential-provider
 
     - uses: actions/create-release@v1
+      id: create_release
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       with:
@@ -55,3 +67,12 @@ jobs:
           See [CHANGELOG](https://github.com/kubernetes/cloud-provider-aws/blob/master/docs/CHANGELOG.md) for full list of changes.
         draft: false
         prerelease: false
+    
+    - uses: actions/upload-release-asset@v1
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        upload_url: ${{ steps.create_release.outputs.upload_url }}
+        asset_path: ./ecr-credential-provider
+        asset_name: ecr-credential-provider
+        asset_content_type: application/octet-stream
