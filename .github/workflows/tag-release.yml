@@ -3,8 +3,7 @@ name: tag-release
 on:
   push:
     branches:
-      - master
-      - 'release-*'
+      - test
     paths:
       - version.txt
 
@@ -29,6 +28,11 @@ jobs:
     needs: tag
     runs-on: ubuntu-latest
     steps:
+    - name: Setup Golang
+      uses: actions/setup-go@v2
+      with:
+        go-version: latest
+
     - name: Build Go Binary
       run: |
         GOOS=linux GOARCH=amd64 go build -o ecr-credential-provider cmd/ecr-credential-provider/*.go
