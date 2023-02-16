@@ -87,9 +87,9 @@ completes, the image will be deployed to [gcr.io/k8s-staging-provider-aws/cloud-
 
 ### Promoting the Image to Prod
 
-In order to publish the image to prod, create a PR to add its tag and SHA to [images.yaml](https://github.com/kubernetes/k8s.io/blob/main/k8s.gcr.io/images/k8s-staging-provider-aws/images.yaml).  Once that merges and completes, you should be able to find the published image [us.gcr.io/provider-aws/cloud-controller-manager](https://console.cloud.google.com/gcr/images/k8s-artifacts-prod/us/provider-aws/cloud-controller-manager).
+In order to publish the image to prod, create a PR to add its tag and SHA to [images.yaml](https://github.com/kubernetes/k8s.io/blob/main/registry.k8s.io/images/k8s-staging-provider-aws/images.yaml).  Once that merges and completes, you should be able to find the published image [us.gcr.io/provider-aws/cloud-controller-manager](https://console.cloud.google.com/gcr/images/k8s-artifacts-prod/us/provider-aws/cloud-controller-manager).
 
-See [k8s.gcr.io](https://github.com/kubernetes/k8s.io/tree/main/k8s.gcr.io) for the latest information about managing and publishing images to GCR using k8s infrastructure.
+See [registry.k8s.io](https://github.com/kubernetes/k8s.io/tree/main/registry.k8s.io) for the latest information about managing and publishing images to GCR using k8s infrastructure.
 
 ### Update the deployment files
 
