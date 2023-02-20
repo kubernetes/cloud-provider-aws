@@ -1,0 +1,1307 @@
+echo k8s.io/cloud-provider-aws/cmd/aws-cloud-controller-manager k8s.io/cloud-provider-aws/cmd/ecr-credential-provider k8s.io/cloud-provider-aws/pkg/apis/config k8s.io/cloud-provider-aws/pkg/apis/config/v1alpha1 k8s.io/cloud-provider-aws/pkg/controllers/options k8s.io/cloud-provider-aws/pkg/controllers/tagging k8s.io/cloud-provider-aws/pkg/providers/v1 k8s.io/cloud-provider-aws/pkg/providers/v2 k8s.io/cloud-provider-aws/pkg/providers/v2/mocks
+k8s.io/cloud-provider-aws/cmd/aws-cloud-controller-manager k8s.io/cloud-provider-aws/cmd/ecr-credential-provider k8s.io/cloud-provider-aws/pkg/apis/config k8s.io/cloud-provider-aws/pkg/apis/config/v1alpha1 k8s.io/cloud-provider-aws/pkg/controllers/options k8s.io/cloud-provider-aws/pkg/controllers/tagging k8s.io/cloud-provider-aws/pkg/providers/v1 k8s.io/cloud-provider-aws/pkg/providers/v2 k8s.io/cloud-provider-aws/pkg/providers/v2/mocks
+go test -count=1 -race -v k8s.io/cloud-provider-aws/cmd/aws-cloud-controller-manager k8s.io/cloud-provider-aws/cmd/ecr-credential-provider k8s.io/cloud-provider-aws/pkg/apis/config k8s.io/cloud-provider-aws/pkg/apis/config/v1alpha1 k8s.io/cloud-provider-aws/pkg/controllers/options k8s.io/cloud-provider-aws/pkg/controllers/tagging k8s.io/cloud-provider-aws/pkg/providers/v1 k8s.io/cloud-provider-aws/pkg/providers/v2 k8s.io/cloud-provider-aws/pkg/providers/v2/mocks
+?   	k8s.io/cloud-provider-aws/cmd/aws-cloud-controller-manager	[no test files]
+?   	k8s.io/cloud-provider-aws/pkg/apis/config	[no test files]
+?   	k8s.io/cloud-provider-aws/pkg/apis/config/v1alpha1	[no test files]
+?   	k8s.io/cloud-provider-aws/pkg/controllers/options	[no test files]
+=== RUN   Test_GetCredentials
+=== RUN   Test_GetCredentials/success
+=== RUN   Test_GetCredentials/empty_authorization_data
+=== RUN   Test_GetCredentials/nil_response
+=== RUN   Test_GetCredentials/empty_authorization_token
+=== RUN   Test_GetCredentials/invalid_authorization_token
+=== RUN   Test_GetCredentials/invalid_authorization_token#01
+--- PASS: Test_GetCredentials (0.00s)
+    --- PASS: Test_GetCredentials/success (0.00s)
+    --- PASS: Test_GetCredentials/empty_authorization_data (0.00s)
+    --- PASS: Test_GetCredentials/nil_response (0.00s)
+    --- PASS: Test_GetCredentials/empty_authorization_token (0.00s)
+    --- PASS: Test_GetCredentials/invalid_authorization_token (0.00s)
+    --- PASS: Test_GetCredentials/invalid_authorization_token#01 (0.00s)
+=== RUN   Test_ParseURL
+=== RUN   Test_ParseURL/success
+=== RUN   Test_ParseURL/invalid_registry
+=== RUN   Test_ParseURL/invalid_URL
+--- PASS: Test_ParseURL (0.00s)
+    --- PASS: Test_ParseURL/success (0.00s)
+    --- PASS: Test_ParseURL/invalid_registry (0.00s)
+    --- PASS: Test_ParseURL/invalid_URL (0.00s)
+=== RUN   TestRegistryPatternMatch
+--- PASS: TestRegistryPatternMatch (0.00s)
+=== RUN   Test_getCacheDuration
+--- PASS: Test_getCacheDuration (0.00s)
+=== RUN   Test_runPlugin
+=== RUN   Test_runPlugin/successful_test_case
+=== RUN   Test_runPlugin/invalid_kind
+=== RUN   Test_runPlugin/invalid_apiVersion
+=== RUN   Test_runPlugin/empty_image
+--- PASS: Test_runPlugin (0.00s)
+    --- PASS: Test_runPlugin/successful_test_case (0.00s)
+    --- PASS: Test_runPlugin/invalid_kind (0.00s)
+    --- PASS: Test_runPlugin/invalid_apiVersion (0.00s)
+    --- PASS: Test_runPlugin/empty_image (0.00s)
+PASS
+ok  	k8s.io/cloud-provider-aws/cmd/ecr-credential-provider	1.119s
+?   	k8s.io/cloud-provider-aws/pkg/providers/v2/mocks	[no test files]
+=== RUN   Test_NodesJoiningAndLeaving
+=== RUN   Test_NodesJoiningAndLeaving/node0_joins_the_cluster,_but_fail_to_tag.
+E0220 14:40:10.296608   17562 tags.go:329] Error occurred trying to tag resources, Unable to tag
+E0220 14:40:10.296629   17562 tagging_controller.go:294] Error in tagging EC2 instance i-error for node node0, error: Unable to tag
+E0220 14:40:10.296691   17562 tagging_controller.go:258] Error occurred while processing [Node: node0, RequeuingCount: 1, EnqueueTime: 2023-02-20 14:40:10.296262 -0800 PST m=+0.101318751]
+E0220 14:40:10.296736   17562 tagging_controller.go:259] error processing work item '[Node: node0, RequeuingCount: 1, EnqueueTime: 2023-02-20 14:40:10.296262 -0800 PST m=+0.101318751]': Unable to tag, requeuing count 1
+E0220 14:40:11.801328   17562 tags.go:329] Error occurred trying to tag resources, Unable to tag
+E0220 14:40:11.801398   17562 tagging_controller.go:294] Error in tagging EC2 instance i-error for node node0, error: Unable to tag
+E0220 14:40:11.801566   17562 tagging_controller.go:258] Error occurred while processing [Node: node0, RequeuingCount: 2, EnqueueTime: 2023-02-20 14:40:10.296262 -0800 PST m=+0.101318751]
+E0220 14:40:11.801683   17562 tagging_controller.go:259] error processing work item '[Node: node0, RequeuingCount: 2, EnqueueTime: 2023-02-20 14:40:10.296262 -0800 PST m=+0.101318751]': Unable to tag, requeuing count 2
+E0220 14:40:13.303062   17562 tags.go:329] Error occurred trying to tag resources, Unable to tag
+E0220 14:40:13.303113   17562 tagging_controller.go:294] Error in tagging EC2 instance i-error for node node0, error: Unable to tag
+E0220 14:40:13.303270   17562 tagging_controller.go:258] Error occurred while processing [Node: node0, RequeuingCount: 3, EnqueueTime: 2023-02-20 14:40:10.296262 -0800 PST m=+0.101318751]
+E0220 14:40:13.303327   17562 tagging_controller.go:259] error processing work item '[Node: node0, RequeuingCount: 3, EnqueueTime: 2023-02-20 14:40:10.296262 -0800 PST m=+0.101318751]': Unable to tag, requeuing count 3
+E0220 14:40:14.805212   17562 tags.go:329] Error occurred trying to tag resources, Unable to tag
+E0220 14:40:14.805293   17562 tagging_controller.go:294] Error in tagging EC2 instance i-error for node node0, error: Unable to tag
+E0220 14:40:14.805851   17562 tagging_controller.go:258] Error occurred while processing [Node: node0, RequeuingCount: 4, EnqueueTime: 2023-02-20 14:40:10.296262 -0800 PST m=+0.101318751]
+E0220 14:40:14.805916   17562 tagging_controller.go:259] error processing work item '[Node: node0, RequeuingCount: 4, EnqueueTime: 2023-02-20 14:40:10.296262 -0800 PST m=+0.101318751]': Unable to tag, requeuing count 4
+E0220 14:40:16.307811   17562 tags.go:329] Error occurred trying to tag resources, Unable to tag
+E0220 14:40:16.307994   17562 tagging_controller.go:294] Error in tagging EC2 instance i-error for node node0, error: Unable to tag
+E0220 14:40:16.308267   17562 tagging_controller.go:258] Error occurred while processing [Node: node0, RequeuingCount: 5, EnqueueTime: 2023-02-20 14:40:10.296262 -0800 PST m=+0.101318751]
+E0220 14:40:16.308339   17562 tagging_controller.go:259] error processing work item '[Node: node0, RequeuingCount: 5, EnqueueTime: 2023-02-20 14:40:10.296262 -0800 PST m=+0.101318751]': Unable to tag, requeuing count 5
+E0220 14:40:17.809627   17562 tags.go:329] Error occurred trying to tag resources, Unable to tag
+E0220 14:40:17.809676   17562 tagging_controller.go:294] Error in tagging EC2 instance i-error for node node0, error: Unable to tag
+E0220 14:40:17.809804   17562 tagging_controller.go:258] Error occurred while processing [Node: node0, RequeuingCount: 6, EnqueueTime: 2023-02-20 14:40:10.296262 -0800 PST m=+0.101318751]
+E0220 14:40:17.809897   17562 tagging_controller.go:259] error processing work item '[Node: node0, RequeuingCount: 6, EnqueueTime: 2023-02-20 14:40:10.296262 -0800 PST m=+0.101318751]': Unable to tag, requeuing count 6
+E0220 14:40:19.312930   17562 tags.go:329] Error occurred trying to tag resources, Unable to tag
+E0220 14:40:19.313024   17562 tagging_controller.go:294] Error in tagging EC2 instance i-error for node node0, error: Unable to tag
+E0220 14:40:19.313288   17562 tagging_controller.go:258] Error occurred while processing [Node: node0, RequeuingCount: 7, EnqueueTime: 2023-02-20 14:40:10.296262 -0800 PST m=+0.101318751]
+E0220 14:40:19.313381   17562 tagging_controller.go:259] error processing work item '[Node: node0, RequeuingCount: 7, EnqueueTime: 2023-02-20 14:40:10.296262 -0800 PST m=+0.101318751]': Unable to tag, requeuing count 7
+E0220 14:40:20.815657   17562 tags.go:329] Error occurred trying to tag resources, Unable to tag
+E0220 14:40:20.815756   17562 tagging_controller.go:294] Error in tagging EC2 instance i-error for node node0, error: Unable to tag
+E0220 14:40:20.816064   17562 tagging_controller.go:258] Error occurred while processing [Node: node0, RequeuingCount: 8, EnqueueTime: 2023-02-20 14:40:10.296262 -0800 PST m=+0.101318751]
+E0220 14:40:20.816212   17562 tagging_controller.go:259] error processing work item '[Node: node0, RequeuingCount: 8, EnqueueTime: 2023-02-20 14:40:10.296262 -0800 PST m=+0.101318751]': Unable to tag, requeuing count 8
+E0220 14:40:22.318157   17562 tags.go:329] Error occurred trying to tag resources, Unable to tag
+E0220 14:40:22.318281   17562 tagging_controller.go:294] Error in tagging EC2 instance i-error for node node0, error: Unable to tag
+E0220 14:40:22.322051   17562 tagging_controller.go:258] Error occurred while processing [Node: node0, RequeuingCount: 9, EnqueueTime: 2023-02-20 14:40:10.296262 -0800 PST m=+0.101318751]
+E0220 14:40:22.322185   17562 tagging_controller.go:259] error processing work item '[Node: node0, RequeuingCount: 9, EnqueueTime: 2023-02-20 14:40:10.296262 -0800 PST m=+0.101318751]': Unable to tag, requeuing count 9
+E0220 14:40:23.823883   17562 tags.go:329] Error occurred trying to tag resources, Unable to tag
+E0220 14:40:23.823942   17562 tagging_controller.go:294] Error in tagging EC2 instance i-error for node node0, error: Unable to tag
+E0220 14:40:23.823997   17562 tagging_controller.go:244] error processing work item [Node: node0, RequeuingCount: 9, EnqueueTime: 2023-02-20 14:40:10.296262 -0800 PST m=+0.101318751]: Unable to tag, requeuing count exceeded
+=== RUN   Test_NodesJoiningAndLeaving/node0_joins_the_cluster.
+=== RUN   Test_NodesJoiningAndLeaving/node0_joins_the_cluster_(rate-limited).
+=== RUN   Test_NodesJoiningAndLeaving/node0_joins_the_cluster_and_was_tagged_earlier_with_different_tags.
+=== RUN   Test_NodesJoiningAndLeaving/node0_joins_the_cluster_but_isn't_tagged_because_it_was_already_tagged_earlier.
+=== RUN   Test_NodesJoiningAndLeaving/fargate_node_joins_the_cluster.
+=== RUN   Test_NodesJoiningAndLeaving/node0_leaves_the_cluster,_failed_to_untag.
+E0220 14:40:32.872594   17562 tags.go:353] Error occurred trying to untag resources, Unable to remove tag
+E0220 14:40:32.872627   17562 tagging_controller.go:334] Error in untagging EC2 instance i-error for node node0, error: Unable to remove tag
+E0220 14:40:32.872726   17562 tagging_controller.go:258] Error occurred while processing [Node: node0, RequeuingCount: 1, EnqueueTime: 2023-02-20 14:40:32.872309 -0800 PST m=+22.677137293]
+E0220 14:40:32.872778   17562 tagging_controller.go:259] error processing work item '[Node: node0, RequeuingCount: 1, EnqueueTime: 2023-02-20 14:40:32.872309 -0800 PST m=+22.677137293]': Unable to remove tag, requeuing count 1
+E0220 14:40:34.374544   17562 tags.go:353] Error occurred trying to untag resources, Unable to remove tag
+E0220 14:40:34.374633   17562 tagging_controller.go:334] Error in untagging EC2 instance i-error for node node0, error: Unable to remove tag
+E0220 14:40:34.374888   17562 tagging_controller.go:258] Error occurred while processing [Node: node0, RequeuingCount: 2, EnqueueTime: 2023-02-20 14:40:32.872309 -0800 PST m=+22.677137293]
+E0220 14:40:34.375054   17562 tagging_controller.go:259] error processing work item '[Node: node0, RequeuingCount: 2, EnqueueTime: 2023-02-20 14:40:32.872309 -0800 PST m=+22.677137293]': Unable to remove tag, requeuing count 2
+E0220 14:40:35.876353   17562 tags.go:353] Error occurred trying to untag resources, Unable to remove tag
+E0220 14:40:35.876436   17562 tagging_controller.go:334] Error in untagging EC2 instance i-error for node node0, error: Unable to remove tag
+E0220 14:40:35.876648   17562 tagging_controller.go:258] Error occurred while processing [Node: node0, RequeuingCount: 3, EnqueueTime: 2023-02-20 14:40:32.872309 -0800 PST m=+22.677137293]
+E0220 14:40:35.876709   17562 tagging_controller.go:259] error processing work item '[Node: node0, RequeuingCount: 3, EnqueueTime: 2023-02-20 14:40:32.872309 -0800 PST m=+22.677137293]': Unable to remove tag, requeuing count 3
+E0220 14:40:37.378178   17562 tags.go:353] Error occurred trying to untag resources, Unable to remove tag
+E0220 14:40:37.380196   17562 tagging_controller.go:334] Error in untagging EC2 instance i-error for node node0, error: Unable to remove tag
+E0220 14:40:37.380558   17562 tagging_controller.go:258] Error occurred while processing [Node: node0, RequeuingCount: 4, EnqueueTime: 2023-02-20 14:40:32.872309 -0800 PST m=+22.677137293]
+E0220 14:40:37.380939   17562 tagging_controller.go:259] error processing work item '[Node: node0, RequeuingCount: 4, EnqueueTime: 2023-02-20 14:40:32.872309 -0800 PST m=+22.677137293]': Unable to remove tag, requeuing count 4
+E0220 14:40:38.882379   17562 tags.go:353] Error occurred trying to untag resources, Unable to remove tag
+E0220 14:40:38.882444   17562 tagging_controller.go:334] Error in untagging EC2 instance i-error for node node0, error: Unable to remove tag
+E0220 14:40:38.883042   17562 tagging_controller.go:258] Error occurred while processing [Node: node0, RequeuingCount: 5, EnqueueTime: 2023-02-20 14:40:32.872309 -0800 PST m=+22.677137293]
+E0220 14:40:38.883130   17562 tagging_controller.go:259] error processing work item '[Node: node0, RequeuingCount: 5, EnqueueTime: 2023-02-20 14:40:32.872309 -0800 PST m=+22.677137293]': Unable to remove tag, requeuing count 5
+E0220 14:40:40.385147   17562 tags.go:353] Error occurred trying to untag resources, Unable to remove tag
+E0220 14:40:40.385252   17562 tagging_controller.go:334] Error in untagging EC2 instance i-error for node node0, error: Unable to remove tag
+E0220 14:40:40.385509   17562 tagging_controller.go:258] Error occurred while processing [Node: node0, RequeuingCount: 6, EnqueueTime: 2023-02-20 14:40:32.872309 -0800 PST m=+22.677137293]
+E0220 14:40:40.385583   17562 tagging_controller.go:259] error processing work item '[Node: node0, RequeuingCount: 6, EnqueueTime: 2023-02-20 14:40:32.872309 -0800 PST m=+22.677137293]': Unable to remove tag, requeuing count 6
+E0220 14:40:41.888726   17562 tags.go:353] Error occurred trying to untag resources, Unable to remove tag
+E0220 14:40:41.888839   17562 tagging_controller.go:334] Error in untagging EC2 instance i-error for node node0, error: Unable to remove tag
+E0220 14:40:41.889798   17562 tagging_controller.go:258] Error occurred while processing [Node: node0, RequeuingCount: 7, EnqueueTime: 2023-02-20 14:40:32.872309 -0800 PST m=+22.677137293]
+E0220 14:40:41.890040   17562 tagging_controller.go:259] error processing work item '[Node: node0, RequeuingCount: 7, EnqueueTime: 2023-02-20 14:40:32.872309 -0800 PST m=+22.677137293]': Unable to remove tag, requeuing count 7
+E0220 14:40:43.392086   17562 tags.go:353] Error occurred trying to untag resources, Unable to remove tag
+E0220 14:40:43.392168   17562 tagging_controller.go:334] Error in untagging EC2 instance i-error for node node0, error: Unable to remove tag
+E0220 14:40:43.392344   17562 tagging_controller.go:258] Error occurred while processing [Node: node0, RequeuingCount: 8, EnqueueTime: 2023-02-20 14:40:32.872309 -0800 PST m=+22.677137293]
+E0220 14:40:43.392414   17562 tagging_controller.go:259] error processing work item '[Node: node0, RequeuingCount: 8, EnqueueTime: 2023-02-20 14:40:32.872309 -0800 PST m=+22.677137293]': Unable to remove tag, requeuing count 8
+E0220 14:40:44.893623   17562 tags.go:353] Error occurred trying to untag resources, Unable to remove tag
+E0220 14:40:44.893705   17562 tagging_controller.go:334] Error in untagging EC2 instance i-error for node node0, error: Unable to remove tag
+E0220 14:40:44.893880   17562 tagging_controller.go:258] Error occurred while processing [Node: node0, RequeuingCount: 9, EnqueueTime: 2023-02-20 14:40:32.872309 -0800 PST m=+22.677137293]
+E0220 14:40:44.893932   17562 tagging_controller.go:259] error processing work item '[Node: node0, RequeuingCount: 9, EnqueueTime: 2023-02-20 14:40:32.872309 -0800 PST m=+22.677137293]': Unable to remove tag, requeuing count 9
+E0220 14:40:46.395622   17562 tags.go:353] Error occurred trying to untag resources, Unable to remove tag
+E0220 14:40:46.395680   17562 tagging_controller.go:334] Error in untagging EC2 instance i-error for node node0, error: Unable to remove tag
+E0220 14:40:46.395739   17562 tagging_controller.go:244] error processing work item [Node: node0, RequeuingCount: 9, EnqueueTime: 2023-02-20 14:40:32.872309 -0800 PST m=+22.677137293]: Unable to remove tag, requeuing count exceeded
+=== RUN   Test_NodesJoiningAndLeaving/node0_leaves_the_cluster.
+--- PASS: Test_NodesJoiningAndLeaving (39.11s)
+    --- PASS: Test_NodesJoiningAndLeaving/node0_joins_the_cluster,_but_fail_to_tag. (15.03s)
+    --- PASS: Test_NodesJoiningAndLeaving/node0_joins_the_cluster. (1.51s)
+    --- PASS: Test_NodesJoiningAndLeaving/node0_joins_the_cluster_(rate-limited). (1.52s)
+    --- PASS: Test_NodesJoiningAndLeaving/node0_joins_the_cluster_and_was_tagged_earlier_with_different_tags. (1.50s)
+    --- PASS: Test_NodesJoiningAndLeaving/node0_joins_the_cluster_but_isn't_tagged_because_it_was_already_tagged_earlier. (1.50s)
+    --- PASS: Test_NodesJoiningAndLeaving/fargate_node_joins_the_cluster. (1.50s)
+    --- PASS: Test_NodesJoiningAndLeaving/node0_leaves_the_cluster,_failed_to_untag. (15.03s)
+    --- PASS: Test_NodesJoiningAndLeaving/node0_leaves_the_cluster. (1.50s)
+PASS
+ok  	k8s.io/cloud-provider-aws/pkg/controllers/tagging	43.841s
+=== RUN   Test_assumeRoleProviderWithRateLimiting_Retrieve
+=== RUN   Test_assumeRoleProviderWithRateLimiting_Retrieve/Call_assume_role_provider_and_verify_access_ID_returned
+=== RUN   Test_assumeRoleProviderWithRateLimiting_Retrieve/Immediate_call_to_assume_role_API,_shouldn't_call_the_underlying_provider_and_return_the_last_value
+=== RUN   Test_assumeRoleProviderWithRateLimiting_Retrieve/Assume_role_provider_returns_an_error_when_trying_to_assume_a_role
+=== RUN   Test_assumeRoleProviderWithRateLimiting_Retrieve/Immediate_call_to_assume_role_API,_shouldn't_call_the_underlying_provider_and_return_the_last_error_value
+=== RUN   Test_assumeRoleProviderWithRateLimiting_Retrieve/Delayed_call_to_assume_role_API,_should_call_the_underlying_provider
+--- PASS: Test_assumeRoleProviderWithRateLimiting_Retrieve (0.05s)
+    --- PASS: Test_assumeRoleProviderWithRateLimiting_Retrieve/Call_assume_role_provider_and_verify_access_ID_returned (0.00s)
+    --- PASS: Test_assumeRoleProviderWithRateLimiting_Retrieve/Immediate_call_to_assume_role_API,_shouldn't_call_the_underlying_provider_and_return_the_last_value (0.01s)
+    --- PASS: Test_assumeRoleProviderWithRateLimiting_Retrieve/Assume_role_provider_returns_an_error_when_trying_to_assume_a_role (0.02s)
+    --- PASS: Test_assumeRoleProviderWithRateLimiting_Retrieve/Immediate_call_to_assume_role_API,_shouldn't_call_the_underlying_provider_and_return_the_last_error_value (0.00s)
+    --- PASS: Test_assumeRoleProviderWithRateLimiting_Retrieve/Delayed_call_to_assume_role_API,_should_call_the_underlying_provider (0.03s)
+=== RUN   TestElbProtocolsAreEqual
+--- PASS: TestElbProtocolsAreEqual (0.00s)
+=== RUN   TestAWSARNEquals
+--- PASS: TestAWSARNEquals (0.00s)
+=== RUN   TestIsNLB
+    aws_loadbalancer_test.go:166: Running test case NLB annotation provided
+    aws_loadbalancer_test.go:166: Running test case NLB annotation has invalid value
+    aws_loadbalancer_test.go:166: Running test case NLB annotation absent
+--- PASS: TestIsNLB (0.00s)
+=== RUN   TestIsLBExternal
+    aws_loadbalancer_test.go:203: Running test case No annotation
+    aws_loadbalancer_test.go:203: Running test case Type NLB
+    aws_loadbalancer_test.go:203: Running test case Type NLB-IP
+    aws_loadbalancer_test.go:203: Running test case Type External
+--- PASS: TestIsLBExternal (0.00s)
+=== RUN   TestSyncElbListeners
+=== RUN   TestSyncElbListeners/no_edge_cases
+=== RUN   TestSyncElbListeners/no_listeners_to_delete
+=== RUN   TestSyncElbListeners/no_listeners_to_create
+=== RUN   TestSyncElbListeners/nil_actual_listener
+W0220 14:40:08.754283   17563 aws_loadbalancer.go:1256] Ignoring empty listener in AWS loadbalancer: lb_four
+--- PASS: TestSyncElbListeners (0.00s)
+    --- PASS: TestSyncElbListeners/no_edge_cases (0.00s)
+    --- PASS: TestSyncElbListeners/no_listeners_to_delete (0.00s)
+    --- PASS: TestSyncElbListeners/no_listeners_to_create (0.00s)
+    --- PASS: TestSyncElbListeners/nil_actual_listener (0.00s)
+=== RUN   TestElbListenersAreEqual
+=== RUN   TestElbListenersAreEqual/should_be_equal
+=== RUN   TestElbListenersAreEqual/instance_port_should_be_different
+=== RUN   TestElbListenersAreEqual/instance_protocol_should_be_different
+=== RUN   TestElbListenersAreEqual/load_balancer_port_should_be_different
+=== RUN   TestElbListenersAreEqual/protocol_should_be_different
+--- PASS: TestElbListenersAreEqual (0.00s)
+    --- PASS: TestElbListenersAreEqual/should_be_equal (0.00s)
+    --- PASS: TestElbListenersAreEqual/instance_port_should_be_different (0.00s)
+    --- PASS: TestElbListenersAreEqual/instance_protocol_should_be_different (0.00s)
+    --- PASS: TestElbListenersAreEqual/load_balancer_port_should_be_different (0.00s)
+    --- PASS: TestElbListenersAreEqual/protocol_should_be_different (0.00s)
+=== RUN   TestBuildTargetGroupName
+=== RUN   TestBuildTargetGroupName/base_case
+=== RUN   TestBuildTargetGroupName/base_case_&_clusterID_changed
+=== RUN   TestBuildTargetGroupName/base_case_&_serviceNamespace_changed
+=== RUN   TestBuildTargetGroupName/base_case_&_serviceName_changed
+=== RUN   TestBuildTargetGroupName/base_case_&_servicePort_changed
+=== RUN   TestBuildTargetGroupName/base_case_&_nodePort_changed
+=== RUN   TestBuildTargetGroupName/base_case_&_targetProtocol_changed
+=== RUN   TestBuildTargetGroupName/base_case_&_targetType_changed
+=== RUN   TestBuildTargetGroupName/custom_healthcheck_config
+--- PASS: TestBuildTargetGroupName (0.00s)
+    --- PASS: TestBuildTargetGroupName/base_case (0.00s)
+    --- PASS: TestBuildTargetGroupName/base_case_&_clusterID_changed (0.00s)
+    --- PASS: TestBuildTargetGroupName/base_case_&_serviceNamespace_changed (0.00s)
+    --- PASS: TestBuildTargetGroupName/base_case_&_serviceName_changed (0.00s)
+    --- PASS: TestBuildTargetGroupName/base_case_&_servicePort_changed (0.00s)
+    --- PASS: TestBuildTargetGroupName/base_case_&_nodePort_changed (0.00s)
+    --- PASS: TestBuildTargetGroupName/base_case_&_targetProtocol_changed (0.00s)
+    --- PASS: TestBuildTargetGroupName/base_case_&_targetType_changed (0.00s)
+    --- PASS: TestBuildTargetGroupName/custom_healthcheck_config (0.00s)
+=== RUN   TestFilterTargetNodes
+=== RUN   TestFilterTargetNodes/when_no_filter_is_provided,_node_should_be_targeted
+=== RUN   TestFilterTargetNodes/when_all_key-value_filters_match,_node_should_be_targeted
+=== RUN   TestFilterTargetNodes/when_all_just-key_filter_match,_node_should_be_targeted
+=== RUN   TestFilterTargetNodes/when_some_filters_do_not_match,_node_should_not_be_targeted
+=== RUN   TestFilterTargetNodes/when_no_filter_matches,_node_should_not_be_targeted
+--- PASS: TestFilterTargetNodes (0.00s)
+    --- PASS: TestFilterTargetNodes/when_no_filter_is_provided,_node_should_be_targeted (0.00s)
+    --- PASS: TestFilterTargetNodes/when_all_key-value_filters_match,_node_should_be_targeted (0.00s)
+    --- PASS: TestFilterTargetNodes/when_all_just-key_filter_match,_node_should_be_targeted (0.00s)
+    --- PASS: TestFilterTargetNodes/when_some_filters_do_not_match,_node_should_not_be_targeted (0.00s)
+    --- PASS: TestFilterTargetNodes/when_no_filter_matches,_node_should_not_be_targeted (0.00s)
+=== RUN   TestCloud_findInstancesForELB
+I0220 14:40:08.757271   17563 aws.go:1354] Building AWS cloudprovider
+I0220 14:40:08.757301   17563 aws.go:5297] Get AWS region from metadata client
+I0220 14:40:08.757311   17563 aws.go:1314] Zone not specified in configuration file; querying AWS metadata service
+I0220 14:40:08.757878   17563 tags.go:77] AWS cloud filtering on ClusterID: clusterid.test
+I0220 14:40:08.757924   17563 aws.go:1452] The following IP families will be added to nodes: [ipv4]
+--- PASS: TestCloud_findInstancesForELB (0.00s)
+=== RUN   TestCloud_chunkTargetDescriptions
+=== RUN   TestCloud_chunkTargetDescriptions/can_be_evenly_chunked
+=== RUN   TestCloud_chunkTargetDescriptions/cannot_be_evenly_chunked
+=== RUN   TestCloud_chunkTargetDescriptions/chunkSize_equal_to_total_count
+=== RUN   TestCloud_chunkTargetDescriptions/chunkSize_greater_than_total_count
+=== RUN   TestCloud_chunkTargetDescriptions/chunk_nil_slice
+=== RUN   TestCloud_chunkTargetDescriptions/chunk_empty_slice
+--- PASS: TestCloud_chunkTargetDescriptions (0.00s)
+    --- PASS: TestCloud_chunkTargetDescriptions/can_be_evenly_chunked (0.00s)
+    --- PASS: TestCloud_chunkTargetDescriptions/cannot_be_evenly_chunked (0.00s)
+    --- PASS: TestCloud_chunkTargetDescriptions/chunkSize_equal_to_total_count (0.00s)
+    --- PASS: TestCloud_chunkTargetDescriptions/chunkSize_greater_than_total_count (0.00s)
+    --- PASS: TestCloud_chunkTargetDescriptions/chunk_nil_slice (0.00s)
+    --- PASS: TestCloud_chunkTargetDescriptions/chunk_empty_slice (0.00s)
+=== RUN   TestCloud_diffTargetGroupTargets
+=== RUN   TestCloud_diffTargetGroupTargets/all_targets_to_register
+=== RUN   TestCloud_diffTargetGroupTargets/all_targets_to_deregister
+=== RUN   TestCloud_diffTargetGroupTargets/some_targets_to_register_and_deregister
+=== RUN   TestCloud_diffTargetGroupTargets/both_expected_and_actual_targets_are_empty
+=== RUN   TestCloud_diffTargetGroupTargets/expected_and_actual_targets_equals
+--- PASS: TestCloud_diffTargetGroupTargets (0.00s)
+    --- PASS: TestCloud_diffTargetGroupTargets/all_targets_to_register (0.00s)
+    --- PASS: TestCloud_diffTargetGroupTargets/all_targets_to_deregister (0.00s)
+    --- PASS: TestCloud_diffTargetGroupTargets/some_targets_to_register_and_deregister (0.00s)
+    --- PASS: TestCloud_diffTargetGroupTargets/both_expected_and_actual_targets_are_empty (0.00s)
+    --- PASS: TestCloud_diffTargetGroupTargets/expected_and_actual_targets_equals (0.00s)
+=== RUN   TestCloud_computeTargetGroupExpectedTargets
+=== RUN   TestCloud_computeTargetGroupExpectedTargets/no_instance
+=== RUN   TestCloud_computeTargetGroupExpectedTargets/one_instance
+=== RUN   TestCloud_computeTargetGroupExpectedTargets/multiple_instances
+--- PASS: TestCloud_computeTargetGroupExpectedTargets (0.00s)
+    --- PASS: TestCloud_computeTargetGroupExpectedTargets/no_instance (0.00s)
+    --- PASS: TestCloud_computeTargetGroupExpectedTargets/one_instance (0.00s)
+    --- PASS: TestCloud_computeTargetGroupExpectedTargets/multiple_instances (0.00s)
+=== RUN   TestReadAWSCloudConfig
+    aws_test.go:196: Running test case No config reader
+    aws_test.go:196: Running test case Empty config, no metadata
+    aws_test.go:196: Running test case No zone in config, no metadata
+    aws_test.go:196: Running test case Zone in config, no metadata
+    aws_test.go:196: Running test case No zone in config, metadata does not have zone
+I0220 14:40:08.760489   17563 aws.go:1314] Zone not specified in configuration file; querying AWS metadata service
+    aws_test.go:196: Running test case No zone in config, metadata has zone
+I0220 14:40:08.760526   17563 aws.go:1314] Zone not specified in configuration file; querying AWS metadata service
+    aws_test.go:196: Running test case Zone in config should take precedence over metadata
+--- PASS: TestReadAWSCloudConfig (0.00s)
+=== RUN   TestReadAWSCloudConfigNodeIPFamilies
+    aws_test.go:244: Running test case Single IP family
+    aws_test.go:244: Running test case Multiple IP families
+--- PASS: TestReadAWSCloudConfigNodeIPFamilies (0.00s)
+=== RUN   TestOverridesActiveConfig
+    aws_test.go:464: Running test case No overrides
+    aws_test.go:464: Running test case Missing Service Name
+    aws_test.go:464: Running test case Missing Service Region
+    aws_test.go:464: Running test case Missing URL
+    aws_test.go:464: Running test case Missing Signing Region
+    aws_test.go:464: Running test case Active Overrides
+    aws_test.go:464: Running test case Multiple Overridden Services
+    aws_test.go:464: Running test case Duplicate Services
+    aws_test.go:464: Running test case Multiple Overridden Services in Multiple regions
+    aws_test.go:464: Running test case Multiple regions, Same Service
+--- PASS: TestOverridesActiveConfig (0.00s)
+=== RUN   TestNewAWSCloud
+    aws_test.go:581: Running test case No config reader
+I0220 14:40:08.764960   17563 aws.go:1354] Building AWS cloudprovider
+I0220 14:40:08.764977   17563 aws.go:5297] Get AWS region from metadata client
+I0220 14:40:08.764987   17563 aws.go:1314] Zone not specified in configuration file; querying AWS metadata service
+    aws_test.go:581: Running test case Config specifies valid zone
+I0220 14:40:08.765331   17563 aws.go:1354] Building AWS cloudprovider
+I0220 14:40:08.765342   17563 aws.go:5297] Get AWS region from metadata client
+I0220 14:40:08.765428   17563 tags.go:77] AWS cloud filtering on ClusterID: clusterid.test
+I0220 14:40:08.765442   17563 aws.go:1452] The following IP families will be added to nodes: [ipv4]
+    aws_test.go:581: Running test case Gets zone from metadata when not in config
+I0220 14:40:08.765496   17563 aws.go:1354] Building AWS cloudprovider
+I0220 14:40:08.765507   17563 aws.go:5297] Get AWS region from metadata client
+I0220 14:40:08.765514   17563 aws.go:1314] Zone not specified in configuration file; querying AWS metadata service
+I0220 14:40:08.765569   17563 tags.go:77] AWS cloud filtering on ClusterID: clusterid.test
+I0220 14:40:08.765582   17563 aws.go:1452] The following IP families will be added to nodes: [ipv4]
+    aws_test.go:581: Running test case No zone in config or metadata
+I0220 14:40:08.765623   17563 aws.go:1354] Building AWS cloudprovider
+I0220 14:40:08.765632   17563 aws.go:5297] Get AWS region from metadata client
+I0220 14:40:08.765640   17563 aws.go:1314] Zone not specified in configuration file; querying AWS metadata service
+--- PASS: TestNewAWSCloud (0.00s)
+=== RUN   TestNodeAddressesByProviderID
+I0220 14:40:08.765972   17563 aws.go:1354] Building AWS cloudprovider
+I0220 14:40:08.765983   17563 aws.go:5297] Get AWS region from metadata client
+I0220 14:40:08.765992   17563 aws.go:1314] Zone not specified in configuration file; querying AWS metadata service
+I0220 14:40:08.766334   17563 tags.go:77] AWS cloud filtering on ClusterID: clusterid.test
+I0220 14:40:08.766348   17563 aws.go:1452] The following IP families will be added to nodes: [ipv4]
+I0220 14:40:08.766571   17563 aws.go:852] Setting up informers for Cloud
+I0220 14:40:08.766729   17563 aws.go:1354] Building AWS cloudprovider
+I0220 14:40:08.766739   17563 aws.go:5297] Get AWS region from metadata client
+I0220 14:40:08.766746   17563 aws.go:1314] Zone not specified in configuration file; querying AWS metadata service
+I0220 14:40:08.766815   17563 tags.go:77] AWS cloud filtering on ClusterID: clusterid.test
+I0220 14:40:08.766827   17563 aws.go:1452] The following IP families will be added to nodes: [ipv4]
+I0220 14:40:08.766844   17563 aws.go:852] Setting up informers for Cloud
+I0220 14:40:08.766903   17563 aws.go:1354] Building AWS cloudprovider
+I0220 14:40:08.766911   17563 aws.go:5297] Get AWS region from metadata client
+I0220 14:40:08.766918   17563 aws.go:1314] Zone not specified in configuration file; querying AWS metadata service
+I0220 14:40:08.766972   17563 tags.go:77] AWS cloud filtering on ClusterID: clusterid.test
+I0220 14:40:08.766982   17563 aws.go:1452] The following IP families will be added to nodes: [ipv4]
+I0220 14:40:08.766998   17563 aws.go:852] Setting up informers for Cloud
+I0220 14:40:08.767077   17563 aws.go:1354] Building AWS cloudprovider
+I0220 14:40:08.767085   17563 aws.go:5297] Get AWS region from metadata client
+I0220 14:40:08.767092   17563 aws.go:1314] Zone not specified in configuration file; querying AWS metadata service
+I0220 14:40:08.767142   17563 tags.go:77] AWS cloud filtering on ClusterID: clusterid.test
+I0220 14:40:08.767151   17563 aws.go:1452] The following IP families will be added to nodes: [ipv4]
+I0220 14:40:08.767164   17563 aws.go:852] Setting up informers for Cloud
+--- PASS: TestNodeAddressesByProviderID (0.00s)
+=== RUN   TestNodeAddresses
+I0220 14:40:08.767447   17563 aws.go:1354] Building AWS cloudprovider
+I0220 14:40:08.767459   17563 aws.go:5297] Get AWS region from metadata client
+I0220 14:40:08.767468   17563 aws.go:1314] Zone not specified in configuration file; querying AWS metadata service
+I0220 14:40:08.767526   17563 tags.go:77] AWS cloud filtering on ClusterID: clusterid.test
+I0220 14:40:08.767538   17563 aws.go:1452] The following IP families will be added to nodes: [ipv4]
+I0220 14:40:08.767552   17563 aws.go:852] Setting up informers for Cloud
+I0220 14:40:08.767628   17563 aws.go:1354] Building AWS cloudprovider
+I0220 14:40:08.767638   17563 aws.go:5297] Get AWS region from metadata client
+I0220 14:40:08.767646   17563 aws.go:1314] Zone not specified in configuration file; querying AWS metadata service
+I0220 14:40:08.767695   17563 tags.go:77] AWS cloud filtering on ClusterID: clusterid.test
+I0220 14:40:08.767706   17563 aws.go:1452] The following IP families will be added to nodes: [ipv4]
+I0220 14:40:08.767720   17563 aws.go:852] Setting up informers for Cloud
+I0220 14:40:08.767772   17563 aws.go:1354] Building AWS cloudprovider
+I0220 14:40:08.767780   17563 aws.go:5297] Get AWS region from metadata client
+I0220 14:40:08.767787   17563 aws.go:1314] Zone not specified in configuration file; querying AWS metadata service
+I0220 14:40:08.767833   17563 tags.go:77] AWS cloud filtering on ClusterID: clusterid.test
+I0220 14:40:08.767844   17563 aws.go:1452] The following IP families will be added to nodes: [ipv4]
+I0220 14:40:08.767857   17563 aws.go:852] Setting up informers for Cloud
+I0220 14:40:08.767920   17563 aws.go:1354] Building AWS cloudprovider
+I0220 14:40:08.767928   17563 aws.go:5297] Get AWS region from metadata client
+I0220 14:40:08.767936   17563 aws.go:1314] Zone not specified in configuration file; querying AWS metadata service
+I0220 14:40:08.767994   17563 tags.go:77] AWS cloud filtering on ClusterID: clusterid.test
+I0220 14:40:08.768004   17563 aws.go:1452] The following IP families will be added to nodes: [ipv4]
+I0220 14:40:08.768017   17563 aws.go:852] Setting up informers for Cloud
+--- PASS: TestNodeAddresses (0.00s)
+=== RUN   TestGetRegion
+I0220 14:40:08.768192   17563 aws.go:1354] Building AWS cloudprovider
+I0220 14:40:08.768298   17563 aws.go:5297] Get AWS region from metadata client
+I0220 14:40:08.768307   17563 aws.go:1314] Zone not specified in configuration file; querying AWS metadata service
+I0220 14:40:08.768369   17563 tags.go:77] AWS cloud filtering on ClusterID: clusterid.test
+I0220 14:40:08.768380   17563 aws.go:1452] The following IP families will be added to nodes: [ipv4]
+--- PASS: TestGetRegion (0.00s)
+=== RUN   TestFindVPCID
+I0220 14:40:08.768505   17563 aws.go:1354] Building AWS cloudprovider
+I0220 14:40:08.768515   17563 aws.go:5297] Get AWS region from metadata client
+I0220 14:40:08.768524   17563 aws.go:1314] Zone not specified in configuration file; querying AWS metadata service
+I0220 14:40:08.768583   17563 tags.go:77] AWS cloud filtering on ClusterID: clusterid.test
+I0220 14:40:08.768595   17563 aws.go:1452] The following IP families will be added to nodes: [ipv4]
+--- PASS: TestFindVPCID (0.00s)
+=== RUN   Test_findELBSubnets
+I0220 14:40:08.768722   17563 aws.go:1354] Building AWS cloudprovider
+I0220 14:40:08.768734   17563 aws.go:5297] Get AWS region from metadata client
+I0220 14:40:08.768741   17563 aws.go:1314] Zone not specified in configuration file; querying AWS metadata service
+I0220 14:40:08.768799   17563 tags.go:77] AWS cloud filtering on ClusterID: clusterid.test
+I0220 14:40:08.768811   17563 aws.go:1452] The following IP families will be added to nodes: [ipv4]
+=== RUN   Test_findELBSubnets/no_subnets
+W0220 14:40:08.769987   17563 aws.go:3523] No tagged subnets found; will fall-back to the current subnet only.  This is likely to be an error in a future version of k8s.
+=== RUN   Test_findELBSubnets/single_tagged_subnet
+=== RUN   Test_findELBSubnets/no_matching_public_subnet
+=== RUN   Test_findELBSubnets/prefer_role_over_cluster_tag
+=== RUN   Test_findELBSubnets/prefer_cluster_tag
+=== RUN   Test_findELBSubnets/include_untagged
+=== RUN   Test_findELBSubnets/ignore_some_other_cluster_owned_subnet
+=== RUN   Test_findELBSubnets/prefer_matching_role
+=== RUN   Test_findELBSubnets/choose_lexicographic_order
+W0220 14:40:08.770964   17563 aws.go:3642] Found multiple subnets in AZ "us-west-2a"; choosing "subnet-a0000001" between subnets "subnet-a0000001" and "subnet-a0000002"
+=== RUN   Test_findELBSubnets/everything
+W0220 14:40:08.771079   17563 aws.go:3642] Found multiple subnets in AZ "us-west-2a"; choosing "subnet-a0000001" between subnets "subnet-a0000001" and "subnet-a0000002"
+=== RUN   Test_findELBSubnets/exclude_subnets_from_local_and_wavelenght_zones
+--- PASS: Test_findELBSubnets (0.00s)
+    --- PASS: Test_findELBSubnets/no_subnets (0.00s)
+    --- PASS: Test_findELBSubnets/single_tagged_subnet (0.00s)
+    --- PASS: Test_findELBSubnets/no_matching_public_subnet (0.00s)
+    --- PASS: Test_findELBSubnets/prefer_role_over_cluster_tag (0.00s)
+    --- PASS: Test_findELBSubnets/prefer_cluster_tag (0.00s)
+    --- PASS: Test_findELBSubnets/include_untagged (0.00s)
+    --- PASS: Test_findELBSubnets/ignore_some_other_cluster_owned_subnet (0.00s)
+    --- PASS: Test_findELBSubnets/prefer_matching_role (0.00s)
+    --- PASS: Test_findELBSubnets/choose_lexicographic_order (0.00s)
+    --- PASS: Test_findELBSubnets/everything (0.00s)
+    --- PASS: Test_findELBSubnets/exclude_subnets_from_local_and_wavelenght_zones (0.00s)
+=== RUN   Test_getLoadBalancerSubnets
+I0220 14:40:08.771395   17563 aws.go:1354] Building AWS cloudprovider
+I0220 14:40:08.771408   17563 aws.go:5297] Get AWS region from metadata client
+I0220 14:40:08.771418   17563 aws.go:1314] Zone not specified in configuration file; querying AWS metadata service
+I0220 14:40:08.771492   17563 tags.go:77] AWS cloud filtering on ClusterID: clusterid.test
+I0220 14:40:08.771507   17563 aws.go:1452] The following IP families will be added to nodes: [ipv4]
+=== RUN   Test_getLoadBalancerSubnets/no_annotation
+W0220 14:40:08.772041   17563 aws.go:3523] No tagged subnets found; will fall-back to the current subnet only.  This is likely to be an error in a future version of k8s.
+=== RUN   Test_getLoadBalancerSubnets/annotation_with_no_subnets
+=== RUN   Test_getLoadBalancerSubnets/subnet_ids
+=== RUN   Test_getLoadBalancerSubnets/subnet_names
+=== RUN   Test_getLoadBalancerSubnets/unable_to_find_all_subnets
+--- PASS: Test_getLoadBalancerSubnets (0.00s)
+    --- PASS: Test_getLoadBalancerSubnets/no_annotation (0.00s)
+    --- PASS: Test_getLoadBalancerSubnets/annotation_with_no_subnets (0.00s)
+    --- PASS: Test_getLoadBalancerSubnets/subnet_ids (0.00s)
+    --- PASS: Test_getLoadBalancerSubnets/subnet_names (0.00s)
+    --- PASS: Test_getLoadBalancerSubnets/unable_to_find_all_subnets (0.00s)
+=== RUN   TestSubnetIDsinVPC
+I0220 14:40:08.772643   17563 aws.go:1354] Building AWS cloudprovider
+I0220 14:40:08.772653   17563 aws.go:5297] Get AWS region from metadata client
+I0220 14:40:08.772661   17563 aws.go:1314] Zone not specified in configuration file; querying AWS metadata service
+I0220 14:40:08.772726   17563 tags.go:77] AWS cloud filtering on ClusterID: clusterid.test
+I0220 14:40:08.772742   17563 aws.go:1452] The following IP families will be added to nodes: [ipv4]
+W0220 14:40:08.773560   17563 aws.go:3637] Found multiple subnets in AZ "af-south-1c"; choosing "subnet-c0000000" between subnets "subnet-c0000001" and "subnet-c0000000"
+W0220 14:40:08.773590   17563 aws.go:3642] Found multiple subnets in AZ "af-south-1c"; choosing "subnet-c0000000" between subnets "subnet-c0000000" and "subnet-c0000002"
+--- PASS: TestSubnetIDsinVPC (0.00s)
+=== RUN   TestIpPermissionExistsHandlesMultipleGroupIds
+--- PASS: TestIpPermissionExistsHandlesMultipleGroupIds (0.00s)
+=== RUN   TestIpPermissionExistsHandlesRangeSubsets
+--- PASS: TestIpPermissionExistsHandlesRangeSubsets (0.00s)
+=== RUN   TestIpPermissionExistsHandlesMultipleGroupIdsWithUserIds
+--- PASS: TestIpPermissionExistsHandlesMultipleGroupIdsWithUserIds (0.00s)
+=== RUN   TestFindInstanceByNodeNameExcludesTerminatedInstances
+I0220 14:40:08.774084   17563 aws.go:1354] Building AWS cloudprovider
+I0220 14:40:08.774095   17563 aws.go:5297] Get AWS region from metadata client
+I0220 14:40:08.774104   17563 aws.go:1314] Zone not specified in configuration file; querying AWS metadata service
+I0220 14:40:08.774173   17563 tags.go:77] AWS cloud filtering on ClusterID: clusterid.test
+I0220 14:40:08.774186   17563 aws.go:1452] The following IP families will be added to nodes: [ipv4]
+I0220 14:40:08.774333   17563 aws.go:1354] Building AWS cloudprovider
+I0220 14:40:08.774345   17563 aws.go:5297] Get AWS region from metadata client
+I0220 14:40:08.774351   17563 aws.go:1314] Zone not specified in configuration file; querying AWS metadata service
+I0220 14:40:08.774401   17563 tags.go:77] AWS cloud filtering on ClusterID: clusterid.test
+I0220 14:40:08.774415   17563 aws.go:1452] The following IP families will be added to nodes: [ipv4]
+I0220 14:40:08.774431   17563 aws.go:1354] Building AWS cloudprovider
+I0220 14:40:08.774442   17563 aws.go:5297] Get AWS region from metadata client
+I0220 14:40:08.774449   17563 aws.go:1314] Zone not specified in configuration file; querying AWS metadata service
+I0220 14:40:08.774497   17563 tags.go:77] AWS cloud filtering on ClusterID: clusterid.test
+I0220 14:40:08.774507   17563 aws.go:1452] The following IP families will be added to nodes: [ipv4]
+I0220 14:40:08.774531   17563 aws.go:1354] Building AWS cloudprovider
+I0220 14:40:08.774539   17563 aws.go:5297] Get AWS region from metadata client
+I0220 14:40:08.774547   17563 aws.go:1314] Zone not specified in configuration file; querying AWS metadata service
+I0220 14:40:08.774615   17563 tags.go:77] AWS cloud filtering on ClusterID: clusterid.test
+I0220 14:40:08.774627   17563 aws.go:1452] The following IP families will be added to nodes: [ipv4]
+I0220 14:40:08.774640   17563 aws.go:1354] Building AWS cloudprovider
+I0220 14:40:08.774648   17563 aws.go:5297] Get AWS region from metadata client
+I0220 14:40:08.774656   17563 aws.go:1314] Zone not specified in configuration file; querying AWS metadata service
+I0220 14:40:08.774703   17563 tags.go:77] AWS cloud filtering on ClusterID: clusterid.test
+I0220 14:40:08.774713   17563 aws.go:1452] The following IP families will be added to nodes: [ipv4]
+I0220 14:40:08.774725   17563 aws.go:1354] Building AWS cloudprovider
+I0220 14:40:08.774734   17563 aws.go:5297] Get AWS region from metadata client
+I0220 14:40:08.774741   17563 aws.go:1314] Zone not specified in configuration file; querying AWS metadata service
+I0220 14:40:08.774784   17563 tags.go:77] AWS cloud filtering on ClusterID: clusterid.test
+I0220 14:40:08.774802   17563 aws.go:1452] The following IP families will be added to nodes: [ipv4]
+--- PASS: TestFindInstanceByNodeNameExcludesTerminatedInstances (0.00s)
+=== RUN   TestGetInstanceByNodeNameBatching
+I0220 14:40:08.774889   17563 aws.go:1354] Building AWS cloudprovider
+I0220 14:40:08.774900   17563 aws.go:5297] Get AWS region from metadata client
+I0220 14:40:08.774907   17563 aws.go:1314] Zone not specified in configuration file; querying AWS metadata service
+I0220 14:40:08.774996   17563 tags.go:77] AWS cloud filtering on ClusterID: clusterid.test
+I0220 14:40:08.775007   17563 aws.go:1452] The following IP families will be added to nodes: [ipv4]
+--- PASS: TestGetInstanceByNodeNameBatching (0.00s)
+=== RUN   TestGetVolumeLabels
+I0220 14:40:08.776471   17563 aws.go:1354] Building AWS cloudprovider
+I0220 14:40:08.776482   17563 aws.go:5297] Get AWS region from metadata client
+I0220 14:40:08.776491   17563 aws.go:1314] Zone not specified in configuration file; querying AWS metadata service
+I0220 14:40:08.776554   17563 tags.go:77] AWS cloud filtering on ClusterID: clusterid.test
+I0220 14:40:08.776565   17563 aws.go:1452] The following IP families will be added to nodes: [ipv4]
+    aws_test.go:1701: PASS:	DescribeVolumes(*ec2.DescribeVolumesInput)
+--- PASS: TestGetVolumeLabels (0.00s)
+=== RUN   TestGetLabelsForVolume
+=== RUN   TestGetLabelsForVolume/not_an_EBS_volume
+I0220 14:40:08.777444   17563 aws.go:1354] Building AWS cloudprovider
+I0220 14:40:08.777454   17563 aws.go:5297] Get AWS region from metadata client
+I0220 14:40:08.777461   17563 aws.go:1314] Zone not specified in configuration file; querying AWS metadata service
+I0220 14:40:08.777527   17563 tags.go:77] AWS cloud filtering on ClusterID: clusterid.test
+I0220 14:40:08.777539   17563 aws.go:1452] The following IP families will be added to nodes: [ipv4]
+=== RUN   TestGetLabelsForVolume/volume_which_is_being_provisioned
+I0220 14:40:08.777716   17563 aws.go:1354] Building AWS cloudprovider
+I0220 14:40:08.777725   17563 aws.go:5297] Get AWS region from metadata client
+I0220 14:40:08.777734   17563 aws.go:1314] Zone not specified in configuration file; querying AWS metadata service
+I0220 14:40:08.777792   17563 tags.go:77] AWS cloud filtering on ClusterID: clusterid.test
+I0220 14:40:08.777802   17563 aws.go:1452] The following IP families will be added to nodes: [ipv4]
+=== RUN   TestGetLabelsForVolume/no_volumes_found
+I0220 14:40:08.777887   17563 aws.go:1354] Building AWS cloudprovider
+I0220 14:40:08.777898   17563 aws.go:5297] Get AWS region from metadata client
+I0220 14:40:08.777908   17563 aws.go:1314] Zone not specified in configuration file; querying AWS metadata service
+I0220 14:40:08.777967   17563 tags.go:77] AWS cloud filtering on ClusterID: clusterid.test
+I0220 14:40:08.777978   17563 aws.go:1452] The following IP families will be added to nodes: [ipv4]
+=== RUN   TestGetLabelsForVolume/correct_labels_for_volume
+I0220 14:40:08.778216   17563 aws.go:1354] Building AWS cloudprovider
+I0220 14:40:08.778225   17563 aws.go:5297] Get AWS region from metadata client
+I0220 14:40:08.778232   17563 aws.go:1314] Zone not specified in configuration file; querying AWS metadata service
+I0220 14:40:08.778308   17563 tags.go:77] AWS cloud filtering on ClusterID: clusterid.test
+I0220 14:40:08.778320   17563 aws.go:1452] The following IP families will be added to nodes: [ipv4]
+--- PASS: TestGetLabelsForVolume (0.00s)
+    --- PASS: TestGetLabelsForVolume/not_an_EBS_volume (0.00s)
+    --- PASS: TestGetLabelsForVolume/volume_which_is_being_provisioned (0.00s)
+    --- PASS: TestGetLabelsForVolume/no_volumes_found (0.00s)
+    --- PASS: TestGetLabelsForVolume/correct_labels_for_volume (0.00s)
+=== RUN   TestDescribeLoadBalancerOnDelete
+I0220 14:40:08.778642   17563 aws.go:1354] Building AWS cloudprovider
+I0220 14:40:08.778654   17563 aws.go:5297] Get AWS region from metadata client
+I0220 14:40:08.778667   17563 aws.go:1314] Zone not specified in configuration file; querying AWS metadata service
+I0220 14:40:08.778729   17563 tags.go:77] AWS cloud filtering on ClusterID: clusterid.test
+I0220 14:40:08.778741   17563 aws.go:1452] The following IP families will be added to nodes: [ipv4]
+E0220 14:40:08.778958   17563 aws.go:4779] Error deregistering load balancer from instance security groups: "could not determine security group for load balancer: "
+--- PASS: TestDescribeLoadBalancerOnDelete (0.00s)
+=== RUN   TestDescribeLoadBalancerOnUpdate
+I0220 14:40:08.779031   17563 aws.go:1354] Building AWS cloudprovider
+I0220 14:40:08.779040   17563 aws.go:5297] Get AWS region from metadata client
+I0220 14:40:08.779051   17563 aws.go:1314] Zone not specified in configuration file; querying AWS metadata service
+I0220 14:40:08.779113   17563 tags.go:77] AWS cloud filtering on ClusterID: clusterid.test
+I0220 14:40:08.779125   17563 aws.go:1452] The following IP families will be added to nodes: [ipv4]
+--- PASS: TestDescribeLoadBalancerOnUpdate (0.00s)
+=== RUN   TestDescribeLoadBalancerOnGet
+I0220 14:40:08.779372   17563 aws.go:1354] Building AWS cloudprovider
+I0220 14:40:08.779380   17563 aws.go:5297] Get AWS region from metadata client
+I0220 14:40:08.779387   17563 aws.go:1314] Zone not specified in configuration file; querying AWS metadata service
+I0220 14:40:08.779446   17563 tags.go:77] AWS cloud filtering on ClusterID: clusterid.test
+I0220 14:40:08.779458   17563 aws.go:1452] The following IP families will be added to nodes: [ipv4]
+--- PASS: TestDescribeLoadBalancerOnGet (0.00s)
+=== RUN   TestDescribeLoadBalancerOnEnsure
+I0220 14:40:08.780045   17563 aws.go:1354] Building AWS cloudprovider
+I0220 14:40:08.780054   17563 aws.go:5297] Get AWS region from metadata client
+I0220 14:40:08.780062   17563 aws.go:1314] Zone not specified in configuration file; querying AWS metadata service
+I0220 14:40:08.780122   17563 tags.go:77] AWS cloud filtering on ClusterID: clusterid.test
+I0220 14:40:08.780133   17563 aws.go:1452] The following IP families will be added to nodes: [ipv4]
+--- PASS: TestDescribeLoadBalancerOnEnsure (0.00s)
+=== RUN   TestCheckMixedProtocol
+=== RUN   TestCheckMixedProtocol/TCP
+=== PAUSE TestCheckMixedProtocol/TCP
+=== RUN   TestCheckMixedProtocol/UDP
+=== PAUSE TestCheckMixedProtocol/UDP
+=== RUN   TestCheckMixedProtocol/TCP_and_UDP
+=== PAUSE TestCheckMixedProtocol/TCP_and_UDP
+=== CONT  TestCheckMixedProtocol/UDP
+=== CONT  TestCheckMixedProtocol/TCP_and_UDP
+=== CONT  TestCheckMixedProtocol/TCP
+--- PASS: TestCheckMixedProtocol (0.00s)
+    --- PASS: TestCheckMixedProtocol/UDP (0.00s)
+    --- PASS: TestCheckMixedProtocol/TCP_and_UDP (0.00s)
+    --- PASS: TestCheckMixedProtocol/TCP (0.00s)
+=== RUN   TestCheckProtocol
+=== RUN   TestCheckProtocol/TCP_with_ELB
+=== PAUSE TestCheckProtocol/TCP_with_ELB
+=== RUN   TestCheckProtocol/TCP_with_NLB
+=== PAUSE TestCheckProtocol/TCP_with_NLB
+=== RUN   TestCheckProtocol/UDP_with_ELB
+=== PAUSE TestCheckProtocol/UDP_with_ELB
+=== RUN   TestCheckProtocol/UDP_with_NLB
+=== PAUSE TestCheckProtocol/UDP_with_NLB
+=== CONT  TestCheckProtocol/TCP_with_ELB
+=== CONT  TestCheckProtocol/UDP_with_NLB
+=== CONT  TestCheckProtocol/UDP_with_ELB
+=== CONT  TestCheckProtocol/TCP_with_NLB
+--- PASS: TestCheckProtocol (0.00s)
+    --- PASS: TestCheckProtocol/TCP_with_ELB (0.00s)
+    --- PASS: TestCheckProtocol/TCP_with_NLB (0.00s)
+    --- PASS: TestCheckProtocol/UDP_with_NLB (0.00s)
+    --- PASS: TestCheckProtocol/UDP_with_ELB (0.00s)
+=== RUN   TestBuildListener
+    aws_test.go:2023: Running test case No cert or BE protocol annotation, passthrough
+    aws_test.go:2023: Running test case Cert annotation without BE protocol specified, SSL->TCP
+    aws_test.go:2023: Running test case BE protocol without cert annotation, passthrough
+    aws_test.go:2023: Running test case Invalid cert annotation, bogus backend protocol
+    aws_test.go:2023: Running test case Invalid cert annotation, protocol followed by equal sign
+    aws_test.go:2023: Running test case HTTPS->HTTPS
+    aws_test.go:2023: Running test case HTTPS->HTTP
+    aws_test.go:2023: Running test case SSL->SSL
+    aws_test.go:2023: Running test case SSL->TCP
+    aws_test.go:2023: Running test case Port in whitelist
+    aws_test.go:2023: Running test case Port not in whitelist, passthrough
+    aws_test.go:2023: Running test case Named port in whitelist
+    aws_test.go:2023: Running test case Named port not in whitelist, passthrough
+    aws_test.go:2023: Running test case HTTP->HTTP
+--- PASS: TestBuildListener (0.00s)
+=== RUN   TestProxyProtocolEnabled
+--- PASS: TestProxyProtocolEnabled (0.00s)
+=== RUN   TestGetKeyValuePropertiesFromAnnotation
+--- PASS: TestGetKeyValuePropertiesFromAnnotation (0.00s)
+=== RUN   TestLBExtraSecurityGroupsAnnotation
+I0220 14:40:08.781903   17563 aws.go:1354] Building AWS cloudprovider
+I0220 14:40:08.781919   17563 aws.go:5297] Get AWS region from metadata client
+I0220 14:40:08.781929   17563 aws.go:1314] Zone not specified in configuration file; querying AWS metadata service
+I0220 14:40:08.782004   17563 tags.go:77] AWS cloud filtering on ClusterID: clusterid.test
+I0220 14:40:08.782018   17563 aws.go:1452] The following IP families will be added to nodes: [ipv4]
+=== RUN   TestLBExtraSecurityGroupsAnnotation/No_extra_SG_annotation
+=== RUN   TestLBExtraSecurityGroupsAnnotation/Empty_extra_SGs_specified
+=== RUN   TestLBExtraSecurityGroupsAnnotation/SG_specified
+=== RUN   TestLBExtraSecurityGroupsAnnotation/Multiple_SGs_specified
+--- PASS: TestLBExtraSecurityGroupsAnnotation (0.00s)
+    --- PASS: TestLBExtraSecurityGroupsAnnotation/No_extra_SG_annotation (0.00s)
+    --- PASS: TestLBExtraSecurityGroupsAnnotation/Empty_extra_SGs_specified (0.00s)
+    --- PASS: TestLBExtraSecurityGroupsAnnotation/SG_specified (0.00s)
+    --- PASS: TestLBExtraSecurityGroupsAnnotation/Multiple_SGs_specified (0.00s)
+=== RUN   TestLBSecurityGroupsAnnotation
+I0220 14:40:08.783681   17563 aws.go:1354] Building AWS cloudprovider
+I0220 14:40:08.783693   17563 aws.go:5297] Get AWS region from metadata client
+I0220 14:40:08.783704   17563 aws.go:1314] Zone not specified in configuration file; querying AWS metadata service
+I0220 14:40:08.783773   17563 tags.go:77] AWS cloud filtering on ClusterID: clusterid.test
+I0220 14:40:08.783786   17563 aws.go:1452] The following IP families will be added to nodes: [ipv4]
+=== RUN   TestLBSecurityGroupsAnnotation/SG_specified
+=== RUN   TestLBSecurityGroupsAnnotation/Multiple_SGs_specified
+--- PASS: TestLBSecurityGroupsAnnotation (0.00s)
+    --- PASS: TestLBSecurityGroupsAnnotation/SG_specified (0.00s)
+    --- PASS: TestLBSecurityGroupsAnnotation/Multiple_SGs_specified (0.00s)
+=== RUN   TestAddLoadBalancerTags
+I0220 14:40:08.784221   17563 aws.go:1354] Building AWS cloudprovider
+I0220 14:40:08.784234   17563 aws.go:5297] Get AWS region from metadata client
+I0220 14:40:08.784245   17563 aws.go:1314] Zone not specified in configuration file; querying AWS metadata service
+I0220 14:40:08.784306   17563 tags.go:77] AWS cloud filtering on ClusterID: clusterid.test
+I0220 14:40:08.784319   17563 aws.go:1452] The following IP families will be added to nodes: [ipv4]
+    aws_test.go:2249: PASS:	AddTags(*elb.AddTagsInput)
+--- PASS: TestAddLoadBalancerTags (0.00s)
+=== RUN   TestEnsureLoadBalancerHealthCheck
+=== RUN   TestEnsureLoadBalancerHealthCheck/falls_back_to_HC_defaults
+I0220 14:40:08.785177   17563 aws.go:1354] Building AWS cloudprovider
+I0220 14:40:08.785190   17563 aws.go:5297] Get AWS region from metadata client
+I0220 14:40:08.785200   17563 aws.go:1314] Zone not specified in configuration file; querying AWS metadata service
+I0220 14:40:08.785286   17563 tags.go:77] AWS cloud filtering on ClusterID: clusterid.test
+I0220 14:40:08.785299   17563 aws.go:1452] The following IP families will be added to nodes: [ipv4]
+    aws_test.go:2413: PASS:	ConfigureHealthCheck(*elb.ConfigureHealthCheckInput)
+=== RUN   TestEnsureLoadBalancerHealthCheck/healthy_threshold_override
+I0220 14:40:08.787958   17563 aws.go:1354] Building AWS cloudprovider
+I0220 14:40:08.787976   17563 aws.go:5297] Get AWS region from metadata client
+I0220 14:40:08.787986   17563 aws.go:1314] Zone not specified in configuration file; querying AWS metadata service
+I0220 14:40:08.788097   17563 tags.go:77] AWS cloud filtering on ClusterID: clusterid.test
+I0220 14:40:08.788112   17563 aws.go:1452] The following IP families will be added to nodes: [ipv4]
+    aws_test.go:2413: PASS:	ConfigureHealthCheck(*elb.ConfigureHealthCheckInput)
+=== RUN   TestEnsureLoadBalancerHealthCheck/unhealthy_threshold_override
+I0220 14:40:08.788511   17563 aws.go:1354] Building AWS cloudprovider
+I0220 14:40:08.788521   17563 aws.go:5297] Get AWS region from metadata client
+I0220 14:40:08.788532   17563 aws.go:1314] Zone not specified in configuration file; querying AWS metadata service
+I0220 14:40:08.788611   17563 tags.go:77] AWS cloud filtering on ClusterID: clusterid.test
+I0220 14:40:08.788623   17563 aws.go:1452] The following IP families will be added to nodes: [ipv4]
+    aws_test.go:2413: PASS:	ConfigureHealthCheck(*elb.ConfigureHealthCheckInput)
+=== RUN   TestEnsureLoadBalancerHealthCheck/timeout_override
+I0220 14:40:08.788986   17563 aws.go:1354] Building AWS cloudprovider
+I0220 14:40:08.788995   17563 aws.go:5297] Get AWS region from metadata client
+I0220 14:40:08.789004   17563 aws.go:1314] Zone not specified in configuration file; querying AWS metadata service
+I0220 14:40:08.789078   17563 tags.go:77] AWS cloud filtering on ClusterID: clusterid.test
+I0220 14:40:08.789089   17563 aws.go:1452] The following IP families will be added to nodes: [ipv4]
+    aws_test.go:2413: PASS:	ConfigureHealthCheck(*elb.ConfigureHealthCheckInput)
+=== RUN   TestEnsureLoadBalancerHealthCheck/interval_override
+I0220 14:40:08.789507   17563 aws.go:1354] Building AWS cloudprovider
+I0220 14:40:08.789516   17563 aws.go:5297] Get AWS region from metadata client
+I0220 14:40:08.789524   17563 aws.go:1314] Zone not specified in configuration file; querying AWS metadata service
+I0220 14:40:08.789585   17563 tags.go:77] AWS cloud filtering on ClusterID: clusterid.test
+I0220 14:40:08.789598   17563 aws.go:1452] The following IP families will be added to nodes: [ipv4]
+    aws_test.go:2413: PASS:	ConfigureHealthCheck(*elb.ConfigureHealthCheckInput)
+=== RUN   TestEnsureLoadBalancerHealthCheck/healthcheck_port_override
+I0220 14:40:08.790093   17563 aws.go:1354] Building AWS cloudprovider
+I0220 14:40:08.790105   17563 aws.go:5297] Get AWS region from metadata client
+I0220 14:40:08.790117   17563 aws.go:1314] Zone not specified in configuration file; querying AWS metadata service
+I0220 14:40:08.790186   17563 tags.go:77] AWS cloud filtering on ClusterID: clusterid.test
+I0220 14:40:08.790198   17563 aws.go:1452] The following IP families will be added to nodes: [ipv4]
+    aws_test.go:2413: PASS:	ConfigureHealthCheck(*elb.ConfigureHealthCheckInput)
+=== RUN   TestEnsureLoadBalancerHealthCheck/healthcheck_protocol_override
+I0220 14:40:08.790601   17563 aws.go:1354] Building AWS cloudprovider
+I0220 14:40:08.790612   17563 aws.go:5297] Get AWS region from metadata client
+I0220 14:40:08.790621   17563 aws.go:1314] Zone not specified in configuration file; querying AWS metadata service
+I0220 14:40:08.790700   17563 tags.go:77] AWS cloud filtering on ClusterID: clusterid.test
+I0220 14:40:08.790712   17563 aws.go:1452] The following IP families will be added to nodes: [ipv4]
+    aws_test.go:2413: PASS:	ConfigureHealthCheck(*elb.ConfigureHealthCheckInput)
+=== RUN   TestEnsureLoadBalancerHealthCheck/healthcheck_protocol,_port,_path_override
+I0220 14:40:08.791098   17563 aws.go:1354] Building AWS cloudprovider
+I0220 14:40:08.791107   17563 aws.go:5297] Get AWS region from metadata client
+I0220 14:40:08.791116   17563 aws.go:1314] Zone not specified in configuration file; querying AWS metadata service
+I0220 14:40:08.791176   17563 tags.go:77] AWS cloud filtering on ClusterID: clusterid.test
+I0220 14:40:08.791188   17563 aws.go:1452] The following IP families will be added to nodes: [ipv4]
+    aws_test.go:2413: PASS:	ConfigureHealthCheck(*elb.ConfigureHealthCheckInput)
+=== RUN   TestEnsureLoadBalancerHealthCheck/healthcheck_protocol_SSL
+I0220 14:40:08.791572   17563 aws.go:1354] Building AWS cloudprovider
+I0220 14:40:08.791581   17563 aws.go:5297] Get AWS region from metadata client
+I0220 14:40:08.791599   17563 aws.go:1314] Zone not specified in configuration file; querying AWS metadata service
+I0220 14:40:08.791659   17563 tags.go:77] AWS cloud filtering on ClusterID: clusterid.test
+I0220 14:40:08.791671   17563 aws.go:1452] The following IP families will be added to nodes: [ipv4]
+    aws_test.go:2413: PASS:	ConfigureHealthCheck(*elb.ConfigureHealthCheckInput)
+=== RUN   TestEnsureLoadBalancerHealthCheck/healthcheck_port_annotation_traffic-port
+I0220 14:40:08.792046   17563 aws.go:1354] Building AWS cloudprovider
+I0220 14:40:08.792055   17563 aws.go:5297] Get AWS region from metadata client
+I0220 14:40:08.792063   17563 aws.go:1314] Zone not specified in configuration file; querying AWS metadata service
+I0220 14:40:08.792126   17563 tags.go:77] AWS cloud filtering on ClusterID: clusterid.test
+I0220 14:40:08.792138   17563 aws.go:1452] The following IP families will be added to nodes: [ipv4]
+    aws_test.go:2413: PASS:	ConfigureHealthCheck(*elb.ConfigureHealthCheckInput)
+=== RUN   TestEnsureLoadBalancerHealthCheck/does_not_make_an_API_call_if_the_current_health_check_is_the_same
+I0220 14:40:08.792632   17563 aws.go:1354] Building AWS cloudprovider
+I0220 14:40:08.792642   17563 aws.go:5297] Get AWS region from metadata client
+I0220 14:40:08.792650   17563 aws.go:1314] Zone not specified in configuration file; querying AWS metadata service
+I0220 14:40:08.792708   17563 tags.go:77] AWS cloud filtering on ClusterID: clusterid.test
+I0220 14:40:08.792720   17563 aws.go:1452] The following IP families will be added to nodes: [ipv4]
+=== RUN   TestEnsureLoadBalancerHealthCheck/validates_resulting_expected_health_check_before_making_an_API_call
+I0220 14:40:08.792875   17563 aws.go:1354] Building AWS cloudprovider
+I0220 14:40:08.792884   17563 aws.go:5297] Get AWS region from metadata client
+I0220 14:40:08.792894   17563 aws.go:1314] Zone not specified in configuration file; querying AWS metadata service
+I0220 14:40:08.792964   17563 tags.go:77] AWS cloud filtering on ClusterID: clusterid.test
+I0220 14:40:08.792976   17563 aws.go:1452] The following IP families will be added to nodes: [ipv4]
+=== RUN   TestEnsureLoadBalancerHealthCheck/handles_invalid_override_values
+I0220 14:40:08.793172   17563 aws.go:1354] Building AWS cloudprovider
+I0220 14:40:08.793181   17563 aws.go:5297] Get AWS region from metadata client
+I0220 14:40:08.793190   17563 aws.go:1314] Zone not specified in configuration file; querying AWS metadata service
+I0220 14:40:08.793254   17563 tags.go:77] AWS cloud filtering on ClusterID: clusterid.test
+I0220 14:40:08.793267   17563 aws.go:1452] The following IP families will be added to nodes: [ipv4]
+=== RUN   TestEnsureLoadBalancerHealthCheck/returns_error_when_updating_the_health_check_fails
+I0220 14:40:08.793463   17563 aws.go:1354] Building AWS cloudprovider
+I0220 14:40:08.793473   17563 aws.go:5297] Get AWS region from metadata client
+I0220 14:40:08.793481   17563 aws.go:1314] Zone not specified in configuration file; querying AWS metadata service
+I0220 14:40:08.793570   17563 tags.go:77] AWS cloud filtering on ClusterID: clusterid.test
+I0220 14:40:08.793581   17563 aws.go:1452] The following IP families will be added to nodes: [ipv4]
+    aws_test.go:2477: PASS:	ConfigureHealthCheck(*elb.ConfigureHealthCheckInput)
+--- PASS: TestEnsureLoadBalancerHealthCheck (0.01s)
+    --- PASS: TestEnsureLoadBalancerHealthCheck/falls_back_to_HC_defaults (0.00s)
+    --- PASS: TestEnsureLoadBalancerHealthCheck/healthy_threshold_override (0.00s)
+    --- PASS: TestEnsureLoadBalancerHealthCheck/unhealthy_threshold_override (0.00s)
+    --- PASS: TestEnsureLoadBalancerHealthCheck/timeout_override (0.00s)
+    --- PASS: TestEnsureLoadBalancerHealthCheck/interval_override (0.00s)
+    --- PASS: TestEnsureLoadBalancerHealthCheck/healthcheck_port_override (0.00s)
+    --- PASS: TestEnsureLoadBalancerHealthCheck/healthcheck_protocol_override (0.00s)
+    --- PASS: TestEnsureLoadBalancerHealthCheck/healthcheck_protocol,_port,_path_override (0.00s)
+    --- PASS: TestEnsureLoadBalancerHealthCheck/healthcheck_protocol_SSL (0.00s)
+    --- PASS: TestEnsureLoadBalancerHealthCheck/healthcheck_port_annotation_traffic-port (0.00s)
+    --- PASS: TestEnsureLoadBalancerHealthCheck/does_not_make_an_API_call_if_the_current_health_check_is_the_same (0.00s)
+    --- PASS: TestEnsureLoadBalancerHealthCheck/validates_resulting_expected_health_check_before_making_an_API_call (0.00s)
+    --- PASS: TestEnsureLoadBalancerHealthCheck/handles_invalid_override_values (0.00s)
+    --- PASS: TestEnsureLoadBalancerHealthCheck/returns_error_when_updating_the_health_check_fails (0.00s)
+=== RUN   TestFindSecurityGroupForInstance
+--- PASS: TestFindSecurityGroupForInstance (0.00s)
+=== RUN   TestFindSecurityGroupForInstanceMultipleTagged
+--- PASS: TestFindSecurityGroupForInstanceMultipleTagged (0.00s)
+=== RUN   TestCreateDisk
+I0220 14:40:08.794396   17563 aws.go:1354] Building AWS cloudprovider
+I0220 14:40:08.794405   17563 aws.go:5297] Get AWS region from metadata client
+I0220 14:40:08.794413   17563 aws.go:1314] Zone not specified in configuration file; querying AWS metadata service
+I0220 14:40:08.794479   17563 tags.go:77] AWS cloud filtering on ClusterID: clusterid.test
+I0220 14:40:08.794491   17563 aws.go:1452] The following IP families will be added to nodes: [ipv4]
+    aws_test.go:2542: PASS:	CreateVolume(*ec2.CreateVolumeInput)
+    aws_test.go:2542: PASS:	DescribeVolumes(*ec2.DescribeVolumesInput)
+--- PASS: TestCreateDisk (5.01s)
+=== RUN   TestCreateDiskFailDescribeVolume
+I0220 14:40:13.800118   17563 aws.go:1354] Building AWS cloudprovider
+I0220 14:40:13.800167   17563 aws.go:5297] Get AWS region from metadata client
+I0220 14:40:13.800193   17563 aws.go:1314] Zone not specified in configuration file; querying AWS metadata service
+I0220 14:40:13.800608   17563 tags.go:77] AWS cloud filtering on ClusterID: clusterid.test
+I0220 14:40:13.800671   17563 aws.go:1452] The following IP families will be added to nodes: [ipv4]
+    aws_test.go:2587: PASS:	CreateVolume(*ec2.CreateVolumeInput)
+    aws_test.go:2587: PASS:	DescribeVolumes(*ec2.DescribeVolumesInput)
+    aws_test.go:2587: PASS:	DeleteVolume(*ec2.DeleteVolumeInput)
+--- PASS: TestCreateDiskFailDescribeVolume (109.03s)
+=== RUN   TestRegionIsValid
+--- PASS: TestRegionIsValid (0.00s)
+=== RUN   TestNodeNameToInstanceID
+I0220 14:42:02.830930   17563 aws.go:1354] Building AWS cloudprovider
+I0220 14:42:02.830997   17563 aws.go:5297] Get AWS region from metadata client
+I0220 14:42:02.831031   17563 aws.go:1314] Zone not specified in configuration file; querying AWS metadata service
+I0220 14:42:02.831211   17563 tags.go:77] AWS cloud filtering on ClusterID: clusterid.test
+I0220 14:42:02.831242   17563 aws.go:1452] The following IP families will be added to nodes: [ipv4]
+I0220 14:42:02.831971   17563 aws.go:852] Setting up informers for Cloud
+--- PASS: TestNodeNameToInstanceID (0.00s)
+=== RUN   TestInstanceIDToNodeName
+=== RUN   TestInstanceIDToNodeName/success:_node_with_private_DNS_name
+I0220 14:42:02.832697   17563 aws.go:1354] Building AWS cloudprovider
+I0220 14:42:02.832730   17563 aws.go:5297] Get AWS region from metadata client
+I0220 14:42:02.832754   17563 aws.go:1314] Zone not specified in configuration file; querying AWS metadata service
+I0220 14:42:02.833214   17563 tags.go:77] AWS cloud filtering on ClusterID: clusterid.test
+I0220 14:42:02.833256   17563 aws.go:1452] The following IP families will be added to nodes: [ipv4]
+I0220 14:42:02.833809   17563 aws.go:852] Setting up informers for Cloud
+=== RUN   TestInstanceIDToNodeName/success:_node_with_instance_ID_name
+I0220 14:42:02.834404   17563 aws.go:1354] Building AWS cloudprovider
+I0220 14:42:02.834429   17563 aws.go:5297] Get AWS region from metadata client
+I0220 14:42:02.834449   17563 aws.go:1314] Zone not specified in configuration file; querying AWS metadata service
+I0220 14:42:02.834659   17563 tags.go:77] AWS cloud filtering on ClusterID: clusterid.test
+I0220 14:42:02.834705   17563 aws.go:1452] The following IP families will be added to nodes: [ipv4]
+I0220 14:42:02.834753   17563 aws.go:852] Setting up informers for Cloud
+=== RUN   TestInstanceIDToNodeName/success:_node_with_overridden_name
+I0220 14:42:02.835075   17563 aws.go:1354] Building AWS cloudprovider
+I0220 14:42:02.835100   17563 aws.go:5297] Get AWS region from metadata client
+I0220 14:42:02.835120   17563 aws.go:1314] Zone not specified in configuration file; querying AWS metadata service
+I0220 14:42:02.835343   17563 tags.go:77] AWS cloud filtering on ClusterID: clusterid.test
+I0220 14:42:02.835382   17563 aws.go:1452] The following IP families will be added to nodes: [ipv4]
+I0220 14:42:02.835425   17563 aws.go:852] Setting up informers for Cloud
+=== RUN   TestInstanceIDToNodeName/fail:_no_node_with_matching_instance_ID
+I0220 14:42:02.835705   17563 aws.go:1354] Building AWS cloudprovider
+I0220 14:42:02.835728   17563 aws.go:5297] Get AWS region from metadata client
+I0220 14:42:02.835747   17563 aws.go:1314] Zone not specified in configuration file; querying AWS metadata service
+I0220 14:42:02.835910   17563 tags.go:77] AWS cloud filtering on ClusterID: clusterid.test
+I0220 14:42:02.835943   17563 aws.go:1452] The following IP families will be added to nodes: [ipv4]
+I0220 14:42:02.835986   17563 aws.go:852] Setting up informers for Cloud
+=== RUN   TestInstanceIDToNodeName/fail:_no_node_at_all
+I0220 14:42:02.836259   17563 aws.go:1354] Building AWS cloudprovider
+I0220 14:42:02.836282   17563 aws.go:5297] Get AWS region from metadata client
+I0220 14:42:02.836324   17563 aws.go:1314] Zone not specified in configuration file; querying AWS metadata service
+I0220 14:42:02.836495   17563 tags.go:77] AWS cloud filtering on ClusterID: clusterid.test
+I0220 14:42:02.836526   17563 aws.go:1452] The following IP families will be added to nodes: [ipv4]
+I0220 14:42:02.836564   17563 aws.go:852] Setting up informers for Cloud
+--- PASS: TestInstanceIDToNodeName (0.00s)
+    --- PASS: TestInstanceIDToNodeName/success:_node_with_private_DNS_name (0.00s)
+    --- PASS: TestInstanceIDToNodeName/success:_node_with_instance_ID_name (0.00s)
+    --- PASS: TestInstanceIDToNodeName/success:_node_with_overridden_name (0.00s)
+    --- PASS: TestInstanceIDToNodeName/fail:_no_node_with_matching_instance_ID (0.00s)
+    --- PASS: TestInstanceIDToNodeName/fail:_no_node_at_all (0.00s)
+=== RUN   TestNLBNodeRegistration
+I0220 14:42:02.837354   17563 aws.go:1354] Building AWS cloudprovider
+I0220 14:42:02.837380   17563 aws.go:5297] Get AWS region from metadata client
+I0220 14:42:02.837406   17563 aws.go:1314] Zone not specified in configuration file; querying AWS metadata service
+I0220 14:42:02.837562   17563 tags.go:77] AWS cloud filtering on ClusterID: clusterid.test
+I0220 14:42:02.837595   17563 aws.go:1452] The following IP families will be added to nodes: [ipv4]
+I0220 14:42:02.838758   17563 aws_loadbalancer.go:183] Creating load balancer for /myservice with name: aid
+I0220 14:42:02.839031   17563 aws_loadbalancer.go:585] Creating load balancer target group for /myservice with name: k8s--myservic-ba3d85c1df
+I0220 14:42:02.839169   17563 aws_loadbalancer.go:557] Creating load balancer listener for /myservice
+W0220 14:42:02.842160   17563 aws.go:4577] Ignoring group without id: {
+  Tags: [{
+      Key: "KubernetesCluster",
+      Value: "clusterid.test"
+    },{
+      Key: "kubernetes.io/cluster/clusterid.test",
+      Value: "owned"
+    }]
+}
+W0220 14:42:02.842732   17563 aws.go:4557] No security group found for instance "i-2bce90670bb0c7cd"
+W0220 14:42:02.842775   17563 aws_loadbalancer.go:801] Ignoring instance without security group: i-2bce90670bb0c7cd
+W0220 14:42:02.842803   17563 aws.go:4557] No security group found for instance "i-2bce90670bb0c7ce"
+W0220 14:42:02.842831   17563 aws_loadbalancer.go:801] Ignoring instance without security group: i-2bce90670bb0c7ce
+W0220 14:42:02.845119   17563 aws.go:4557] No security group found for instance "i-2bce90670bb0c7cf"
+W0220 14:42:02.845206   17563 aws_loadbalancer.go:801] Ignoring instance without security group: i-2bce90670bb0c7cf
+W0220 14:42:02.847230   17563 aws.go:4577] Ignoring group without id: {
+  Tags: [{
+      Key: "KubernetesCluster",
+      Value: "clusterid.test"
+    },{
+      Key: "kubernetes.io/cluster/clusterid.test",
+      Value: "owned"
+    }]
+}
+W0220 14:42:02.847441   17563 aws.go:4557] No security group found for instance "i-2bce90670bb0c7cd"
+W0220 14:42:02.847474   17563 aws_loadbalancer.go:801] Ignoring instance without security group: i-2bce90670bb0c7cd
+W0220 14:42:02.847501   17563 aws.go:4557] No security group found for instance "i-2bce90670bb0c7ce"
+W0220 14:42:02.847532   17563 aws_loadbalancer.go:801] Ignoring instance without security group: i-2bce90670bb0c7ce
+W0220 14:42:02.848632   17563 aws.go:4577] Ignoring group without id: {
+  Tags: [{
+      Key: "KubernetesCluster",
+      Value: "clusterid.test"
+    },{
+      Key: "kubernetes.io/cluster/clusterid.test",
+      Value: "owned"
+    }]
+}
+W0220 14:42:02.848841   17563 aws.go:4557] No security group found for instance "i-2bce90670bb0c7cf"
+W0220 14:42:02.848875   17563 aws_loadbalancer.go:801] Ignoring instance without security group: i-2bce90670bb0c7cf
+W0220 14:42:02.848898   17563 aws.go:4557] No security group found for instance "i-2bce90670bb0c7cd"
+W0220 14:42:02.848926   17563 aws_loadbalancer.go:801] Ignoring instance without security group: i-2bce90670bb0c7cd
+W0220 14:42:02.848952   17563 aws.go:4557] No security group found for instance "i-2bce90670bb0c7ce"
+W0220 14:42:02.848979   17563 aws_loadbalancer.go:801] Ignoring instance without security group: i-2bce90670bb0c7ce
+I0220 14:42:02.849639   17563 aws_loadbalancer.go:585] Creating load balancer target group for /myservice with name: k8s--myservic-893a37f9b9
+W0220 14:42:02.850480   17563 aws.go:4577] Ignoring group without id: {
+  Tags: [{
+      Key: "KubernetesCluster",
+      Value: "clusterid.test"
+    },{
+      Key: "kubernetes.io/cluster/clusterid.test",
+      Value: "owned"
+    }]
+}
+W0220 14:42:02.850648   17563 aws.go:4557] No security group found for instance "i-2bce90670bb0c7cd"
+W0220 14:42:02.850680   17563 aws_loadbalancer.go:801] Ignoring instance without security group: i-2bce90670bb0c7cd
+W0220 14:42:02.850705   17563 aws.go:4557] No security group found for instance "i-2bce90670bb0c7ce"
+W0220 14:42:02.850735   17563 aws_loadbalancer.go:801] Ignoring instance without security group: i-2bce90670bb0c7ce
+W0220 14:42:02.850758   17563 aws.go:4557] No security group found for instance "i-2bce90670bb0c7cf"
+W0220 14:42:02.850785   17563 aws_loadbalancer.go:801] Ignoring instance without security group: i-2bce90670bb0c7cf
+--- PASS: TestNLBNodeRegistration (0.01s)
+=== RUN   TestAzToRegion
+--- PASS: TestAzToRegion (0.00s)
+=== RUN   TestCloud_sortELBSecurityGroupList
+=== RUN   TestCloud_sortELBSecurityGroupList/with_no_annotation
+=== RUN   TestCloud_sortELBSecurityGroupList/with_service.beta.kubernetes.io/aws-load-balancer-security-groups
+=== RUN   TestCloud_sortELBSecurityGroupList/with_service.beta.kubernetes.io/aws-load-balancer-extra-security-groups
+=== RUN   TestCloud_sortELBSecurityGroupList/with_both_annotation
+--- PASS: TestCloud_sortELBSecurityGroupList (0.00s)
+    --- PASS: TestCloud_sortELBSecurityGroupList/with_no_annotation (0.00s)
+    --- PASS: TestCloud_sortELBSecurityGroupList/with_service.beta.kubernetes.io/aws-load-balancer-security-groups (0.00s)
+    --- PASS: TestCloud_sortELBSecurityGroupList/with_service.beta.kubernetes.io/aws-load-balancer-extra-security-groups (0.00s)
+    --- PASS: TestCloud_sortELBSecurityGroupList/with_both_annotation (0.00s)
+=== RUN   TestCloud_buildNLBHealthCheckConfiguration
+=== RUN   TestCloud_buildNLBHealthCheckConfiguration/default_cluster
+=== RUN   TestCloud_buildNLBHealthCheckConfiguration/default_local
+=== RUN   TestCloud_buildNLBHealthCheckConfiguration/with_TCP_healthcheck
+=== RUN   TestCloud_buildNLBHealthCheckConfiguration/with_HTTP_healthcheck
+=== RUN   TestCloud_buildNLBHealthCheckConfiguration/HTTP_healthcheck_default_path
+=== RUN   TestCloud_buildNLBHealthCheckConfiguration/interval_not_10_or_30
+=== RUN   TestCloud_buildNLBHealthCheckConfiguration/invalid_timeout
+=== RUN   TestCloud_buildNLBHealthCheckConfiguration/mismatch_healthy_and_unhealthy_targets
+--- PASS: TestCloud_buildNLBHealthCheckConfiguration (0.00s)
+    --- PASS: TestCloud_buildNLBHealthCheckConfiguration/default_cluster (0.00s)
+    --- PASS: TestCloud_buildNLBHealthCheckConfiguration/default_local (0.00s)
+    --- PASS: TestCloud_buildNLBHealthCheckConfiguration/with_TCP_healthcheck (0.00s)
+    --- PASS: TestCloud_buildNLBHealthCheckConfiguration/with_HTTP_healthcheck (0.00s)
+    --- PASS: TestCloud_buildNLBHealthCheckConfiguration/HTTP_healthcheck_default_path (0.00s)
+    --- PASS: TestCloud_buildNLBHealthCheckConfiguration/interval_not_10_or_30 (0.00s)
+    --- PASS: TestCloud_buildNLBHealthCheckConfiguration/invalid_timeout (0.00s)
+    --- PASS: TestCloud_buildNLBHealthCheckConfiguration/mismatch_healthy_and_unhealthy_targets (0.00s)
+=== RUN   Test_parseStringSliceAnnotation
+=== RUN   Test_parseStringSliceAnnotation/empty_annotation
+=== RUN   Test_parseStringSliceAnnotation/empty_value
+=== RUN   Test_parseStringSliceAnnotation/single_value
+=== RUN   Test_parseStringSliceAnnotation/multiple_values
+--- PASS: Test_parseStringSliceAnnotation (0.00s)
+    --- PASS: Test_parseStringSliceAnnotation/empty_annotation (0.00s)
+    --- PASS: Test_parseStringSliceAnnotation/empty_value (0.00s)
+    --- PASS: Test_parseStringSliceAnnotation/single_value (0.00s)
+    --- PASS: Test_parseStringSliceAnnotation/multiple_values (0.00s)
+=== RUN   TestNodeAddressesForFargate
+I0220 14:42:02.859810   17563 aws.go:1354] Building AWS cloudprovider
+I0220 14:42:02.859844   17563 aws.go:5297] Get AWS region from metadata client
+I0220 14:42:02.859871   17563 aws.go:1314] Zone not specified in configuration file; querying AWS metadata service
+I0220 14:42:02.860070   17563 tags.go:77] AWS cloud filtering on ClusterID: clusterid.test
+I0220 14:42:02.860102   17563 aws.go:1452] The following IP families will be added to nodes: [ipv4]
+--- PASS: TestNodeAddressesForFargate (0.00s)
+=== RUN   TestNodeAddressesForFargatePrivateIP
+I0220 14:42:02.860353   17563 aws.go:1354] Building AWS cloudprovider
+I0220 14:42:02.860378   17563 aws.go:5297] Get AWS region from metadata client
+I0220 14:42:02.860399   17563 aws.go:1314] Zone not specified in configuration file; querying AWS metadata service
+I0220 14:42:02.860544   17563 tags.go:77] AWS cloud filtering on ClusterID: clusterid.test
+I0220 14:42:02.860571   17563 aws.go:1452] The following IP families will be added to nodes: [ipv4]
+--- PASS: TestNodeAddressesForFargatePrivateIP (0.00s)
+=== RUN   TestInstanceExistsByProviderIDForFargate
+I0220 14:42:02.860798   17563 aws.go:1354] Building AWS cloudprovider
+I0220 14:42:02.860818   17563 aws.go:5297] Get AWS region from metadata client
+I0220 14:42:02.860837   17563 aws.go:1314] Zone not specified in configuration file; querying AWS metadata service
+I0220 14:42:02.861025   17563 tags.go:77] AWS cloud filtering on ClusterID: clusterid.test
+I0220 14:42:02.861050   17563 aws.go:1452] The following IP families will be added to nodes: [ipv4]
+--- PASS: TestInstanceExistsByProviderIDForFargate (0.00s)
+=== RUN   TestInstanceExistsByProviderIDWithNodeNameForFargate
+I0220 14:42:02.861264   17563 aws.go:1354] Building AWS cloudprovider
+I0220 14:42:02.861284   17563 aws.go:5297] Get AWS region from metadata client
+I0220 14:42:02.861302   17563 aws.go:1314] Zone not specified in configuration file; querying AWS metadata service
+I0220 14:42:02.861429   17563 tags.go:77] AWS cloud filtering on ClusterID: clusterid.test
+I0220 14:42:02.861453   17563 aws.go:1452] The following IP families will be added to nodes: [ipv4]
+--- PASS: TestInstanceExistsByProviderIDWithNodeNameForFargate (0.00s)
+=== RUN   TestInstanceExistsByProviderIDForInstanceNotFound
+--- PASS: TestInstanceExistsByProviderIDForInstanceNotFound (0.00s)
+=== RUN   TestInstanceNotExistsByProviderIDForFargate
+I0220 14:42:02.862960   17563 aws.go:1354] Building AWS cloudprovider
+I0220 14:42:02.862981   17563 aws.go:5297] Get AWS region from metadata client
+I0220 14:42:02.862999   17563 aws.go:1314] Zone not specified in configuration file; querying AWS metadata service
+I0220 14:42:02.863142   17563 tags.go:77] AWS cloud filtering on ClusterID: clusterid.test
+I0220 14:42:02.863170   17563 aws.go:1452] The following IP families will be added to nodes: [ipv4]
+--- PASS: TestInstanceNotExistsByProviderIDForFargate (0.00s)
+=== RUN   TestInstanceShutdownByProviderIDForFargate
+I0220 14:42:02.863376   17563 aws.go:1354] Building AWS cloudprovider
+I0220 14:42:02.863395   17563 aws.go:5297] Get AWS region from metadata client
+I0220 14:42:02.863416   17563 aws.go:1314] Zone not specified in configuration file; querying AWS metadata service
+I0220 14:42:02.863549   17563 tags.go:77] AWS cloud filtering on ClusterID: clusterid.test
+I0220 14:42:02.863574   17563 aws.go:1452] The following IP families will be added to nodes: [ipv4]
+--- PASS: TestInstanceShutdownByProviderIDForFargate (0.00s)
+=== RUN   TestInstanceShutdownNotExistsByProviderIDForFargate
+I0220 14:42:02.863775   17563 aws.go:1354] Building AWS cloudprovider
+I0220 14:42:02.863798   17563 aws.go:5297] Get AWS region from metadata client
+I0220 14:42:02.863815   17563 aws.go:1314] Zone not specified in configuration file; querying AWS metadata service
+I0220 14:42:02.863961   17563 tags.go:77] AWS cloud filtering on ClusterID: clusterid.test
+I0220 14:42:02.863988   17563 aws.go:1452] The following IP families will be added to nodes: [ipv4]
+--- PASS: TestInstanceShutdownNotExistsByProviderIDForFargate (0.00s)
+=== RUN   TestInstanceTypeByProviderIDForFargate
+I0220 14:42:02.864180   17563 aws.go:1354] Building AWS cloudprovider
+I0220 14:42:02.864199   17563 aws.go:5297] Get AWS region from metadata client
+I0220 14:42:02.864215   17563 aws.go:1314] Zone not specified in configuration file; querying AWS metadata service
+I0220 14:42:02.864340   17563 tags.go:77] AWS cloud filtering on ClusterID: clusterid.test
+I0220 14:42:02.864364   17563 aws.go:1452] The following IP families will be added to nodes: [ipv4]
+--- PASS: TestInstanceTypeByProviderIDForFargate (0.00s)
+=== RUN   TestGetZoneByProviderIDForFargate
+I0220 14:42:02.864561   17563 aws.go:1354] Building AWS cloudprovider
+I0220 14:42:02.864579   17563 aws.go:5297] Get AWS region from metadata client
+I0220 14:42:02.864595   17563 aws.go:1314] Zone not specified in configuration file; querying AWS metadata service
+I0220 14:42:02.864663   17563 tags.go:77] AWS cloud filtering on ClusterID: clusterid.test
+I0220 14:42:02.864675   17563 aws.go:1452] The following IP families will be added to nodes: [ipv4]
+--- PASS: TestGetZoneByProviderIDForFargate (0.00s)
+=== RUN   TestDescribeInstances
+=== RUN   TestDescribeInstances/MaxResults_set_on_empty_DescribeInstancesInput_and_NextToken_respected.
+    aws_test.go:3992: PASS:	DescribeInstances(*ec2.DescribeInstancesInput)
+    aws_test.go:3992: PASS:	DescribeInstances(*ec2.DescribeInstancesInput)
+=== RUN   TestDescribeInstances/MaxResults_only_set_if_empty_DescribeInstancesInput
+    aws_test.go:3992: PASS:	DescribeInstances(*ec2.DescribeInstancesInput)
+=== RUN   TestDescribeInstances/MaxResults_not_set_if_instance_IDs_are_provided
+    aws_test.go:3992: PASS:	DescribeInstances(*ec2.DescribeInstancesInput)
+--- PASS: TestDescribeInstances (0.00s)
+    --- PASS: TestDescribeInstances/MaxResults_set_on_empty_DescribeInstancesInput_and_NextToken_respected. (0.00s)
+    --- PASS: TestDescribeInstances/MaxResults_only_set_if_empty_DescribeInstancesInput (0.00s)
+    --- PASS: TestDescribeInstances/MaxResults_not_set_if_instance_IDs_are_provided (0.00s)
+=== RUN   TestDeviceAllocator
+--- PASS: TestDeviceAllocator (0.00s)
+=== RUN   TestDeviceAllocatorError
+--- PASS: TestDeviceAllocatorError (0.00s)
+=== RUN   TestMapToAWSInstanceIDs
+W0220 14:42:02.867996   17563 instances.go:115] unable to parse ProviderID "vol-123456789" for node ""
+W0220 14:42:02.868069   17563 instances.go:115] unable to parse ProviderID "aws:///us-east-1a/vol-12345678abcdef01" for node ""
+W0220 14:42:02.868130   17563 instances.go:115] unable to parse ProviderID "aws://accountid/us-east-1a/vol-12345678abcdef01" for node ""
+W0220 14:42:02.868195   17563 instances.go:115] unable to parse ProviderID "aws:///us-east-1a/vol-12345678abcdef01/suffix" for node ""
+W0220 14:42:02.868229   17563 instances.go:110] node "" did not have ProviderID set
+--- PASS: TestMapToAWSInstanceIDs (0.00s)
+=== RUN   TestSnapshotMeetsCriteria
+--- PASS: TestSnapshotMeetsCriteria (0.00s)
+=== RUN   TestOlderThan
+--- PASS: TestOlderThan (0.00s)
+=== RUN   TestSnapshotFindInstances
+--- PASS: TestSnapshotFindInstances (0.00s)
+=== RUN   TestBackoffNoErrors
+--- PASS: TestBackoffNoErrors (0.00s)
+=== RUN   TestBackoffAllErrors
+    retry_handler_test.go:66: delay @0 40s
+    retry_handler_test.go:66: delay @1 39s
+    retry_handler_test.go:66: delay @2 39s
+    retry_handler_test.go:66: delay @3 39s
+    retry_handler_test.go:66: delay @4 39s
+    retry_handler_test.go:66: delay @5 39s
+    retry_handler_test.go:66: delay @6 39s
+    retry_handler_test.go:66: delay @7 38s
+    retry_handler_test.go:66: delay @8 39s
+    retry_handler_test.go:66: delay @9 38s
+    retry_handler_test.go:66: delay @10 39s
+    retry_handler_test.go:66: delay @11 38s
+    retry_handler_test.go:66: delay @12 39s
+    retry_handler_test.go:66: delay @13 38s
+    retry_handler_test.go:66: delay @14 39s
+    retry_handler_test.go:66: delay @15 39s
+    retry_handler_test.go:66: delay @16 38s
+    retry_handler_test.go:66: delay @17 39s
+    retry_handler_test.go:66: delay @18 38s
+    retry_handler_test.go:66: delay @19 39s
+    retry_handler_test.go:66: delay @20 38s
+    retry_handler_test.go:66: delay @21 39s
+    retry_handler_test.go:66: delay @22 38s
+    retry_handler_test.go:66: delay @23 39s
+    retry_handler_test.go:66: delay @24 39s
+    retry_handler_test.go:66: delay @25 38s
+    retry_handler_test.go:66: delay @26 39s
+    retry_handler_test.go:66: delay @27 38s
+    retry_handler_test.go:66: delay @28 39s
+    retry_handler_test.go:66: delay @29 38s
+    retry_handler_test.go:66: delay @30 39s
+    retry_handler_test.go:66: delay @31 38s
+    retry_handler_test.go:66: delay @32 39s
+    retry_handler_test.go:66: delay @33 39s
+    retry_handler_test.go:66: delay @34 38s
+    retry_handler_test.go:66: delay @35 39s
+    retry_handler_test.go:66: delay @36 38s
+    retry_handler_test.go:66: delay @37 39s
+    retry_handler_test.go:66: delay @38 38s
+    retry_handler_test.go:66: delay @39 39s
+    retry_handler_test.go:66: delay @40 38s
+    retry_handler_test.go:66: delay @41 39s
+    retry_handler_test.go:66: delay @42 39s
+    retry_handler_test.go:66: delay @43 38s
+    retry_handler_test.go:66: delay @44 39s
+    retry_handler_test.go:66: delay @45 38s
+    retry_handler_test.go:66: delay @46 39s
+    retry_handler_test.go:66: delay @47 38s
+    retry_handler_test.go:66: delay @48 39s
+    retry_handler_test.go:66: delay @49 38s
+    retry_handler_test.go:66: delay @50 39s
+    retry_handler_test.go:66: delay @51 39s
+    retry_handler_test.go:66: delay @52 38s
+    retry_handler_test.go:66: delay @53 39s
+    retry_handler_test.go:66: delay @54 38s
+    retry_handler_test.go:66: delay @55 39s
+    retry_handler_test.go:66: delay @56 38s
+    retry_handler_test.go:66: delay @57 39s
+    retry_handler_test.go:66: delay @58 38s
+    retry_handler_test.go:66: delay @59 39s
+    retry_handler_test.go:66: delay @60 39s
+    retry_handler_test.go:66: delay @61 38s
+    retry_handler_test.go:66: delay @62 39s
+    retry_handler_test.go:66: delay @63 38s
+    retry_handler_test.go:66: delay @64 39s
+    retry_handler_test.go:66: delay @65 38s
+    retry_handler_test.go:66: delay @66 39s
+    retry_handler_test.go:66: delay @67 38s
+    retry_handler_test.go:66: delay @68 39s
+    retry_handler_test.go:66: delay @69 39s
+    retry_handler_test.go:66: delay @70 38s
+    retry_handler_test.go:66: delay @71 39s
+    retry_handler_test.go:66: delay @72 38s
+    retry_handler_test.go:66: delay @73 39s
+    retry_handler_test.go:66: delay @74 38s
+    retry_handler_test.go:66: delay @75 39s
+    retry_handler_test.go:66: delay @76 38s
+    retry_handler_test.go:66: delay @77 39s
+    retry_handler_test.go:66: delay @78 39s
+    retry_handler_test.go:66: delay @79 38s
+    retry_handler_test.go:66: delay @80 39s
+    retry_handler_test.go:66: delay @81 38s
+    retry_handler_test.go:66: delay @82 39s
+    retry_handler_test.go:66: delay @83 38s
+    retry_handler_test.go:66: delay @84 39s
+    retry_handler_test.go:66: delay @85 38s
+    retry_handler_test.go:66: delay @86 39s
+    retry_handler_test.go:66: delay @87 39s
+    retry_handler_test.go:66: delay @88 38s
+    retry_handler_test.go:66: delay @89 39s
+    retry_handler_test.go:66: delay @90 38s
+    retry_handler_test.go:66: delay @91 39s
+    retry_handler_test.go:66: delay @92 38s
+    retry_handler_test.go:66: delay @93 39s
+    retry_handler_test.go:66: delay @94 38s
+    retry_handler_test.go:66: delay @95 39s
+    retry_handler_test.go:66: delay @96 39s
+    retry_handler_test.go:66: delay @97 38s
+    retry_handler_test.go:66: delay @98 39s
+    retry_handler_test.go:66: delay @99 38s
+--- PASS: TestBackoffAllErrors (0.00s)
+=== RUN   TestBackoffHitsMax
+    retry_handler_test.go:91: delay @0 57s
+    retry_handler_test.go:91: delay @1 57s
+    retry_handler_test.go:91: delay @2 57s
+    retry_handler_test.go:91: delay @3 57s
+    retry_handler_test.go:91: delay @4 57s
+    retry_handler_test.go:91: delay @5 57s
+    retry_handler_test.go:91: delay @6 57s
+    retry_handler_test.go:91: delay @7 57s
+    retry_handler_test.go:91: delay @8 57s
+    retry_handler_test.go:91: delay @9 57s
+--- PASS: TestBackoffHitsMax (0.00s)
+=== RUN   TestBackoffRecovers
+    retry_handler_test.go:117: error phase delay @0 57s
+    retry_handler_test.go:117: error phase delay @1 57s
+    retry_handler_test.go:117: error phase delay @2 57s
+    retry_handler_test.go:117: error phase delay @3 57s
+    retry_handler_test.go:117: error phase delay @4 57s
+    retry_handler_test.go:117: error phase delay @5 57s
+    retry_handler_test.go:117: error phase delay @6 57s
+    retry_handler_test.go:117: error phase delay @7 57s
+    retry_handler_test.go:117: error phase delay @8 57s
+    retry_handler_test.go:117: error phase delay @9 57s
+    retry_handler_test.go:132: no-error phase delay @0 0s
+    retry_handler_test.go:132: no-error phase delay @1 0s
+    retry_handler_test.go:132: no-error phase delay @2 0s
+    retry_handler_test.go:132: no-error phase delay @3 0s
+    retry_handler_test.go:132: no-error phase delay @4 0s
+    retry_handler_test.go:132: no-error phase delay @5 0s
+    retry_handler_test.go:132: no-error phase delay @6 0s
+    retry_handler_test.go:132: no-error phase delay @7 0s
+    retry_handler_test.go:132: no-error phase delay @8 0s
+    retry_handler_test.go:132: no-error phase delay @9 0s
+--- PASS: TestBackoffRecovers (0.00s)
+=== RUN   TestUngroup
+=== RUN   TestUngroup/Single_IP_range_in_input_set
+=== RUN   TestUngroup/Three_ip_ranges_in_input_set
+=== RUN   TestUngroup/Three_UserIdGroupPairs_in_input_set
+--- PASS: TestUngroup (0.01s)
+    --- PASS: TestUngroup/Single_IP_range_in_input_set (0.00s)
+    --- PASS: TestUngroup/Three_ip_ranges_in_input_set (0.00s)
+    --- PASS: TestUngroup/Three_UserIdGroupPairs_in_input_set (0.00s)
+=== RUN   TestFilterTags
+I0220 14:42:02.878137   17563 aws.go:1354] Building AWS cloudprovider
+I0220 14:42:02.878162   17563 aws.go:5297] Get AWS region from metadata client
+I0220 14:42:02.878177   17563 aws.go:1314] Zone not specified in configuration file; querying AWS metadata service
+I0220 14:42:02.878320   17563 tags.go:77] AWS cloud filtering on ClusterID: clusterid.test
+I0220 14:42:02.878341   17563 aws.go:1452] The following IP families will be added to nodes: [ipv4]
+--- PASS: TestFilterTags (0.00s)
+=== RUN   TestFindClusterID
+--- PASS: TestFindClusterID (0.00s)
+=== RUN   TestHasClusterTag
+I0220 14:42:02.879150   17563 aws.go:1354] Building AWS cloudprovider
+I0220 14:42:02.879167   17563 aws.go:5297] Get AWS region from metadata client
+I0220 14:42:02.879183   17563 aws.go:1314] Zone not specified in configuration file; querying AWS metadata service
+I0220 14:42:02.879291   17563 tags.go:77] AWS cloud filtering on ClusterID: clusterid.test
+I0220 14:42:02.879314   17563 aws.go:1452] The following IP families will be added to nodes: [ipv4]
+--- PASS: TestHasClusterTag (0.00s)
+=== RUN   TestHasNoClusterPrefixTag
+I0220 14:42:02.879701   17563 aws.go:1354] Building AWS cloudprovider
+I0220 14:42:02.879717   17563 aws.go:5297] Get AWS region from metadata client
+I0220 14:42:02.879730   17563 aws.go:1314] Zone not specified in configuration file; querying AWS metadata service
+I0220 14:42:02.879831   17563 tags.go:77] AWS cloud filtering on ClusterID: clusterid.test
+I0220 14:42:02.879851   17563 aws.go:1452] The following IP families will be added to nodes: [ipv4]
+=== RUN   TestHasNoClusterPrefixTag/no_tags
+=== RUN   TestHasNoClusterPrefixTag/no_cluster_tags
+=== RUN   TestHasNoClusterPrefixTag/contains_cluster_tags
+--- PASS: TestHasNoClusterPrefixTag (0.00s)
+    --- PASS: TestHasNoClusterPrefixTag/no_tags (0.00s)
+    --- PASS: TestHasNoClusterPrefixTag/no_cluster_tags (0.00s)
+    --- PASS: TestHasNoClusterPrefixTag/contains_cluster_tags (0.00s)
+=== RUN   TestTagResource
+=== RUN   TestTagResource/tagging_successful
+=== RUN   TestTagResource/tagging_failed_due_to_unknown_error
+E0220 14:42:02.885588   17563 tags.go:329] Error occurred trying to tag resources, Unable to tag
+=== RUN   TestTagResource/tagging_failed_due_to_resource_not_found_error
+--- PASS: TestTagResource (0.01s)
+    --- PASS: TestTagResource/tagging_successful (0.00s)
+    --- PASS: TestTagResource/tagging_failed_due_to_unknown_error (0.00s)
+    --- PASS: TestTagResource/tagging_failed_due_to_resource_not_found_error (0.00s)
+=== RUN   TestUntagResource
+I0220 14:42:02.886064   17563 aws.go:1354] Building AWS cloudprovider
+I0220 14:42:02.886080   17563 aws.go:5297] Get AWS region from metadata client
+I0220 14:42:02.886093   17563 aws.go:1314] Zone not specified in configuration file; querying AWS metadata service
+I0220 14:42:02.886189   17563 tags.go:77] AWS cloud filtering on ClusterID: clusterid.test
+I0220 14:42:02.886209   17563 aws.go:1452] The following IP families will be added to nodes: [ipv4]
+=== RUN   TestUntagResource/untagging_successful
+=== RUN   TestUntagResource/untagging_failed_due_to_unknown_error
+E0220 14:42:02.886505   17563 tags.go:353] Error occurred trying to untag resources, Unable to remove tag
+=== RUN   TestUntagResource/untagging_failed_due_to_resource_not_found_error
+--- PASS: TestUntagResource (0.00s)
+    --- PASS: TestUntagResource/untagging_successful (0.00s)
+    --- PASS: TestUntagResource/untagging_failed_due_to_unknown_error (0.00s)
+    --- PASS: TestUntagResource/untagging_failed_due_to_resource_not_found_error (0.00s)
+PASS
+ok  	k8s.io/cloud-provider-aws/pkg/providers/v1	117.327s
+=== RUN   TestAzToRegion
+--- PASS: TestAzToRegion (0.00s)
+=== RUN   TestReadAWSCloudConfig
+=== RUN   TestReadAWSCloudConfig/config_with_valid_cluster_name
+=== RUN   TestReadAWSCloudConfig/config_with_empty_cluster_name
+=== RUN   TestReadAWSCloudConfig/config_with_only_kind_and_apiVersion
+=== RUN   TestReadAWSCloudConfig/config_with_wrong_Kind
+=== RUN   TestReadAWSCloudConfig/config_with_wrong_apiversion
+--- PASS: TestReadAWSCloudConfig (0.00s)
+    --- PASS: TestReadAWSCloudConfig/config_with_valid_cluster_name (0.00s)
+    --- PASS: TestReadAWSCloudConfig/config_with_empty_cluster_name (0.00s)
+    --- PASS: TestReadAWSCloudConfig/config_with_only_kind_and_apiVersion (0.00s)
+    --- PASS: TestReadAWSCloudConfig/config_with_wrong_Kind (0.00s)
+    --- PASS: TestReadAWSCloudConfig/config_with_wrong_apiversion (0.00s)
+=== RUN   TestValidateAWSCloudConfig
+=== RUN   TestValidateAWSCloudConfig/valid_config
+=== RUN   TestValidateAWSCloudConfig/empty_cluster_name
+=== RUN   TestValidateAWSCloudConfig/empty_config
+=== RUN   TestValidateAWSCloudConfig/invalid_config
+--- PASS: TestValidateAWSCloudConfig (0.00s)
+    --- PASS: TestValidateAWSCloudConfig/valid_config (0.00s)
+    --- PASS: TestValidateAWSCloudConfig/empty_cluster_name (0.00s)
+    --- PASS: TestValidateAWSCloudConfig/empty_config (0.00s)
+    --- PASS: TestValidateAWSCloudConfig/invalid_config (0.00s)
+=== RUN   TestGetInstanceProviderID
+=== RUN   TestGetInstanceProviderID/get_instance_(regular)_provider_ID
+=== RUN   TestGetInstanceProviderID/get_instance_(without_public_IP/DNS)_provider_ID
+=== RUN   TestGetInstanceProviderID/get_instance_(without_private_IP/DNS)_provider_ID
+--- PASS: TestGetInstanceProviderID (0.00s)
+    --- PASS: TestGetInstanceProviderID/get_instance_(regular)_provider_ID (0.00s)
+    --- PASS: TestGetInstanceProviderID/get_instance_(without_public_IP/DNS)_provider_ID (0.00s)
+    --- PASS: TestGetInstanceProviderID/get_instance_(without_private_IP/DNS)_provider_ID (0.00s)
+=== RUN   TestInstanceExists
+=== RUN   TestInstanceExists/test_InstanceExists_with_running_instance
+=== RUN   TestInstanceExists/test_InstanceExists_with_stopping_instance
+=== RUN   TestInstanceExists/test_InstanceExists_with_terminated_instance_(node_without_providerID)
+--- PASS: TestInstanceExists (0.00s)
+    --- PASS: TestInstanceExists/test_InstanceExists_with_running_instance (0.00s)
+    --- PASS: TestInstanceExists/test_InstanceExists_with_stopping_instance (0.00s)
+    --- PASS: TestInstanceExists/test_InstanceExists_with_terminated_instance_(node_without_providerID) (0.00s)
+=== RUN   TestInstanceShutdown
+=== RUN   TestInstanceShutdown/test_InstanceShutdown_with_running_instance
+=== RUN   TestInstanceShutdown/test_InstanceShutdown_with_running_instance_(node_without_providerID)
+=== RUN   TestInstanceShutdown/test_InstanceShutdown_with_running_instance_(node_without_providerID_and_node_name_is_resource_name)
+=== RUN   TestInstanceShutdown/test_InstanceShutdown_with_stopping_instance
+=== RUN   TestInstanceShutdown/test_InstanceShutdown_with_stopped_instance_(node_without_providerID)
+=== RUN   TestInstanceShutdown/test_InstanceShutdown_with_terminated_instance
+    instances_test.go:322: InstanceShutdown failed with node ip-192-168-0-1.ec2.internal: instance not found
+=== RUN   TestInstanceShutdown/test_InstanceShutdown_with_terminated_instance_(node_without_provierID)
+    instances_test.go:322: InstanceShutdown failed with node ip-192-168-0-1.ec2.internal: instance not found
+--- PASS: TestInstanceShutdown (0.00s)
+    --- PASS: TestInstanceShutdown/test_InstanceShutdown_with_running_instance (0.00s)
+    --- PASS: TestInstanceShutdown/test_InstanceShutdown_with_running_instance_(node_without_providerID) (0.00s)
+    --- PASS: TestInstanceShutdown/test_InstanceShutdown_with_running_instance_(node_without_providerID_and_node_name_is_resource_name) (0.00s)
+    --- PASS: TestInstanceShutdown/test_InstanceShutdown_with_stopping_instance (0.00s)
+    --- PASS: TestInstanceShutdown/test_InstanceShutdown_with_stopped_instance_(node_without_providerID) (0.00s)
+    --- PASS: TestInstanceShutdown/test_InstanceShutdown_with_terminated_instance (0.00s)
+    --- PASS: TestInstanceShutdown/test_InstanceShutdown_with_terminated_instance_(node_without_provierID) (0.00s)
+=== RUN   TestInstanceMetadata
+=== RUN   TestInstanceMetadata/test_InstanceMetadata_with_running_instance
+=== RUN   TestInstanceMetadata/test_InstanceMetadata_with_running_instance_(node_without_providerID)
+=== RUN   TestInstanceMetadata/test_InstanceMetadata_with_stopping_instance
+=== RUN   TestInstanceMetadata/test_InstanceMetadata_with_terminated_instance
+    instances_test.go:458: InstanceMetadata failed with node ip-172-21-32-3.ec2.internal: instance not found
+=== RUN   TestInstanceMetadata/test_InstanceMetadata_with_terminated_instance_(node_without_providerID)
+    instances_test.go:458: InstanceMetadata failed with node ip-172-21-32-3.ec2.internal: instance not found
+--- PASS: TestInstanceMetadata (0.00s)
+    --- PASS: TestInstanceMetadata/test_InstanceMetadata_with_running_instance (0.00s)
+    --- PASS: TestInstanceMetadata/test_InstanceMetadata_with_running_instance_(node_without_providerID) (0.00s)
+    --- PASS: TestInstanceMetadata/test_InstanceMetadata_with_stopping_instance (0.00s)
+    --- PASS: TestInstanceMetadata/test_InstanceMetadata_with_terminated_instance (0.00s)
+    --- PASS: TestInstanceMetadata/test_InstanceMetadata_with_terminated_instance_(node_without_providerID) (0.00s)
+=== RUN   TestParseInstanceIDFromProviderID
+--- PASS: TestParseInstanceIDFromProviderID (0.00s)
+=== RUN   TestParseInstanceIDFromNodeName
+--- PASS: TestParseInstanceIDFromNodeName (0.00s)
+=== RUN   TestFindClusterName
+--- PASS: TestFindClusterName (0.00s)
+PASS
+ok  	k8s.io/cloud-provider-aws/pkg/providers/v2	3.296s

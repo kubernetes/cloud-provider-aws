@@ -148,13 +148,9 @@ func (i *instances) getInstance(ctx context.Context, node *v1.Node) (*ec2.Instan
 		}
 		klog.V(4).Infof("looking for node by provider ID %v", node.Spec.ProviderID)
 	} else if nodeNameIsResourceName(node.Name) {
-		instanceID, err := parseInstanceIDFromNodeName(node.Name)
-		if err != nil {
-			return nil, err
-		}
-
+		// node.Name will be set as the instance ID
 		request = &ec2.DescribeInstancesInput{
-			InstanceIds: []*string{aws.String(instanceID)},
+			InstanceIds: []*string{aws.String(node.Name)},
 		}
 		klog.V(4).Infof("looking for node by instance ID from node name %v", node.Name)
 	} else {
@@ -296,15 +292,7 @@ func newEc2Filter(name string, values ...string) *ec2.Filter {
 }
 
 // When subnets are configured with hostname type as resource name, the node names
-// will look something like this: "i-07d4481d641e39c4f.us-west-2.compute.internal"
+// will look something like this: "i-07d4481d641e39c4f"
 func nodeNameIsResourceName(nodeName string) bool {
 	return strings.HasPrefix(nodeName, "i-")
-}
-
-func parseInstanceIDFromNodeName(nodeName string) (string, error) {
-	if !nodeNameIsResourceName(nodeName) {
-		return "", fmt.Errorf("Node name %s not valid format to parse instance ID", nodeName)
-	}
-
-	return strings.Split(nodeName, ".")[0], nil
 }
