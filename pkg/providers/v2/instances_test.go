@@ -485,3 +485,18 @@ func TestParseInstanceIDFromProviderID(t *testing.T) {
 		assert.Equal(t, testCase.instanceID, ret)
 	}
 }
+
+func TestNodeNameIsResourceName(t *testing.T) {
+	testCases := []struct {
+		nodeName string
+		result   bool
+	}{
+		{"i-1238asjd8asdm123", true},
+		{"ip-192-168-61-24.us-west-2.compute.internal", false},
+	}
+
+	for _, testCase := range testCases {
+		ret := nodeNameIsResourceName(testCase.nodeName)
+		assert.Equal(t, testCase.result, ret)
+	}
+}
