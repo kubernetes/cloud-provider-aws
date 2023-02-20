@@ -35,7 +35,7 @@ import (
 const (
 	TestClusterID          = "clusterid.test"
 	NodeNameAsResourceName = "i-07d4481d641e39c4f.us-west-2.compute.internal"
-	InstanceId             = "i-07d4481d641e39c4f"
+	InstanceID             = "i-07d4481d641e39c4f"
 )
 
 func makeInstance(num int, privateIP, publicIP, privateDNSName, publicDNSName string, stateName string) *ec2.Instance {
@@ -491,10 +491,10 @@ func TestParseInstanceIDFromNodeName(t *testing.T) {
 	// Node name with instance ID
 	ret, err := parseInstanceIDFromNodeName(NodeNameAsResourceName)
 	assert.NoError(t, err)
-	assert.Equal(t, InstanceId, ret)
+	assert.Equal(t, InstanceID, ret)
 
 	// Node name without instance ID
-	ret, err := parseInstanceIDFromNodeName("ip-192-168-61-24.us-west-2.compute.internal")
+	ret, err = parseInstanceIDFromNodeName("ip-192-168-61-24.us-west-2.compute.internal")
 	assert.Error(t, err)
 	assert.Equal(t, "", ret)
 }
