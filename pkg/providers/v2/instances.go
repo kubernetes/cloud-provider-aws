@@ -136,15 +136,7 @@ func (i *instances) InstanceMetadata(ctx context.Context, node *v1.Node) (*cloud
 // If false an error will be returned, the instance will be immediately deleted by the cloud controller manager.
 func (i *instances) getInstance(ctx context.Context, node *v1.Node) (*ec2.Instance, error) {
 	var request *ec2.DescribeInstancesInput
-	if node.Spec.ProviderID == "" {
-		// get Instance by private DNS name
-		request = &ec2.DescribeInstancesInput{
-			Filters: []*ec2.Filter{
-				newEc2Filter("private-dns-name", node.Name),
-			},
-		}
-		klog.V(4).Infof("looking for node by private DNS name %v", node.Name)
-	} else {
+	if node.Spec.ProviderID != "" {
 		// get Instance by provider ID
 		instanceID, err := parseInstanceIDFromProviderID(node.Spec.ProviderID)
 		if err != nil {
@@ -155,6 +147,24 @@ func (i *instances) getInstance(ctx context.Context, node *v1.Node) (*ec2.Instan
 			InstanceIds: []*string{aws.String(instanceID)},
 		}
 		klog.V(4).Infof("looking for node by provider ID %v", node.Spec.ProviderID)
+	} else if nodeNameIsResourceName(node.Name) {
+		instanceID, err := parseInstanceIDFromNodeName(node.Name)
+		if err != nil {
+			return nil, err
+		}
+
+		request = &ec2.DescribeInstancesInput{
+			InstanceIds: []*string{aws.String(instanceID)},
+		}
+		klog.V(4).Infof("looking for node by instance ID from node name %v", node.Name)
+	} else {
+		// get Instance by private DNS name
+		request = &ec2.DescribeInstancesInput{
+			Filters: []*ec2.Filter{
+				newEc2Filter("private-dns-name", node.Name),
+			},
+		}
+		klog.V(4).Infof("looking for node by private DNS name %v", node.Name)
 	}
 
 	// TODO: add additional tags from users
@@ -283,4 +293,18 @@ func newEc2Filter(name string, values ...string) *ec2.Filter {
 	}
 
 	return filter
+}
+
+// When subnets are configured with hostname type as resource name, the node names
+// will look something like this: "i-07d4481d641e39c4f.us-west-2.compute.internal"
+func nodeNameIsResourceName(nodeName string) bool {
+	return strings.HasPrefix(nodeName, "i-")
+}
+
+func parseInstanceIDFromNodeName(nodeName string) (string, error) {
+	if !nodeNameIsResourceName(nodeName) {
+		return "", fmt.Errorf("Node name %s not valid format to parse instance ID", nodeName)
+	}
+
+	return strings.Split(nodeName, ".")[0], nil
 }

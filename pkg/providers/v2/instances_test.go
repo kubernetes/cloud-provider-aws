@@ -32,7 +32,11 @@ import (
 	"k8s.io/cloud-provider-aws/pkg/providers/v2/mocks"
 )
 
-const TestClusterID = "clusterid.test"
+const (
+	TestClusterID          = "clusterid.test"
+	NodeNameAsResourceName = "i-07d4481d641e39c4f.us-west-2.compute.internal"
+	InstanceId             = "i-07d4481d641e39c4f"
+)
 
 func makeInstance(num int, privateIP, publicIP, privateDNSName, publicDNSName string, stateName string) *ec2.Instance {
 	instance := ec2.Instance{
@@ -225,6 +229,20 @@ func TestInstanceShutdown(t *testing.T) {
 		{
 			name: "test InstanceShutdown with running instance (node without providerID)",
 			node: makeNodeWithoutProviderID(nodeName),
+			mockedEC2Output: &ec2.DescribeInstancesOutput{
+				Reservations: []*ec2.Reservation{
+					{
+						Instances: []*ec2.Instance{
+							makeInstance(0, "192.168.0.1", "1.2.3.6", "instance-same.ec2.internal", "instance-same.ec2.external", "running"),
+						},
+					},
+				},
+			},
+			expectedResult: false,
+		},
+		{
+			name: "test InstanceShutdown with running instance (node without providerID and node name is resource name)",
+			node: makeNodeWithoutProviderID(NodeNameAsResourceName),
 			mockedEC2Output: &ec2.DescribeInstancesOutput{
 				Reservations: []*ec2.Reservation{
 					{
@@ -467,4 +485,16 @@ func TestParseInstanceIDFromProviderID(t *testing.T) {
 		assert.NoError(t, err)
 		assert.Equal(t, testCase.instanceID, ret)
 	}
+}
+
+func TestParseInstanceIDFromNodeName(t *testing.T) {
+	// Node name with instance ID
+	ret, err := parseInstanceIDFromNodeName(NodeNameAsResourceName)
+	assert.NoError(t, err)
+	assert.Equal(t, InstanceId, ret)
+
+	// Node name without instance ID
+	ret, err := parseInstanceIDFromNodeName("ip-192-168-61-24.us-west-2.compute.internal")
+	assert.Error(t, err)
+	assert.Equal(t, "", ret)
 }
