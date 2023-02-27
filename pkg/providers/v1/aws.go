@@ -5237,9 +5237,6 @@ func getRegionFromMetadata(cfg CloudConfig, metadata EC2Metadata) (string, error
 	if cfg.Global.Zone != "" {
 		zone := cfg.Global.Zone
 		klog.Infof("Zone %s configured in cloud config. Using that to get region.", zone)
-		if len(zone) <= 1 {
-			return "", fmt.Errorf("invalid AWS zone in config file: %s", zone)
-		}
 
 		return azToRegion(zone)
 	}

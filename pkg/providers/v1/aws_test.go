@@ -3767,6 +3767,26 @@ func TestGetZoneByProviderIDForFargate(t *testing.T) {
 	assert.Equal(t, "us-west-2c", zoneDetails.FailureDomain)
 }
 
+func TestGetRegionFromMetadata(t *testing.T) {
+	awsServices := newMockedFakeAWSServices(TestClusterID)
+	// Returns region from zone if set
+	cfg := CloudConfig{}
+	cfg.Global.Zone = "us-west-2a"
+	region, err := getRegionFromMetadata(cfg, awsServices.metadata)
+	assert.NoError(t, err)
+	assert.Equal(t, "us-west-2", region)
+	// Returns error if can map to region
+	cfg = CloudConfig{}
+	cfg.Global.Zone = "some-fake-zone"
+	_, err = getRegionFromMetadata(cfg, awsServices.metadata)
+	assert.Error(t, err)
+	// Returns region from metadata if zone unset
+	cfg = CloudConfig{}
+	region, err = getRegionFromMetadata(cfg, awsServices.metadata)
+	assert.NoError(t, err)
+	assert.Equal(t, "us-east-1", region)
+}
+
 type MockedEC2API struct {
 	ec2iface.EC2API
 	mock.Mock
