@@ -202,6 +202,6 @@ gcs-upload: gsutil copy-bins-for-upload
 # CloudBuild artifacts
 # We hash some artifacts, so that we have can know that they were not modified after being built.
 .PHONY: cloudbuild-artifacts
-cloudbuild-artifacts:
+cloudbuild-artifacts: gcs-upload
 	cd ${UPLOAD}/provider-aws/${BINARY_GIT_VERSION}/; find . -type f | sort | xargs sha256sum > ${OUTPUT}/files.sha256
 	cd ${OUTPUT}/; find . -name *.sha256 | sort | xargs sha256sum > ${OUTPUT}/cloudbuild_output
