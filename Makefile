@@ -31,7 +31,6 @@ UPLOAD ?= $(OUTPUT)/upload
 GCS_LOCATION ?= gs://k8s-staging-provider-aws/releases/
 GCS_URL = $(GCS_LOCATION:gs://%=https://storage.googleapis.com/%)
 BINARY_GIT_VERSION := $(shell git describe --tags --match='v*')
-LATEST_FILE ?= latest-tag.txt
 
 .PHONY: aws-cloud-controller-manager
 aws-cloud-controller-manager:
@@ -200,15 +199,9 @@ gcs-upload: gsutil copy-bins-for-upload
 	@echo "== Uploading provider-aws =="
 	gsutil -h "Cache-Control:private, max-age=0, no-transform" -m cp -n -r ${UPLOAD}/provider-aws/* ${GCS_LOCATION}
 
-# gcs-upload-tag runs gcs-upload to upload, then uploads a version-marker to LATEST_FILE
-.PHONY: gcs-upload-and-tag
-gcs-upload-and-tag: gsutil gcs-upload
-	echo "${GCS_URL}-${BINARY_GIT_VERSION}" > ${UPLOAD}/${LATEST_FILE}
-	gsutil -h "Cache-Control:private, max-age=0, no-transform" cp ${UPLOAD}/${LATEST_FILE} ${GCS_LOCATION}/${LATEST_FILE}
-
 # CloudBuild artifacts
 # We hash some artifacts, so that we have can know that they were not modified after being built.
 .PHONY: cloudbuild-artifacts
-cloudbuild-artifacts: gcs-upload-and-tag
+cloudbuild-artifacts:
 	cd ${UPLOAD}/provider-aws/${BINARY_GIT_VERSION}/; find . -type f | sort | xargs sha256sum > ${OUTPUT}/files.sha256
 	cd ${OUTPUT}/; find . -name *.sha256 | sort | xargs sha256sum > ${OUTPUT}/cloudbuild_output
