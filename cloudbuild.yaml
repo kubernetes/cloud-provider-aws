@@ -22,7 +22,6 @@ steps:
     entrypoint: make
     env:
     - PULL_BASE_REF=$_PULL_BASE_REF
-    - LATEST_FILE=markers/${_PULL_BASE_REF}/latest-tag.txt
     args:
     - cloudbuild-artifacts
 substitutions:
