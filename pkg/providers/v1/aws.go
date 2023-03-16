@@ -1668,7 +1668,26 @@ func (c *Cloud) NodeAddressesByProviderID(ctx context.Context, providerID string
 		if eni == nil || err != nil {
 			return nil, err
 		}
-		return getNodeAddressesForFargateNode(aws.StringValue(eni.PrivateDnsName), aws.StringValue(eni.PrivateIpAddress)), nil
+
+		var addresses []v1.NodeAddress
+
+		// Assign NodeInternalIP based on IP family
+		for _, family := range c.cfg.Global.NodeIPFamilies {
+			switch family {
+			case "ipv4":
+				nodeAddresses := getNodeAddressesForFargateNode(aws.StringValue(eni.PrivateDnsName), aws.StringValue(eni.PrivateIpAddress))
+				addresses = append(addresses, nodeAddresses...)
+			case "ipv6":
+				if eni.Ipv6Addresses == nil || len(eni.Ipv6Addresses) == 0 {
+					klog.Errorf("no Ipv6Addresses associated with the eni")
+					continue
+				}
+				internalIPv6Address := eni.Ipv6Addresses[0].Ipv6Address
+				nodeAddresses := getNodeAddressesForFargateNode(aws.StringValue(eni.PrivateDnsName), aws.StringValue(internalIPv6Address))
+				addresses = append(addresses, nodeAddresses...)
+			}
+		}
+		return addresses, nil
 	}
 
 	instance, err := describeInstance(c.ec2, instanceID)
