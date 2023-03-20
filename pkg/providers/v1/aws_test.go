@@ -1151,9 +1151,9 @@ func TestGetLoadBalancerName(t *testing.T) {
 		return
 	}
 	tests := []struct {
-		name        string
-		service     *v1.Service
-		want        string
+		name    string
+		service *v1.Service
+		want    string
 	}{
 		{
 			name: "no_annotation",
@@ -1174,10 +1174,10 @@ func TestGetLoadBalancerName(t *testing.T) {
 					},
 				},
 			},
-			want:        "this-is-a-valid-name",
+			want: "this-is-a-valid-name",
 		},
 		{
-			name:  "name annotation not validated by the regex (hyphen first)",
+			name: "name annotation not validated by the regex (hyphen first)",
 			service: &v1.Service{
 				ObjectMeta: metav1.ObjectMeta{
 					UID: "ac84fe3a771464f9e0ac26a6201f31e1f1f1e6a3",
@@ -1189,7 +1189,7 @@ func TestGetLoadBalancerName(t *testing.T) {
 			want: "aac84fe3a771464f9e0ac26a6201f31e",
 		},
 		{
-			name:  "name annotation not validated by the regex (hyphen last)",
+			name: "name annotation not validated by the regex (hyphen last)",
 			service: &v1.Service{
 				ObjectMeta: metav1.ObjectMeta{
 					UID: "18765876efg84n3a771464f9e0ac26a6201f31e1",
@@ -1201,7 +1201,7 @@ func TestGetLoadBalancerName(t *testing.T) {
 			want: "a18765876efg84n3a771464f9e0ac26a",
 		},
 		{
-			name:  "name annotation not validated by the regex (too long)",
+			name: "name annotation not validated by the regex (too long)",
 			service: &v1.Service{
 				ObjectMeta: metav1.ObjectMeta{
 					UID: "b5c84n3a771464f9e0ac26a6201f31e1f1f1e6e2",
@@ -1213,7 +1213,7 @@ func TestGetLoadBalancerName(t *testing.T) {
 			want: "ab5c84n3a771464f9e0ac26a6201f31e",
 		},
 		{
-			name:  "name annotation not validated by the regex (special characters)",
+			name: "name annotation not validated by the regex (special characters)",
 			service: &v1.Service{
 				ObjectMeta: metav1.ObjectMeta{
 					UID: "2d67e3a771464f9e0ac26a6201f31e1f1f1e6a3f",
