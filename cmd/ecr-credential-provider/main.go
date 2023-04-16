@@ -21,6 +21,7 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"k8s.io/kubelet/pkg/apis/credentialprovider/v1"
 	"net/url"
 	"os"
 	"regexp"
@@ -33,7 +34,6 @@ import (
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/klog/v2"
-	"k8s.io/kubelet/pkg/apis/credentialprovider/v1alpha1"
 )
 
 var ecrPattern = regexp.MustCompile(`^(\d{12})\.dkr\.ecr(\-fips)?\.([a-zA-Z0-9][a-zA-Z0-9-_]*)\.(amazonaws\.com(\.cn)?|sc2s\.sgov\.gov|c2s\.ic\.gov)$`)
@@ -59,7 +59,7 @@ func defaultECRProvider(region string, registryID string) (*ecr.ECR, error) {
 	return ecr.New(sess), nil
 }
 
-func (e *ecrPlugin) GetCredentials(ctx context.Context, image string, args []string) (*v1alpha1.CredentialProviderResponse, error) {
+func (e *ecrPlugin) GetCredentials(ctx context.Context, image string, args []string) (*v1.CredentialProviderResponse, error) {
 	registryID, region, registry, err := parseRepoURL(image)
 	if err != nil {
 		return nil, err
@@ -104,10 +104,10 @@ func (e *ecrPlugin) GetCredentials(ctx context.Context, image string, args []str
 
 	cacheDuration := getCacheDuration(data.ExpiresAt)
 
-	return &v1alpha1.CredentialProviderResponse{
-		CacheKeyType:  v1alpha1.RegistryPluginCacheKeyType,
+	return &v1.CredentialProviderResponse{
+		CacheKeyType:  v1.RegistryPluginCacheKeyType,
 		CacheDuration: cacheDuration,
-		Auth: map[string]v1alpha1.AuthConfig{
+		Auth: map[string]v1.AuthConfig{
 			registry: {
 				Username: parts[0],
 				Password: parts[1],

@@ -24,17 +24,17 @@ import (
 	"time"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/kubelet/pkg/apis/credentialprovider/v1alpha1"
+	"k8s.io/kubelet/pkg/apis/credentialprovider/v1"
 )
 
 type fakePlugin struct {
 }
 
-func (f *fakePlugin) GetCredentials(ctx context.Context, image string, args []string) (*v1alpha1.CredentialProviderResponse, error) {
-	return &v1alpha1.CredentialProviderResponse{
-		CacheKeyType:  v1alpha1.RegistryPluginCacheKeyType,
+func (f *fakePlugin) GetCredentials(ctx context.Context, image string, args []string) (*v1.CredentialProviderResponse, error) {
+	return &v1.CredentialProviderResponse{
+		CacheKeyType:  v1.RegistryPluginCacheKeyType,
 		CacheDuration: &metav1.Duration{Duration: 10 * time.Minute},
-		Auth: map[string]v1alpha1.AuthConfig{
+		Auth: map[string]v1.AuthConfig{
 			"*.registry.io": {
 				Username: "user",
 				Password: "password",
@@ -52,26 +52,26 @@ func Test_runPlugin(t *testing.T) {
 	}{
 		{
 			name: "successful test case",
-			in:   bytes.NewBufferString(`{"kind":"CredentialProviderRequest","apiVersion":"credentialprovider.kubelet.k8s.io/v1alpha1","image":"test.registry.io/foobar"}`),
-			expectedOut: []byte(`{"kind":"CredentialProviderResponse","apiVersion":"credentialprovider.kubelet.k8s.io/v1alpha1","cacheKeyType":"Registry","cacheDuration":"10m0s","auth":{"*.registry.io":{"username":"user","password":"password"}}}
+			in:   bytes.NewBufferString(`{"kind":"CredentialProviderRequest","apiVersion":"credentialprovider.kubelet.k8s.io/v1","image":"test.registry.io/foobar"}`),
+			expectedOut: []byte(`{"kind":"CredentialProviderResponse","apiVersion":"credentialprovider.kubelet.k8s.io/v1","cacheKeyType":"Registry","cacheDuration":"10m0s","auth":{"*.registry.io":{"username":"user","password":"password"}}}
 `),
 			expectErr: false,
 		},
 		{
 			name:        "invalid kind",
-			in:          bytes.NewBufferString(`{"kind":"CredentialProviderFoo","apiVersion":"credentialprovider.kubelet.k8s.io/v1alpha1","image":"test.registry.io/foobar"}`),
+			in:          bytes.NewBufferString(`{"kind":"CredentialProviderFoo","apiVersion":"credentialprovider.kubelet.k8s.io/v1","image":"test.registry.io/foobar"}`),
 			expectedOut: nil,
 			expectErr:   true,
 		},
 		{
 			name:        "invalid apiVersion",
-			in:          bytes.NewBufferString(`{"kind":"CredentialProviderRequest","apiVersion":"foo.k8s.io/v1alpha1","image":"test.registry.io/foobar"}`),
+			in:          bytes.NewBufferString(`{"kind":"CredentialProviderRequest","apiVersion":"foo.k8s.io/v1","image":"test.registry.io/foobar"}`),
 			expectedOut: nil,
 			expectErr:   true,
 		},
 		{
 			name:        "empty image",
-			in:          bytes.NewBufferString(`{"kind":"CredentialProviderRequest","apiVersion":"credentialprovider.kubelet.k8s.io/v1alpha1","image":""}`),
+			in:          bytes.NewBufferString(`{"kind":"CredentialProviderRequest","apiVersion":"credentialprovider.kubelet.k8s.io/v1","image":""}`),
 			expectedOut: nil,
 			expectErr:   true,
 		},
