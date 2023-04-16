@@ -22,7 +22,7 @@ Example config:
                 "*.dkr.ecr.*.amazonaws.com",
                 "*.dkr.ecr.*.amazonaws.com.cn",
             ],
-            "apiVersion": "credentialprovider.kubelet.k8s.io/v1alpha1",
+            "apiVersion": "credentialprovider.kubelet.k8s.io/v1",
             "defaultCacheDuration": "0"
         }
     ]
