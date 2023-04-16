@@ -145,79 +145,6 @@ func (m *MockedFakeELB) expectConfigureHealthCheck(loadBalancerName *string, exp
 	}
 }
 
-func TestReadAWSCloudConfig(t *testing.T) {
-	tests := []struct {
-		name string
-
-		reader io.Reader
-		aws    Services
-
-		expectError bool
-		zone        string
-	}{
-		{
-			"No config reader",
-			nil, nil,
-			true, "",
-		},
-		{
-			"Empty config, no metadata",
-			strings.NewReader(""), nil,
-			true, "",
-		},
-		{
-			"No zone in config, no metadata",
-			strings.NewReader("[global]\n"), nil,
-			true, "",
-		},
-		{
-			"Zone in config, no metadata",
-			strings.NewReader("[global]\nzone = eu-west-1a"), nil,
-			false, "eu-west-1a",
-		},
-		{
-			"No zone in config, metadata does not have zone",
-			strings.NewReader("[global]\n"), newMockedFakeAWSServices(TestClusterID).WithAz(""),
-			true, "",
-		},
-		{
-			"No zone in config, metadata has zone",
-			strings.NewReader("[global]\n"), newMockedFakeAWSServices(TestClusterID),
-			false, "us-east-1a",
-		},
-		{
-			"Zone in config should take precedence over metadata",
-			strings.NewReader("[global]\nzone = eu-west-1a"), newMockedFakeAWSServices(TestClusterID),
-			false, "eu-west-1a",
-		},
-	}
-
-	for _, test := range tests {
-		t.Logf("Running test case %s", test.name)
-		var metadata EC2Metadata
-		if test.aws != nil {
-			metadata, _ = test.aws.Metadata()
-		}
-		cfg, err := readAWSCloudConfig(test.reader)
-		if err == nil {
-			err = updateConfigZone(cfg, metadata)
-		}
-		if test.expectError {
-			if err == nil {
-				t.Errorf("Should error for case %s (cfg=%v)", test.name, cfg)
-			}
-		} else {
-			if err != nil {
-				t.Errorf("Should succeed for case: %s", test.name)
-			}
-			if cfg.Global.Zone != test.zone {
-				t.Errorf("Incorrect zone value (%s vs %s) for case: %s",
-					cfg.Global.Zone, test.zone, test.name)
-			}
-		}
-	}
-}
-
 func TestReadAWSCloudConfigNodeIPFamilies(t *testing.T) {
 	tests := []struct {
 		name string
@@ -554,11 +481,6 @@ func TestNewAWSCloud(t *testing.T) {
 		region      string
 	}{
 		{
-			"No config reader",
-			nil, newMockedFakeAWSServices(TestClusterID).WithAz(""),
-			true, "",
-		},
-		{
 			"Config specifies valid zone",
 			strings.NewReader("[global]\nzone = eu-west-1a"), newMockedFakeAWSServices(TestClusterID),
 			false, "eu-west-1",
@@ -568,12 +490,6 @@ func TestNewAWSCloud(t *testing.T) {
 			strings.NewReader("[global]\n"),
 			newMockedFakeAWSServices(TestClusterID),
 			false, "us-east-1",
-		},
-		{
-			"No zone in config or metadata",
-			strings.NewReader("[global]\n"),
-			newMockedFakeAWSServices(TestClusterID).WithAz(""),
-			true, "",
 		},
 	}
 
@@ -625,8 +541,8 @@ func mockInstancesResp(selfInstance *ec2.Instance, instances []*ec2.Instance) (*
 	return awsCloud, awsServices
 }
 
-func mockAvailabilityZone(availabilityZone string) *Cloud {
-	awsServices := newMockedFakeAWSServices(TestClusterID).WithAz(availabilityZone)
+func mockZone(region, availabilityZone string) *Cloud {
+	awsServices := newMockedFakeAWSServices(TestClusterID).WithAz(availabilityZone).WithRegion(region)
 	awsCloud, err := newAWSCloud(CloudConfig{}, awsServices)
 	if err != nil {
 		panic(err)
@@ -807,7 +723,7 @@ func TestNodeAddresses(t *testing.T) {
 }
 
 func TestGetRegion(t *testing.T) {
-	aws := mockAvailabilityZone("us-west-2e")
+	aws := mockZone("us-west-2", "us-west-2e")
 	zones, ok := aws.Zones()
 	if !ok {
 		t.Fatalf("Unexpected missing zones impl")
@@ -2587,47 +2503,6 @@ func TestCreateDiskFailDescribeVolume(t *testing.T) {
 	awsServices.ec2.(*MockedFakeEC2).AssertExpectations(t)
 }
 
-func TestRegionIsValid(t *testing.T) {
-	fake := newMockedFakeAWSServices("fakeCluster")
-	fake.selfInstance.Placement = &ec2.Placement{
-		AvailabilityZone: aws.String("pl-fake-999a"),
-	}
-
-	// This is the legacy list that was removed, using this to ensure we avoid
-	// region regressions if something goes wrong in the SDK
-	regions := []string{
-		"ap-northeast-1",
-		"ap-northeast-2",
-		"ap-northeast-3",
-		"ap-south-1",
-		"ap-southeast-1",
-		"ap-southeast-2",
-		"ca-central-1",
-		"eu-central-1",
-		"eu-west-1",
-		"eu-west-2",
-		"eu-west-3",
-		"sa-east-1",
-		"us-east-1",
-		"us-east-2",
-		"us-west-1",
-		"us-west-2",
-		"cn-north-1",
-		"cn-northwest-1",
-		"us-gov-west-1",
-		"ap-northeast-3",
-
-		// Ensures that we always trust what the metadata service returns
-		"pl-fake-999",
-	}
-
-	for _, region := range regions {
-		assert.NoError(t, validateRegion(region, fake.metadata), "expected region '%s' to be valid but it was not", region)
-	}
-
-	assert.Error(t, validateRegion("pl-fake-991a", fake.metadata), "expected region 'pl-fake-991' to be invalid but it was not")
-}
-
 const (
 	testNodeName           = types.NodeName("ip-10-0-0-1.ec2.internal")
 	testInstanceIDNodeName = types.NodeName("i-02bce90670bb0c7cd")
@@ -3904,6 +3779,26 @@ func TestGetZoneByProviderIDForFargate(t *testing.T) {
 	zoneDetails, err := c.GetZoneByProviderID(context.TODO(), "aws:///us-west-2c/1abc-2def/fargate-192.168.164.88")
 	assert.Nil(t, err)
 	assert.Equal(t, "us-west-2c", zoneDetails.FailureDomain)
+}
+
+func TestGetRegionFromMetadata(t *testing.T) {
+	awsServices := newMockedFakeAWSServices(TestClusterID)
+	// Returns region from zone if set
+	cfg := CloudConfig{}
+	cfg.Global.Zone = "us-west-2a"
+	region, err := getRegionFromMetadata(cfg, awsServices.metadata)
+	assert.NoError(t, err)
+	assert.Equal(t, "us-west-2", region)
+	// Returns error if can map to region
+	cfg = CloudConfig{}
+	cfg.Global.Zone = "some-fake-zone"
+	_, err = getRegionFromMetadata(cfg, awsServices.metadata)
+	assert.Error(t, err)
+	// Returns region from metadata if zone unset
+	cfg = CloudConfig{}
+	region, err = getRegionFromMetadata(cfg, awsServices.metadata)
+	assert.NoError(t, err)
+	assert.Equal(t, "us-east-1", region)
 }
 
 type MockedEC2API struct {
