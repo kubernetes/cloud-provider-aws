@@ -22,13 +22,13 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"k8s.io/kubelet/pkg/apis/credentialprovider/v1"
 	"os"
 
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/serializer"
 	"k8s.io/apimachinery/pkg/runtime/serializer/json"
 	"k8s.io/kubelet/pkg/apis/credentialprovider/install"
+	"k8s.io/kubelet/pkg/apis/credentialprovider/v1"
 )
 
 var (
