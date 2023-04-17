@@ -29,7 +29,7 @@ import (
 	"github.com/golang/mock/gomock"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/cloud-provider-aws/pkg/providers/v2/mocks"
-	"k8s.io/kubelet/pkg/apis/credentialprovider/v1alpha1"
+	"k8s.io/kubelet/pkg/apis/credentialprovider/v1"
 )
 
 func generateGetAuthorizationTokenOutput(user string, password string, proxy string, expiration *time.Time) *ecr.GetAuthorizationTokenOutput {
@@ -45,11 +45,11 @@ func generateGetAuthorizationTokenOutput(user string, password string, proxy str
 	return output
 }
 
-func generateResponse(registry string, username string, password string) *v1alpha1.CredentialProviderResponse {
-	return &v1alpha1.CredentialProviderResponse{
-		CacheKeyType:  v1alpha1.RegistryPluginCacheKeyType,
+func generateResponse(registry string, username string, password string) *v1.CredentialProviderResponse {
+	return &v1.CredentialProviderResponse{
+		CacheKeyType:  v1.RegistryPluginCacheKeyType,
 		CacheDuration: &metav1.Duration{Duration: 0},
-		Auth: map[string]v1alpha1.AuthConfig{
+		Auth: map[string]v1.AuthConfig{
 			registry: {
 				Username: username,
 				Password: password,
@@ -70,7 +70,7 @@ func Test_GetCredentials(t *testing.T) {
 		args                        []string
 		getAuthorizationTokenOutput *ecr.GetAuthorizationTokenOutput
 		getAuthorizationTokenError  error
-		response                    *v1alpha1.CredentialProviderResponse
+		response                    *v1.CredentialProviderResponse
 		expectedError               error
 	}{
 		{
