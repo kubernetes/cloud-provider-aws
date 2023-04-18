@@ -10,16 +10,16 @@ require (
 	github.com/stretchr/testify v1.8.2
 	golang.org/x/time v0.3.0
 	gopkg.in/gcfg.v1 v1.2.3
-	k8s.io/api v0.27.0
-	k8s.io/apimachinery v0.27.0
-	k8s.io/client-go v0.27.0
-	k8s.io/cloud-provider v0.27.0
-	k8s.io/code-generator v0.27.0
-	k8s.io/component-base v0.27.0
-	k8s.io/controller-manager v0.27.0
-	k8s.io/csi-translation-lib v0.27.0
+	k8s.io/api v0.27.1
+	k8s.io/apimachinery v0.27.1
+	k8s.io/client-go v0.27.1
+	k8s.io/cloud-provider v0.27.1
+	k8s.io/code-generator v0.27.1
+	k8s.io/component-base v0.27.1
+	k8s.io/controller-manager v0.27.1
+	k8s.io/csi-translation-lib v0.27.1
 	k8s.io/klog/v2 v2.90.1
-	k8s.io/kubelet v0.27.0
+	k8s.io/kubelet v0.27.1
 	k8s.io/utils v0.0.0-20230406110748-d93618cff8a2
 	sigs.k8s.io/yaml v1.3.0
 )
@@ -27,7 +27,6 @@ require (
 require (
 	github.com/Azure/go-ansiterm v0.0.0-20230124172434-306776ec8161 // indirect
 	github.com/NYTimes/gziphandler v1.1.1 // indirect
-	github.com/antlr/antlr4/runtime/Go/antlr v1.4.10 // indirect
 	github.com/antlr/antlr4/runtime/Go/antlr/v4 v4.0.0-20230321174746-8dcc6526cfb1 // indirect
 	github.com/asaskevich/govalidator v0.0.0-20230301143203-a9d515a09cc2 // indirect
 	github.com/beorn7/perks v1.0.1 // indirect
@@ -111,10 +110,10 @@ require (
 	gopkg.in/warnings.v0 v0.1.2 // indirect
 	gopkg.in/yaml.v2 v2.4.0 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
-	k8s.io/apiserver v0.27.0 // indirect
-	k8s.io/component-helpers v0.27.0 // indirect
+	k8s.io/apiserver v0.27.1 // indirect
+	k8s.io/component-helpers v0.27.1 // indirect
 	k8s.io/gengo v0.0.0-20220902162205-c0856e24416d // indirect
-	k8s.io/kms v0.27.0 // indirect
+	k8s.io/kms v0.27.1 // indirect
 	k8s.io/kube-openapi v0.0.0-20230327201221-f5883ff37f0c // indirect
 	sigs.k8s.io/apiserver-network-proxy/konnectivity-client v0.1.2 // indirect
 	sigs.k8s.io/json v0.0.0-20221116044647-bc3834ca7abd // indirect
