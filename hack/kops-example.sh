@@ -28,6 +28,7 @@ CLUSTER_NAME=aws-external-cloud-provider-example.k8s.local
 REPO_ROOT="$(cd "$( dirname "${BASH_SOURCE[0]}" )"/.. &> /dev/null && pwd)"
 OUTPUT="${OUTPUT:-${REPO_ROOT}}/kops-example"
 pushd ${REPO_ROOT}
+OS_ARCH=$(go env GOOS)-$(go env GOARCH)
 
 function validate() {
     if [[ -z "${KOPS_STATE_STORE:-}" ]]; then
@@ -62,7 +63,7 @@ function install_kops() {
         if [[ ! -f "${temp_kops}" ]]; then
             echo "Downloading kops to ${temp_kops}"
             local latest_kops_version=$(curl -s https://api.github.com/repos/kubernetes/kops/releases/latest | grep tag_name | cut -d '"' -f 4)
-            curl -Lo kops https://github.com/kubernetes/kops/releases/download/${latest_kops_version}/kops-linux-amd64
+            curl -Lo kops https://github.com/kubernetes/kops/releases/download/${latest_kops_version}/kops-${OS_ARCH}
             chmod +x ./kops
             mv ./kops "${temp_kops}"
         else
