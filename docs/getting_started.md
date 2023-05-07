@@ -56,4 +56,4 @@ In order to create a cluster using kops, you can try the kops example cluster. R
 
 `make kops-example`
 
-This will create a sample kops cluster with the example configuration, found in [examples/kops-new-cluster](examples/kops-new-cluster)  The cloud cloud controller manager specific configuration is separate, purely for readability purposes, and can be found in [overlays/cloud-controller-manager](examples/kops-new-cluster/overlays/cloud-controller-manager).
+This will create a sample kops cluster with the example configuration, found in [examples/kops-new-cluster](../examples/kops-new-cluster)  The cloud cloud controller manager specific configuration is separate, purely for readability purposes, and can be found in [overlays/cloud-controller-manager](../examples/kops-new-cluster/overlays/cloud-controller-manager).
