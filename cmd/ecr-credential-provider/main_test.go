@@ -26,13 +26,14 @@ import (
 
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/service/ecr"
+	"github.com/aws/aws-sdk-go/service/ecrpublic"
 	"github.com/golang/mock/gomock"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/cloud-provider-aws/pkg/providers/v2/mocks"
 	"k8s.io/kubelet/pkg/apis/credentialprovider/v1"
 )
 
-func generateGetAuthorizationTokenOutput(user string, password string, proxy string, expiration *time.Time) *ecr.GetAuthorizationTokenOutput {
+func generatePrivateGetAuthorizationTokenOutput(user string, password string, proxy string, expiration *time.Time) *ecr.GetAuthorizationTokenOutput {
 	creds := []byte(fmt.Sprintf("%s:%s", user, password))
 	data := &ecr.AuthorizationData{
 		AuthorizationToken: aws.String(base64.StdEncoding.EncodeToString(creds)),
@@ -58,7 +59,7 @@ func generateResponse(registry string, username string, password string) *v1.Cre
 	}
 }
 
-func Test_GetCredentials(t *testing.T) {
+func Test_GetCredentials_Private(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 
@@ -76,7 +77,7 @@ func Test_GetCredentials(t *testing.T) {
 		{
 			name:                        "success",
 			image:                       "123456789123.dkr.ecr.us-west-2.amazonaws.com",
-			getAuthorizationTokenOutput: generateGetAuthorizationTokenOutput("user", "pass", "", nil),
+			getAuthorizationTokenOutput: generatePrivateGetAuthorizationTokenOutput("user", "pass", "", nil),
 			response:                    generateResponse("123456789123.dkr.ecr.us-west-2.amazonaws.com", "user", "pass"),
 		},
 		{
@@ -124,6 +125,108 @@ func Test_GetCredentials(t *testing.T) {
 		t.Run(testcase.name, func(t *testing.T) {
 			p := &ecrPlugin{ecr: mockECR}
 			mockECR.EXPECT().GetAuthorizationToken(gomock.Any()).Return(testcase.getAuthorizationTokenOutput, testcase.getAuthorizationTokenError)
+
+			creds, err := p.GetCredentials(context.TODO(), testcase.image, testcase.args)
+
+			if testcase.expectedError != nil && (testcase.expectedError.Error() != err.Error()) {
+				t.Fatalf("expected %s, got %s", testcase.expectedError.Error(), err.Error())
+			}
+
+			if testcase.expectedError == nil {
+				if creds.CacheKeyType != testcase.response.CacheKeyType {
+					t.Fatalf("Unexpected CacheKeyType. Expected: %s, got: %s", testcase.response.CacheKeyType, creds.CacheKeyType)
+				}
+
+				if creds.Auth[testcase.image] != testcase.response.Auth[testcase.image] {
+					t.Fatalf("Unexpected Auth. Expected: %s, got: %s", testcase.response.Auth[testcase.image], creds.Auth[testcase.image])
+				}
+
+				if creds.CacheDuration.Duration != testcase.response.CacheDuration.Duration {
+					t.Fatalf("Unexpected CacheDuration. Expected: %s, got: %s", testcase.response.CacheDuration.Duration, creds.CacheDuration.Duration)
+				}
+			}
+		})
+	}
+}
+
+func generatePublicGetAuthorizationTokenOutput(user string, password string, proxy string, expiration *time.Time) *ecrpublic.GetAuthorizationTokenOutput {
+	creds := []byte(fmt.Sprintf("%s:%s", user, password))
+	data := &ecrpublic.AuthorizationData{
+		AuthorizationToken: aws.String(base64.StdEncoding.EncodeToString(creds)),
+		ExpiresAt:          expiration,
+	}
+	output := &ecrpublic.GetAuthorizationTokenOutput{
+		AuthorizationData: data,
+	}
+	return output
+}
+
+func Test_GetCredentials_Public(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	mockECRPublic := mocks.NewMockECRPublic(ctrl)
+
+	testcases := []struct {
+		name                        string
+		image                       string
+		args                        []string
+		getAuthorizationTokenOutput *ecrpublic.GetAuthorizationTokenOutput
+		getAuthorizationTokenError  error
+		response                    *v1.CredentialProviderResponse
+		expectedError               error
+	}{
+		{
+			name:                        "success",
+			image:                       "public.ecr.aws",
+			getAuthorizationTokenOutput: generatePublicGetAuthorizationTokenOutput("user", "pass", "", nil),
+			response:                    generateResponse("public.ecr.aws", "user", "pass"),
+		},
+		{
+			name:                        "empty authorization data",
+			image:                       "public.ecr.aws",
+			getAuthorizationTokenOutput: &ecrpublic.GetAuthorizationTokenOutput{},
+			getAuthorizationTokenError:  nil,
+			expectedError:               errors.New("authorization data was empty"),
+		},
+		{
+			name:                        "nil response",
+			image:                       "public.ecr.aws",
+			getAuthorizationTokenOutput: nil,
+			getAuthorizationTokenError:  nil,
+			expectedError:               errors.New("response output from ECR was nil"),
+		},
+		{
+			name:                        "empty authorization token",
+			image:                       "public.ecr.aws",
+			getAuthorizationTokenOutput: &ecrpublic.GetAuthorizationTokenOutput{AuthorizationData: &ecrpublic.AuthorizationData{}},
+			getAuthorizationTokenError:  nil,
+			expectedError:               errors.New("authorization token in response was nil"),
+		},
+		{
+			name:                        "invalid authorization token",
+			image:                       "public.ecr.aws",
+			getAuthorizationTokenOutput: nil,
+			getAuthorizationTokenError:  errors.New("getAuthorizationToken failed"),
+			expectedError:               errors.New("getAuthorizationToken failed"),
+		},
+		{
+			name:  "invalid authorization token",
+			image: "public.ecr.aws",
+			getAuthorizationTokenOutput: &ecrpublic.GetAuthorizationTokenOutput{
+				AuthorizationData: &ecrpublic.AuthorizationData{
+					AuthorizationToken: aws.String(base64.StdEncoding.EncodeToString([]byte(fmt.Sprint("foo")))),
+				},
+			},
+			getAuthorizationTokenError: nil,
+			expectedError:              errors.New("error parsing username and password from authorization token"),
+		},
+	}
+
+	for _, testcase := range testcases {
+		t.Run(testcase.name, func(t *testing.T) {
+			p := &ecrPlugin{ecrPublic: mockECRPublic}
+			mockECRPublic.EXPECT().GetAuthorizationToken(gomock.Any()).Return(testcase.getAuthorizationTokenOutput, testcase.getAuthorizationTokenError)
 
 			creds, err := p.GetCredentials(context.TODO(), testcase.image, testcase.args)
 
