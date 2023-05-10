@@ -560,14 +560,14 @@ func testHasNodeAddress(t *testing.T, addrs []v1.NodeAddress, addressType v1.Nod
 	t.Errorf("Did not find expected address: %s:%s in %v", addressType, address, addrs)
 }
 
-func makeInstance(num int, privateIP, publicIP, privateDNSName, publicDNSName string, ipv6s []string, setNetInterface bool) ec2.Instance {
+func makeInstance(instanceID string, privateIP, publicIP, privateDNSName, publicDNSName string, ipv6s []string, setNetInterface bool) ec2.Instance {
 	var tag ec2.Tag
 	tag.Key = aws.String(TagNameKubernetesClusterLegacy)
 	tag.Value = aws.String(TestClusterID)
 	tags := []*ec2.Tag{&tag}
 
 	instance := ec2.Instance{
-		InstanceId:       aws.String(fmt.Sprintf("i-%d", num)),
+		InstanceId:       &instanceID,
 		PrivateDnsName:   aws.String(privateDNSName),
 		PrivateIpAddress: aws.String(privateIP),
 		PublicDnsName:    aws.String(publicDNSName),
@@ -602,124 +602,202 @@ func makeInstance(num int, privateIP, publicIP, privateDNSName, publicDNSName st
 }
 
 func TestNodeAddressesByProviderID(t *testing.T) {
-	// Note instance0 and instance1 have the same name
-	// (we test that this produces an error)
-	instance0 := makeInstance(0, "192.168.0.1", "1.2.3.4", "instance-same.ec2.internal", "instance-same.ec2.external", nil, true)
-	instance1 := makeInstance(1, "192.168.0.2", "", "instance-same.ec2.internal", "", nil, false)
-	instance2 := makeInstance(2, "192.168.0.1", "1.2.3.4", "instance-other.ec2.internal", "", nil, false)
-	instance3 := makeInstance(3, "192.168.0.3", "", "instance-ipv6.ec2.internal", "", []string{"2a05:d014:aa7:911:fc7e:1600:fc4d:ab2", "2a05:d014:aa7:911:9f44:e737:1aa0:6489"}, true)
-	instances := []*ec2.Instance{&instance0, &instance1, &instance2, &instance3}
+	for _, tc := range []struct {
+		Name            string
+		InstanceID      string
+		PrivateIP       string
+		PublicIP        string
+		PrivateDNSName  string
+		PublicDNSName   string
+		Ipv6s           []string
+		SetNetInterface bool
+		NodeName        string
+		Ipv6Only        bool
 
-	aws1, _ := mockInstancesResp(&instance0, []*ec2.Instance{&instance0})
-	_, err1 := aws1.NodeAddressesByProviderID(context.TODO(), "i-xxx")
-	if err1 == nil {
-		t.Errorf("Should error when no instance found")
-	}
+		ExpectedNumAddresses int
+	}{
+		{
+			Name:                 "ipv4 w/public IP",
+			InstanceID:           "i-00000000000000000",
+			PrivateIP:            "192.168.0.1",
+			PublicIP:             "1.2.3.4",
+			PrivateDNSName:       "instance-same.ec2.internal",
+			PublicDNSName:        "instance-same.ec2.external",
+			SetNetInterface:      true,
+			ExpectedNumAddresses: 5,
+		},
+		{
+			Name:                 "ipv4 w/private IP only",
+			InstanceID:           "i-00000000000000001",
+			PrivateIP:            "192.168.0.2",
+			PrivateDNSName:       "instance-same.ec2.internal",
+			ExpectedNumAddresses: 2,
+		},
+		{
+			Name:                 "ipv4 w/public IP and no public DNS",
+			InstanceID:           "i-00000000000000002",
+			PrivateIP:            "192.168.0.1",
+			PublicIP:             "1.2.3.4",
+			PrivateDNSName:       "instance-other.ec2.internal",
+			ExpectedNumAddresses: 3,
+		},
+		{
+			Name:                 "ipv6 only",
+			InstanceID:           "i-00000000000000003",
+			PrivateIP:            "192.168.0.3",
+			PrivateDNSName:       "instance-ipv6.ec2.internal",
+			Ipv6s:                []string{"2a05:d014:aa7:911:fc7e:1600:fc4d:ab2", "2a05:d014:aa7:911:9f44:e737:1aa0:6489"},
+			SetNetInterface:      true,
+			ExpectedNumAddresses: 1,
+			NodeName:             "foo",
+			Ipv6Only:             true,
+		},
+	} {
+		t.Run(tc.Name, func(t *testing.T) {
+			instance := makeInstance(tc.InstanceID, tc.PrivateIP, tc.PublicIP, tc.PrivateDNSName, tc.PublicDNSName, tc.Ipv6s, tc.SetNetInterface)
+			aws1, _ := mockInstancesResp(&instance, []*ec2.Instance{&instance})
+			_, err := aws1.NodeAddressesByProviderID(context.TODO(), "i-xxx")
+			if err == nil {
+				t.Errorf("Should error when no instance found")
+			}
+			if tc.Ipv6Only {
+				aws1.cfg.Global.NodeIPFamilies = []string{"ipv6"}
+			}
+			if tc.NodeName != "" {
+				aws1.selfAWSInstance.nodeName = types.NodeName(tc.NodeName)
+			}
+			addrs, err := aws1.NodeAddressesByProviderID(context.TODO(), tc.InstanceID)
+			if err != nil {
+				t.Errorf("Should not error when instance found, %s", err)
+			}
+			if len(addrs) != tc.ExpectedNumAddresses {
+				t.Errorf("Should return exactly %d NodeAddresses, got %d (%v)", tc.ExpectedNumAddresses, len(addrs), addrs)
+			}
 
-	aws2, _ := mockInstancesResp(&instance0, instances[0:1])
-	// change node name so it uses the instance instead of metadata
-	aws2.selfAWSInstance.nodeName = "foo"
-	addrs2, err2 := aws2.NodeAddressesByProviderID(context.TODO(), "i-0")
-	if err2 != nil {
-		t.Errorf("Should not error when instance found")
+			if tc.SetNetInterface && !tc.Ipv6Only {
+				testHasNodeAddress(t, addrs, v1.NodeInternalIP, tc.PrivateIP)
+			}
+			if tc.PublicIP != "" {
+				testHasNodeAddress(t, addrs, v1.NodeExternalIP, tc.PublicIP)
+			}
+			if tc.PublicDNSName != "" {
+				testHasNodeAddress(t, addrs, v1.NodeExternalDNS, tc.PublicDNSName)
+			}
+			if tc.PrivateDNSName != "" && !tc.Ipv6Only {
+				testHasNodeAddress(t, addrs, v1.NodeInternalDNS, tc.PrivateDNSName)
+				testHasNodeAddress(t, addrs, v1.NodeHostName, tc.PrivateDNSName)
+			}
+			if tc.Ipv6Only {
+				testHasNodeAddress(t, addrs, v1.NodeInternalIP, tc.Ipv6s[0])
+			}
+		})
 	}
-	if len(addrs2) != 5 {
-		t.Errorf("Should return exactly 5 NodeAddresses")
-	}
-	testHasNodeAddress(t, addrs2, v1.NodeInternalIP, "192.168.0.1")
-	testHasNodeAddress(t, addrs2, v1.NodeExternalIP, "1.2.3.4")
-	testHasNodeAddress(t, addrs2, v1.NodeExternalDNS, "instance-same.ec2.external")
-	testHasNodeAddress(t, addrs2, v1.NodeInternalDNS, "instance-same.ec2.internal")
-	testHasNodeAddress(t, addrs2, v1.NodeHostName, "instance-same.ec2.internal")
-
-	aws3, _ := mockInstancesResp(&instance3, instances)
-	aws3.cfg.Global.NodeIPFamilies = []string{"ipv4", "ipv6"}
-	// change node name so it uses the instance instead of metadata
-	aws3.selfAWSInstance.nodeName = "foo"
-	addrs3, err3 := aws3.NodeAddressesByProviderID(context.TODO(), "i-3")
-	if err3 != nil {
-		t.Errorf("Should not error when instance found")
-	}
-	if len(addrs3) != 4 {
-		t.Errorf("Should return exactly 4 NodeAddresses")
-	}
-	testHasNodeAddress(t, addrs3, v1.NodeInternalIP, "192.168.0.3")
-	testHasNodeAddress(t, addrs3, v1.NodeInternalIP, "2a05:d014:aa7:911:fc7e:1600:fc4d:ab2")
-	testHasNodeAddress(t, addrs3, v1.NodeInternalDNS, "instance-ipv6.ec2.internal")
-	testHasNodeAddress(t, addrs3, v1.NodeHostName, "instance-ipv6.ec2.internal")
-
-	aws4, _ := mockInstancesResp(&instance3, instances)
-	aws4.cfg.Global.NodeIPFamilies = []string{"ipv6"}
-	// change node name so it uses the instance instead of metadata
-	aws4.selfAWSInstance.nodeName = "foo"
-	addrs4, err4 := aws4.NodeAddressesByProviderID(context.TODO(), "i-3")
-	if err4 != nil {
-		t.Errorf("Should not error when instance found")
-	}
-	if len(addrs4) != 1 {
-		t.Errorf("Should return exactly 1 NodeAddresses")
-	}
-	testHasNodeAddress(t, addrs4, v1.NodeInternalIP, "2a05:d014:aa7:911:fc7e:1600:fc4d:ab2")
-
 }
 
 func TestNodeAddresses(t *testing.T) {
-	instance0 := makeInstance(0, "192.168.0.1", "1.2.3.4", "instance-same.ec2.internal", "instance-same.ec2.external", nil, true)
-	instance2 := makeInstance(2, "192.168.0.1", "1.2.3.4", "instance-other.ec2.internal", "", nil, false)
-	instance3 := makeInstance(3, "192.168.0.3", "", "instance-ipv6.ec2.internal", "", []string{"2a05:d014:aa7:911:fc7e:1600:fc4d:ab2", "2a05:d014:aa7:911:9f44:e737:1aa0:6489"}, true)
-	instances := []*ec2.Instance{&instance0, &instance2, &instance3}
+	for _, tc := range []struct {
+		Name            string
+		InstanceID      string
+		PrivateIP       string
+		PublicIP        string
+		PrivateDNSName  string
+		PublicDNSName   string
+		Ipv6s           []string
+		SetNetInterface bool
+		NodeName        string
+		Ipv6Only        bool
 
-	aws1, _ := mockInstancesResp(&instance0, []*ec2.Instance{&instance0})
-	_, err1 := aws1.NodeAddresses(context.TODO(), "instance-mismatch.ec2.internal")
-	if err1 == nil {
-		t.Errorf("Should error when no instance found")
-	}
+		ExpectedNumAddresses int
+	}{
+		{
+			Name:                 "ipv4 w/public IP",
+			InstanceID:           "i-00000000000000000",
+			PrivateIP:            "192.168.0.1",
+			PublicIP:             "1.2.3.4",
+			PrivateDNSName:       "instance-same.ec2.internal",
+			PublicDNSName:        "instance-same.ec2.external",
+			SetNetInterface:      true,
+			NodeName:             "foo",
+			ExpectedNumAddresses: 5,
+		},
+		{
+			Name:                 "ipv4 w/private IP only",
+			InstanceID:           "i-00000000000000002",
+			PrivateIP:            "192.168.0.1",
+			PublicIP:             "1.2.3.4",
+			PrivateDNSName:       "instance-other.ec2.internal",
+			ExpectedNumAddresses: 3,
+		},
+		{
+			Name:                 "ipv6 only",
+			InstanceID:           "i-00000000000000003",
+			PrivateIP:            "192.168.0.3",
+			PrivateDNSName:       "instance-ipv6.ec2.internal",
+			PublicDNSName:        "instance-same.ec2.external",
+			Ipv6s:                []string{"2a05:d014:aa7:911:fc7e:1600:fc4d:ab2", "2a05:d014:aa7:911:9f44:e737:1aa0:6489"},
+			SetNetInterface:      true,
+			Ipv6Only:             true,
+			NodeName:             "foo",
+			ExpectedNumAddresses: 1,
+		},
+		{
+			Name:                 "resource based naming using FQDN",
+			InstanceID:           "i-00000000000000004",
+			PrivateIP:            "192.168.0.4",
+			PublicIP:             "1.2.3.4",
+			PrivateDNSName:       "i-00000000000000004.ec2.internal",
+			SetNetInterface:      true,
+			ExpectedNumAddresses: 4,
+		},
+		{
+			Name:                 "resource based naming using hostname only",
+			InstanceID:           "i-00000000000000005",
+			PrivateIP:            "192.168.0.5",
+			PublicIP:             "1.2.3.4",
+			PrivateDNSName:       "i-00000000000000005",
+			SetNetInterface:      true,
+			ExpectedNumAddresses: 4,
+		},
+	} {
+		t.Run(tc.Name, func(t *testing.T) {
+			instance := makeInstance(tc.InstanceID, tc.PrivateIP, tc.PublicIP, tc.PrivateDNSName, tc.PublicDNSName, tc.Ipv6s, tc.SetNetInterface)
+			aws1, _ := mockInstancesResp(&instance, []*ec2.Instance{&instance})
+			_, err := aws1.NodeAddresses(context.TODO(), "instance-mismatch.ec2.internal")
+			if err == nil {
+				t.Errorf("Should error when no instance found")
+			}
+			if tc.Ipv6Only {
+				aws1.cfg.Global.NodeIPFamilies = []string{"ipv6"}
+			}
+			if tc.NodeName != "" {
+				aws1.selfAWSInstance.nodeName = types.NodeName(tc.NodeName)
+			}
+			addrs, err := aws1.NodeAddresses(context.TODO(), types.NodeName(tc.PrivateDNSName))
+			if err != nil {
+				t.Errorf("Should not error when instance found, %s", err)
+			}
+			if len(addrs) != tc.ExpectedNumAddresses {
+				t.Errorf("Should return exactly %d NodeAddresses, got %d (%v)", tc.ExpectedNumAddresses, len(addrs), addrs)
+			}
 
-	aws3, _ := mockInstancesResp(&instance0, instances[0:1])
-	// change node name so it uses the instance instead of metadata
-	aws3.selfAWSInstance.nodeName = "foo"
-	addrs3, err3 := aws3.NodeAddresses(context.TODO(), "instance-same.ec2.internal")
-	if err3 != nil {
-		t.Errorf("Should not error when instance found")
+			if tc.SetNetInterface && !tc.Ipv6Only {
+				testHasNodeAddress(t, addrs, v1.NodeInternalIP, tc.PrivateIP)
+			}
+			if tc.PublicIP != "" && !tc.Ipv6Only {
+				testHasNodeAddress(t, addrs, v1.NodeExternalIP, tc.PublicIP)
+			}
+			if tc.PublicDNSName != "" && !tc.Ipv6Only {
+				testHasNodeAddress(t, addrs, v1.NodeExternalDNS, tc.PublicDNSName)
+			}
+			if tc.PrivateDNSName != "" && !tc.Ipv6Only {
+				testHasNodeAddress(t, addrs, v1.NodeInternalDNS, tc.PrivateDNSName)
+				testHasNodeAddress(t, addrs, v1.NodeHostName, tc.PrivateDNSName)
+			}
+			if tc.Ipv6Only {
+				testHasNodeAddress(t, addrs, v1.NodeInternalIP, tc.Ipv6s[0])
+			}
+		})
 	}
-	if len(addrs3) != 5 {
-		t.Errorf("Should return exactly 5 NodeAddresses")
-	}
-	testHasNodeAddress(t, addrs3, v1.NodeInternalIP, "192.168.0.1")
-	testHasNodeAddress(t, addrs3, v1.NodeExternalIP, "1.2.3.4")
-	testHasNodeAddress(t, addrs3, v1.NodeExternalDNS, "instance-same.ec2.external")
-	testHasNodeAddress(t, addrs3, v1.NodeInternalDNS, "instance-same.ec2.internal")
-	testHasNodeAddress(t, addrs3, v1.NodeHostName, "instance-same.ec2.internal")
-
-	aws4, _ := mockInstancesResp(&instance3, instances)
-	aws4.cfg.Global.NodeIPFamilies = []string{"ipv4", "ipv6"}
-	// change node name so it uses the instance instead of metadata
-	aws4.selfAWSInstance.nodeName = "foo"
-	addrs4, err4 := aws4.NodeAddresses(context.TODO(), "instance-ipv6.ec2.internal")
-	if err4 != nil {
-		t.Errorf("Should not error when instance found")
-	}
-	if len(addrs4) != 4 {
-		t.Errorf("Should return exactly 4 NodeAddresses")
-	}
-	testHasNodeAddress(t, addrs4, v1.NodeInternalIP, "192.168.0.3")
-	testHasNodeAddress(t, addrs4, v1.NodeInternalIP, "2a05:d014:aa7:911:fc7e:1600:fc4d:ab2")
-	testHasNodeAddress(t, addrs4, v1.NodeInternalDNS, "instance-ipv6.ec2.internal")
-	testHasNodeAddress(t, addrs4, v1.NodeHostName, "instance-ipv6.ec2.internal")
-
-	aws5, _ := mockInstancesResp(&instance3, instances)
-	aws5.cfg.Global.NodeIPFamilies = []string{"ipv6"}
-	// change node name so it uses the instance instead of metadata
-	aws5.selfAWSInstance.nodeName = "foo"
-	addrs5, err5 := aws5.NodeAddresses(context.TODO(), "instance-ipv6.ec2.internal")
-	if err5 != nil {
-		t.Errorf("Should not error when instance found")
-	}
-	if len(addrs5) != 1 {
-		t.Errorf("Should return exactly 1 NodeAddresses")
-	}
-	testHasNodeAddress(t, addrs5, v1.NodeInternalIP, "2a05:d014:aa7:911:fc7e:1600:fc4d:ab2")
-
 }
 
 func TestGetRegion(t *testing.T) {
