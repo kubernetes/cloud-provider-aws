@@ -24,7 +24,7 @@ IMAGE_REPOSITORY ?= amazon/cloud-controller-manager
 IMAGE ?= $(IMAGE_REPOSITORY):$(VERSION)
 OUTPUT ?= $(shell pwd)/_output
 INSTALL_PATH ?= $(OUTPUT)/bin
-LDFLAGS ?= -w -s -X k8s.io/component-base/version.gitVersion=$(VERSION)
+LDFLAGS ?= -w -s -X k8s.io/component-base/version.gitVersion=$(VERSION) -X main.gitVersion=$(VERSION)
 
 # flags for ecr-credential-provider artifact promotion
 UPLOAD ?= $(OUTPUT)/upload
