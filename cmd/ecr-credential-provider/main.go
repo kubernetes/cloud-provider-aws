@@ -31,10 +31,12 @@ import (
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/ecr"
 	"github.com/aws/aws-sdk-go/service/ecrpublic"
+	"github.com/spf13/cobra"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/component-base/logs"
 	"k8s.io/klog/v2"
-	"k8s.io/kubelet/pkg/apis/credentialprovider/v1"
+	v1 "k8s.io/kubelet/pkg/apis/credentialprovider/v1"
 )
 
 const ecrPublicRegion string = "us-east-1"
@@ -238,9 +240,28 @@ func parseRepoURL(image string) (string, string, string, error) {
 }
 
 func main() {
-	p := NewCredentialProvider(&ecrPlugin{})
-	if err := p.Run(context.TODO()); err != nil {
-		klog.Errorf("Error running credential provider plugin: %v", err)
+	logs.InitLogs()
+	defer logs.FlushLogs()
+
+	if err := newCredentialProviderCommand().Execute(); err != nil {
 		os.Exit(1)
 	}
+}
+
+var gitVersion string
+
+func newCredentialProviderCommand() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:     "ecr-credential-provider",
+		Short:   "ECR credential provider for kubelet",
+		Version: gitVersion,
+		Run: func(cmd *cobra.Command, args []string) {
+			p := NewCredentialProvider(&ecrPlugin{})
+			if err := p.Run(context.TODO()); err != nil {
+				klog.Errorf("Error running credential provider plugin: %v", err)
+				os.Exit(1)
+			}
+		},
+	}
+	return cmd
 }
