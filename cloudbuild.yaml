@@ -6,25 +6,25 @@ options:
 steps:
   - name: gcr.io/cloud-builders/git
     args: ['fetch', '--tags']
-  - name: gcr.io/k8s-testimages/gcb-docker-gcloud
+  - name: 'gcr.io/k8s-staging-test-infra/gcb-docker-gcloud:v20221214-1b4dd4d69a'
     entrypoint: /buildx-entrypoint
     args:
-    - build
-    - --tag=gcr.io/$PROJECT_ID/cloud-controller-manager:$_SHORT_TAG
-    - --tag=gcr.io/$PROJECT_ID/cloud-controller-manager:latest
-    - --build-arg=VERSION=$_SHORT_TAG
-    - --output=type=registry
-    - --platform=linux/amd64,linux/arm64
-    - .
+      - build
+      - --tag=gcr.io/$PROJECT_ID/cloud-controller-manager:$_SHORT_TAG
+      - --tag=gcr.io/$PROJECT_ID/cloud-controller-manager:latest
+      - --build-arg=VERSION=$_SHORT_TAG
+      - --output=type=registry
+      - --platform=linux/amd64,linux/arm64
+      - .
   # Build cloudbuild artifacts (for attestation)
   - name: 'docker.io/library/golang:1.19.5-bullseye'
     id: cloudbuild-artifacts
     entrypoint: make
     env:
-    - PULL_BASE_REF=$_PULL_BASE_REF
-    - LATEST_FILE=markers/${_PULL_BASE_REF}/latest-tag.txt
+      - PULL_BASE_REF=$_PULL_BASE_REF
+      - LATEST_FILE=markers/${_PULL_BASE_REF}/latest-tag.txt
     args:
-    - cloudbuild-artifacts
+      - cloudbuild-artifacts
 substitutions:
   _GIT_TAG: 'v99999999-v12345'
   # Remove date prefix (first 10 characters) to create valid semver version:
