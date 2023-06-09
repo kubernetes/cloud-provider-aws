@@ -47,7 +47,7 @@ UP="${UP:-yes}"
 # if DOWN==yes, delete cluster after test
 DOWN="${DOWN:-yes}"
 
-KUBERNETES_VERSION="${KUBERNETES_VERSION:-v1.21.0}"
+KUBERNETES_VERSION="${KUBERNETES_VERSION:-v1.21.14}"
 CLUSTER_NAME="test-cluster-${test_run_id}.k8s"
 KOPS_STATE_STORE="${KOPS_STATE_STORE:-}"
 REGION="${AWS_REGION:-us-west-2}"
@@ -127,6 +127,11 @@ aws ecr get-login-password --region "${REGION}" | docker login --username AWS --
 docker tag "${BUILD_IMAGE}" "${IMAGE_NAME}:${IMAGE_TAG}"
 docker push "${IMAGE_NAME}:${IMAGE_TAG}"
 
+curl -Lo kops "https://github.com/kubernetes/kops/releases/download/v1.26.3/kops-linux-amd64"
+chmod +x ./kops
+KOPS_BIN="${PWD}"
+
+
 if [[ "${UP}" = "yes" ]]; then
     kubetest2 kops \
       -v 2 \
@@ -134,11 +139,12 @@ if [[ "${UP}" = "yes" ]]; then
       --run-id="${test_run_id}" \
       --cloud-provider=aws \
       --cluster-name="${CLUSTER_NAME}" \
-      --create-args="--dns=none --zones=${ZONES} --node-size=m5.large --master-size=m5.large --override=cluster.spec.kubeAPIServer.cloudProvider=external --override=cluster.spec.kubeControllerManager.cloudProvider=external --override=cluster.spec.kubelet.cloudProvider=external --override=cluster.spec.cloudControllerManager.cloudProvider=aws --override=cluster.spec.cloudControllerManager.image=${IMAGE_NAME}:${IMAGE_TAG} --override=spec.cloudConfig.awsEBSCSIDriver.enabled=true" \
+      --create-args="--dns=none --zones=${ZONES} --node-size=m5.large --master-size=m5.large --override=cluster.spec.kubeAPIServer.cloudProvider=external --override=cluster.spec.kubeControllerManager.cloudProvider=external --override=cluster.spec.kubelet.cloudProvider=external --override=cluster.spec.cloudControllerManager.cloudProvider=aws --override=cluster.spec.cloudControllerManager.image=${IMAGE_NAME}:${IMAGE_TAG} --override=spec.cloudProvider.aws.ebsCSIDriver.enabled=true" \
       --admin-access="0.0.0.0/0" \
       --kubernetes-version="${KUBERNETES_VERSION}" \
       --ssh-public-key="${SSH_PUBLIC_KEY_PATH}" \
-      --kops-version-marker=https://storage.googleapis.com/kops-ci/bin/latest-ci-updown-green.txt \
+      --kops-binary-path="${KOPS_BIN}/kops" \
+      #--kops-version-marker=https://storage.googleapis.com/kops-ci/bin/latest-ci-updown-green.txt \
 
       # Use the kops tester once we have a way of consuming an arbitrary e2e.test binary.
       #--test=kops \
@@ -154,5 +160,5 @@ popd
 
 if [[ "${DOWN}" = "yes" ]]; then
     # This should be changed to ${test_run}/kops once https://github.com/kubernetes/kops/pull/13217 is merged.
-    ${test_run}/${test_run_id}/kops delete cluster --name "${CLUSTER_NAME}" --yes
+    ${KOPS_BIN}/kops delete cluster --name "${CLUSTER_NAME}" --yes
 fi

@@ -1,4 +1,5 @@
 approvers:
+- dims
 - justinsb
 - nckturner
 - M00nF1sh
@@ -7,6 +8,7 @@ approvers:
 - wongma7
 - ayberk
 reviewers:
+- dims
 - justinsb
 - nckturner
 - M00nF1sh
