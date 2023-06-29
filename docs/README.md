@@ -47,7 +47,8 @@ The AWS cloud provider is released with a specific semantic version that correla
 
 | Kubernetes Version          | Latest AWS Cloud Provider Release Version     |
 |-----------------------------|-----------------------------------------------|
-| v1.26                       | v1.26.0                                       |
+| v1.27                       | v1.27.1                                       |
+| v1.26                       | v1.26.1                                       |
 | v1.25                       | v1.25.3                                       |
 | v1.24                       | v1.24.4                                       |
 | v1.23                       | v1.23.6                                       |
