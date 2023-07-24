@@ -92,7 +92,7 @@ func Test_runPlugin(t *testing.T) {
 			}
 
 			if !reflect.DeepEqual(out.Bytes(), testcase.expectedOut) {
-				t.Logf("actual output: %v", string(out.Bytes()))
+				t.Logf("actual output: %v", out.String())
 				t.Logf("expected  output: %v", string(testcase.expectedOut))
 				t.Errorf("unexpected output")
 			}
