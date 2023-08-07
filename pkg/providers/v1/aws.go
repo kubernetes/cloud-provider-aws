@@ -3987,7 +3987,7 @@ func (c *Cloud) buildNLBHealthCheckConfiguration(svc *v1.Service) (healthCheckCo
 	// When the node is shutting down, the health check should fail before the node loses the ability to route traffic to the backend pod.
 	// This allows the load balancer to gracefully drain connections from the node.
 	if svc.Spec.ExternalTrafficPolicy != v1.ServiceExternalTrafficPolicyTypeLocal && !(pathModified || portModified || protocolModified) {
-		hc.Port = kubeProxyHealthCheckPort
+		hc.Port = strconv.Itoa(kubeProxyHealthCheckPort)
 		hc.Path = kubeProxyHealthCheckPath
 		hc.Protocol = elbv2.ProtocolEnumHttp
 	}
@@ -4383,7 +4383,7 @@ func (c *Cloud) EnsureLoadBalancer(ctx context.Context, clusterName string, apiS
 		klog.V(4).Infof("service %v does not need custom health checks", apiService.Name)
 
 		// Use the kube-proxy port as the health check port for non-local services.
-		err = c.ensureLoadBalancerHealthCheck(loadBalancer, "HTTP", kubeProxyHealthCheckPortInt, kubeProxyHealthCheckPath, annotations)
+		err = c.ensureLoadBalancerHealthCheck(loadBalancer, "HTTP", int32(kubeProxyHealthCheckPort), kubeProxyHealthCheckPath, annotations)
 		if err != nil {
 			return nil, err
 		}
