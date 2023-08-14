@@ -30,7 +30,7 @@ import (
 	"github.com/golang/mock/gomock"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/cloud-provider-aws/pkg/providers/v2/mocks"
-	"k8s.io/kubelet/pkg/apis/credentialprovider/v1"
+	v1 "k8s.io/kubelet/pkg/apis/credentialprovider/v1"
 )
 
 func generatePrivateGetAuthorizationTokenOutput(user string, password string, proxy string, expiration *time.Time) *ecr.GetAuthorizationTokenOutput {
@@ -261,41 +261,34 @@ func Test_ParseURL(t *testing.T) {
 		err        error
 	}{
 		{
-			name:       "success",
-			image:      "123456789123.dkr.ecr.us-west-2.amazonaws.com",
-			registryID: "123456789123",
-			region:     "us-west-2",
-			registry:   "123456789123.dkr.ecr.us-west-2.amazonaws.com",
-			err:        nil,
+			name:     "success",
+			image:    "123456789123.dkr.ecr.us-west-2.amazonaws.com",
+			region:   "us-west-2",
+			registry: "123456789123.dkr.ecr.us-west-2.amazonaws.com",
+			err:      nil,
 		},
 		{
-			name:       "invalid registry",
-			image:      "foobar",
-			registryID: "",
-			region:     "",
-			registry:   "",
-			err:        errors.New("foobar is not a valid ECR repository URL"),
+			name:     "invalid registry",
+			image:    "foobar",
+			region:   "",
+			registry: "",
+			err:      errors.New("foobar is not a valid ECR repository URL"),
 		},
 		{
-			name:       "invalid URL",
-			image:      "foobar  ",
-			registryID: "",
-			region:     "",
-			registry:   "",
-			err:        errors.New("error parsing image https://foobar  : parse \"https://foobar  \": invalid character \" \" in host name"),
+			name:     "invalid URL",
+			image:    "foobar  ",
+			region:   "",
+			registry: "",
+			err:      errors.New("error parsing image https://foobar  : parse \"https://foobar  \": invalid character \" \" in host name"),
 		},
 	}
 
 	for _, testcase := range testcases {
 		t.Run(testcase.name, func(t *testing.T) {
-			registryID, region, registry, err := parseRepoURL(testcase.image)
+			region, registry, err := parseImageReference(testcase.image)
 
 			if testcase.err != nil && (testcase.err.Error() != err.Error()) {
 				t.Fatalf("expected error %s, got %s", testcase.err, err)
-			}
-
-			if registryID != testcase.registryID {
-				t.Fatalf("registryID mismatch. Expected %s, got %s", testcase.registryID, registryID)
 			}
 
 			if region != testcase.region {

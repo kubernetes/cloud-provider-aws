@@ -21,6 +21,7 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"net"
 	"net/url"
 	"os"
 	"regexp"
@@ -124,7 +125,7 @@ func (e *ecrPlugin) getPublicCredsData() (*credsData, error) {
 
 func (e *ecrPlugin) getPrivateCredsData(image string) (*credsData, error) {
 	klog.Infof("Getting creds for private registry %s", image)
-	registryID, region, registry, err := parseRepoURL(image)
+	region, registry, err := parseImageReference(image)
 	if err != nil {
 		return nil, err
 	}
@@ -136,9 +137,7 @@ func (e *ecrPlugin) getPrivateCredsData(image string) (*credsData, error) {
 		}
 	}
 
-	output, err := e.ecr.GetAuthorizationToken(&ecr.GetAuthorizationTokenInput{
-		RegistryIds: []*string{aws.String(registryID)},
-	})
+	output, err := e.ecr.GetAuthorizationToken(&ecr.GetAuthorizationTokenInput{})
 	if err != nil {
 		return nil, err
 	}
@@ -219,24 +218,37 @@ func getCacheDuration(expiresAt *time.Time) *metav1.Duration {
 	return cacheDuration
 }
 
-// parseRepoURL parses and splits the registry URL
-// returns (registryID, region, registry).
+// parseImageReference parses the region name and repository name from an image reference
+// The region name is parsed from an ECR hostname of the form:
 // <registryID>.dkr.ecr(-fips).<region>.amazonaws.com(.cn)
-func parseRepoURL(image string) (string, string, string, error) {
-	if !strings.Contains(image, "https://") {
+// If the image reference's hostname is of a different format, then its CNAME is utilized.
+// The repository name returned is the hostname from the image reference.
+func parseImageReference(image string) (string, string, error) {
+	// the URL needs a scheme to be parsed correctly
+	if !strings.Contains(image, "://") {
 		image = "https://" + image
 	}
 	parsed, err := url.Parse(image)
 	if err != nil {
-		return "", "", "", fmt.Errorf("error parsing image %s: %v", image, err)
+		return "", "", fmt.Errorf("error parsing image %s: %v", image, err)
 	}
 
-	splitURL := ecrPattern.FindStringSubmatch(parsed.Hostname())
-	if len(splitURL) < 4 {
-		return "", "", "", fmt.Errorf("%s is not a valid ECR repository URL", parsed.Hostname())
+	hostname := parsed.Hostname()
+
+	splitHostname := ecrPattern.FindStringSubmatch(hostname)
+	if len(splitHostname) < 4 {
+		cname, err := net.LookupCNAME(hostname)
+		if err != nil {
+			return "", "", fmt.Errorf("failed to lookup CNAME for invalid ECR repository hostname %s: %v", hostname, err)
+		}
+		splitHostname = ecrPattern.FindStringSubmatch(cname)
+		if len(splitHostname) < 4 {
+			return "", "", fmt.Errorf("the CNAME of %s is not a valid ECR repository hostname: %s", hostname, cname)
+		}
+		// do not return the cname -- we need our output credsData.registry to match the input image ref
 	}
 
-	return splitURL[1], splitURL[3], parsed.Hostname(), nil
+	return splitHostname[3], hostname, nil
 }
 
 func main() {
