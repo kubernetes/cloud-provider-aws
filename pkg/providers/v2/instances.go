@@ -226,6 +226,20 @@ func nodeAddressesForInstance(instance *ec2.Instance) ([]v1.NodeAddress, error) 
 				})
 			}
 		}
+
+		for _, privateIP := range networkInterface.Ipv6Addresses {
+			if ipAddress := aws.StringValue(privateIP.Ipv6Address); ipAddress != "" {
+				ip := net.ParseIP(ipAddress)
+				if ip == nil {
+					return nil, fmt.Errorf("invalid IP address %q from instance %q", ipAddress, aws.StringValue(instance.InstanceId))
+				}
+
+				addresses = append(addresses, v1.NodeAddress{
+					Type:    v1.NodeInternalIP,
+					Address: ip.String(),
+				})
+			}
+		}
 	}
 
 	return addresses, nil
