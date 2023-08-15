@@ -26,21 +26,23 @@ limitations under the License.
 package main
 
 import (
+	"math/rand"
+	"os"
+	"time"
+
 	"k8s.io/apimachinery/pkg/util/wait"
 	cloudprovider "k8s.io/cloud-provider"
 	"k8s.io/cloud-provider-aws/pkg/controllers/tagging"
 	awsv1 "k8s.io/cloud-provider-aws/pkg/providers/v1"
 	awsv2 "k8s.io/cloud-provider-aws/pkg/providers/v2"
 	"k8s.io/cloud-provider/app"
+	"k8s.io/cloud-provider/names"
 	"k8s.io/cloud-provider/options"
 	cliflag "k8s.io/component-base/cli/flag"
 	"k8s.io/component-base/logs"
 	_ "k8s.io/component-base/metrics/prometheus/clientgo" // for client metric registration
 	_ "k8s.io/component-base/metrics/prometheus/version"  // for version metric registration
 	"k8s.io/klog/v2"
-	"math/rand"
-	"os"
-	"time"
 
 	cloudcontrollerconfig "k8s.io/cloud-provider/app/config"
 )
@@ -74,7 +76,11 @@ func main() {
 
 	controllerInitializers[tagging.TaggingControllerKey] = taggingControllerConstructor
 	app.ControllersDisabledByDefault.Insert(tagging.TaggingControllerKey)
-	command := app.NewCloudControllerManagerCommand(opts, cloudInitializer, controllerInitializers, fss, wait.NeverStop)
+
+	controllerAliases := names.CCMControllerAliases()
+	controllerAliases[tagging.TaggingControllerKey] = tagging.TaggingControllerClientName
+
+	command := app.NewCloudControllerManagerCommand(opts, cloudInitializer, controllerInitializers, controllerAliases, fss, wait.NeverStop)
 
 	if err := command.Execute(); err != nil {
 		klog.Fatalf("unable to execute command: %v", err)
