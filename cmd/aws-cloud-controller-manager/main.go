@@ -78,7 +78,7 @@ func main() {
 	app.ControllersDisabledByDefault.Insert(tagging.TaggingControllerKey)
 
 	controllerAliases := names.CCMControllerAliases()
-	controllerAliases[tagging.TaggingControllerKey] = tagging.TaggingControllerClientName
+	controllerAliases[tagging.TaggingControllerKey] = tagging.TaggingControllerKey
 
 	command := app.NewCloudControllerManagerCommand(opts, cloudInitializer, controllerInitializers, controllerAliases, fss, wait.NeverStop)
 
