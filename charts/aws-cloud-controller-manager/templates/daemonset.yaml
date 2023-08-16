@@ -15,6 +15,10 @@ spec:
     type: RollingUpdate
   template:
     metadata:
+      {{- if .Values.podAnnotations }}
+      annotations:
+      {{- toYaml .Values.podAnnotations | nindent 8 }}
+      {{- end }}
       name: {{ template "cloud-controller-manager.name" . }}
       labels:
         k8s-app:  {{ template "cloud-controller-manager.name" . }}
