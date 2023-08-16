@@ -5283,3 +5283,20 @@ func getRegionFromMetadata(cfg CloudConfig, metadata EC2Metadata) (string, error
 
 	return cfg.GetRegion(metadata)
 }
+
+// DescribeNetworkInterfaces returns network interface information for the given input
+func (c *Cloud) DescribeNetworkInterfaces(input *ec2.DescribeNetworkInterfacesInput) (*ec2.NetworkInterface, error) {
+
+	eni, err := c.ec2.DescribeNetworkInterfaces(input)
+	if err != nil {
+		return nil, err
+	}
+	if len(eni.NetworkInterfaces) == 0 {
+		return nil, nil
+	}
+	if len(eni.NetworkInterfaces) != 1 {
+		// This should not be possible - ids should be unique
+		return nil, fmt.Errorf("multiple interfaces found with same id %q", eni.NetworkInterfaces)
+	}
+	return eni.NetworkInterfaces[0], nil
+}
