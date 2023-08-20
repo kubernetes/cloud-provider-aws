@@ -18,17 +18,17 @@ spec:
         k8s-app: aws-cloud-controller-manager
     spec:
       nodeSelector:
-        node-role.kubernetes.io/master: ""
+        node-role.kubernetes.io/control-plane: ""
       tolerations:
       - key: node.cloudprovider.kubernetes.io/uninitialized
         value: "true"
         effect: NoSchedule
-      - key: node-role.kubernetes.io/master
+      - key: node-role.kubernetes.io/control-plane
         effect: NoSchedule
       serviceAccountName: cloud-controller-manager
       containers:
         - name: aws-cloud-controller-manager
-          image: us.gcr.io/k8s-artifacts-prod/provider-aws/cloud-controller-manager:v1.23.0-alpha.0
+          image: registry.k8s.io/provider-aws/cloud-controller-manager:v1.27.1
           args:
             - --v=2
             - --cloud-provider=aws
