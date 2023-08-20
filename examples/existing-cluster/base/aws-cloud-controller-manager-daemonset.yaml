@@ -28,7 +28,7 @@ spec:
       serviceAccountName: cloud-controller-manager
       containers:
         - name: aws-cloud-controller-manager
-          image: us.gcr.io/k8s-artifacts-prod/provider-aws/cloud-controller-manager:v1.27.1
+          image: registry.k8s.io/provider-aws/cloud-controller-manager:v1.27.1
           args:
             - --v=2
             - --cloud-provider=aws
