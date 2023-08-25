@@ -17,7 +17,11 @@ limitations under the License.
 package aws
 
 import (
+	"errors"
+	"fmt"
+
 	"github.com/aws/aws-sdk-go/aws"
+	"github.com/aws/aws-sdk-go/aws/arn"
 
 	"k8s.io/apimachinery/pkg/util/sets"
 )
@@ -42,4 +46,26 @@ func stringSetFromPointers(in []*string) sets.String {
 		out.Insert(aws.StringValue(in[i]))
 	}
 	return out
+}
+
+// GetSourceAcctAndArn constructs source acct and arn and return them for use
+func GetSourceAcctAndArn(roleARN, region, clusterName string) (string, string, error) {
+	// ARN format (https://docs.aws.amazon.com/IAM/latest/UserGuide/reference-arns.html)
+	// arn:partition:service:region:account-id:resource-type/resource-id
+	// IAM format, region is always blank
+	// arn:aws:iam::account:role/role-name-with-path
+	if !arn.IsARN(roleARN) {
+		return "", "", fmt.Errorf("incorrect ARN format for role %s", roleARN)
+	}
+	if region == "" {
+		return "", "", errors.New("region can't be empty")
+	}
+
+	parsedArn, err := arn.Parse(roleARN)
+	if err != nil {
+		return "", "", err
+	}
+
+	sourceArn := fmt.Sprintf("arn:%s:eks:%s:%s:cluster/%s", parsedArn.Partition, region, parsedArn.AccountID, clusterName)
+	return parsedArn.AccountID, sourceArn, nil
 }
