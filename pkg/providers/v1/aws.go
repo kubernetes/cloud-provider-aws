@@ -249,6 +249,9 @@ const volumeAttachmentStuck = "VolumeAttachmentStuck"
 // Indicates that a node has volumes stuck in attaching state and hence it is not fit for scheduling more pods
 const nodeWithImpairedVolumes = "NodeWithImpairedVolumes"
 
+const SourceKey = "x-amz-source-arn"
+const AccountKey = "x-amz-source-account"
+
 const (
 	// volumeAttachmentConsecutiveErrorLimit is the number of consecutive errors we will ignore when waiting for a volume to attach/detach
 	volumeAttachmentStatusConsecutiveErrorLimit = 10
@@ -1289,11 +1292,25 @@ func init() {
 		var creds *credentials.Credentials
 		if cfg.Global.RoleARN != "" {
 			klog.Infof("Using AWS assumed role %v", cfg.Global.RoleARN)
+			stsClient := sts.New(sess)
+			if cfg.Global.KubernetesClusterID != "" {
+				sourceAcct, sourceArn, err := GetSourceAcctAndArn(cfg.Global.RoleARN, regionName, cfg.Global.KubernetesClusterID)
+				if err != nil {
+					return nil, err
+				}
+				stsClient.Handlers.Sign.PushFront(func(s *request.Request) {
+					s.ApplyOptions(request.WithSetRequestHeaders(map[string]string{
+						SourceKey:  sourceArn,
+						AccountKey: sourceAcct,
+					}))
+				})
+				klog.Infof("configuring STS client with extra headers")
+			}
 			creds = credentials.NewChainCredentials(
 				[]credentials.Provider{
 					&credentials.EnvProvider{},
 					assumeRoleProvider(&stscreds.AssumeRoleProvider{
-						Client:  sts.New(sess),
+						Client:  stsClient,
 						RoleARN: cfg.Global.RoleARN,
 					}),
 				})
