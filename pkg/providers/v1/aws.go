@@ -249,8 +249,8 @@ const volumeAttachmentStuck = "VolumeAttachmentStuck"
 // Indicates that a node has volumes stuck in attaching state and hence it is not fit for scheduling more pods
 const nodeWithImpairedVolumes = "NodeWithImpairedVolumes"
 
-const SourceKey = "x-amz-source-arn"
-const AccountKey = "x-amz-source-account"
+const sourceKey = "x-amz-source-arn"
+const accountKey = "x-amz-source-account"
 
 const (
 	// volumeAttachmentConsecutiveErrorLimit is the number of consecutive errors we will ignore when waiting for a volume to attach/detach
@@ -1272,8 +1272,8 @@ func init() {
 				}
 				stsClient.Handlers.Sign.PushFront(func(s *request.Request) {
 					s.ApplyOptions(request.WithSetRequestHeaders(map[string]string{
-						SourceKey:  sourceArn,
-						AccountKey: sourceAcct,
+						sourceKey:  sourceArn,
+						accountKey: sourceAcct,
 					}))
 				})
 				klog.Infof("configuring STS client with extra headers")
