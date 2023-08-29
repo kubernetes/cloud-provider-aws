@@ -128,7 +128,7 @@ tolerations:
 # dnsPolicy -- dnsPolicy of deamonset pods. Should be set to Default if deployed as a deamonset on control-plane nodes to resolve properly
 dnsPolicy: Default
 
-clusterRoleName : system:cloud-controller-manager
+clusterRoleName: system:cloud-controller-manager
 
 roleBindingName: cloud-controller-manager:apiserver-authentication-reader
 
