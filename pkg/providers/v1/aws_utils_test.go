@@ -20,63 +20,40 @@ import "testing"
 
 func TestGetSourceAcctAndArn(t *testing.T) {
 	type args struct {
-		roleARN     string
-		region      string
-		clusterName string
+		roleARN string
 	}
 	tests := []struct {
 		name    string
 		args    args
 		want    string
-		want1   string
 		wantErr bool
 	}{
 		{
 			name: "corect role arn",
 			args: args{
-				roleARN:     "arn:aws:iam::123456789876:role/test-cluster",
-				region:      "us-west-2",
-				clusterName: "test-cluster",
+				roleARN: "arn:aws:iam::123456789876:role/test-cluster",
 			},
 			want:    "123456789876",
-			want1:   "arn:aws:eks:us-west-2:123456789876:cluster/test-cluster",
 			wantErr: false,
 		},
 		{
 			name: "incorect role arn",
 			args: args{
-				roleARN:     "arn:aws:iam::123456789876",
-				region:      "us-west-2",
-				clusterName: "test-cluster",
+				roleARN: "arn:aws:iam::123456789876",
 			},
 			want:    "",
-			want1:   "",
-			wantErr: true,
-		},
-		{
-			name: "empty region",
-			args: args{
-				roleARN:     "arn:aws:iam::123456789876:role/test-cluster",
-				region:      "",
-				clusterName: "test-cluster",
-			},
-			want:    "",
-			want1:   "",
 			wantErr: true,
 		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, got1, err := GetSourceAcctAndArn(tt.args.roleARN, tt.args.region, tt.args.clusterName)
+			got, err := GetSourceAcct(tt.args.roleARN)
 			if (err != nil) != tt.wantErr {
-				t.Errorf("GetSourceAcctAndArn() error = %v, wantErr %v", err, tt.wantErr)
+				t.Errorf("GetSourceAcct() error = %v, wantErr %v", err, tt.wantErr)
 				return
 			}
 			if got != tt.want {
-				t.Errorf("GetSourceAcctAndArn() got = %v, want %v", got, tt.want)
-			}
-			if got1 != tt.want1 {
-				t.Errorf("GetSourceAcctAndArn() got1 = %v, want %v", got1, tt.want1)
+				t.Errorf("GetSourceAcct() got = %v, want %v", got, tt.want)
 			}
 		})
 	}
