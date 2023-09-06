@@ -617,6 +617,9 @@ type CloudConfig struct {
 
 		// RoleARN is the IAM role to assume when interaction with AWS APIs.
 		RoleARN string
+		// SourceARN is value which is passed while assuming role using RoleARN and used for
+		// restricting the access. https://docs.aws.amazon.com/IAM/latest/UserGuide/confused-deputy.html
+		SourceARN string
 
 		// KubernetesClusterTag is the legacy cluster id we'll use to identify our cluster resources
 		KubernetesClusterTag string
@@ -1265,19 +1268,21 @@ func init() {
 		if cfg.Global.RoleARN != "" {
 			klog.Infof("Using AWS assumed role %v", cfg.Global.RoleARN)
 			stsClient := sts.New(sess)
-			if cfg.Global.KubernetesClusterID != "" {
-				sourceAcct, sourceArn, err := GetSourceAcctAndArn(cfg.Global.RoleARN, regionName, cfg.Global.KubernetesClusterID)
-				if err != nil {
-					return nil, err
-				}
-				stsClient.Handlers.Sign.PushFront(func(s *request.Request) {
-					s.ApplyOptions(request.WithSetRequestHeaders(map[string]string{
-						sourceKey:  sourceArn,
-						accountKey: sourceAcct,
-					}))
-				})
-				klog.Infof("configuring STS client with extra headers")
+			sourceAcct, err := GetSourceAcct(cfg.Global.RoleARN)
+			if err != nil {
+				return nil, err
 			}
+			reqHeaders := map[string]string{
+				accountKey: sourceAcct,
+			}
+			if cfg.Global.SourceARN != "" {
+				reqHeaders[sourceKey] = cfg.Global.SourceARN
+			}
+			stsClient.Handlers.Sign.PushFront(func(s *request.Request) {
+				s.ApplyOptions(request.WithSetRequestHeaders(reqHeaders))
+			})
+			klog.Infof("configuring STS client with extra headers")
+
 			creds = credentials.NewChainCredentials(
 				[]credentials.Provider{
 					&credentials.EnvProvider{},
