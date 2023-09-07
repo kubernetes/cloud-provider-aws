@@ -1332,7 +1332,7 @@ func readAWSCloudConfig(config io.Reader) (*CloudConfig, error) {
 	var err error
 
 	if config != nil {
-		err = gcfg.ReadInto(&cfg, config)
+		err = gcfg.FatalOnly(gcfg.ReadInto(&cfg, config))
 		if err != nil {
 			return nil, err
 		}
