@@ -108,6 +108,11 @@ ko-build: ko
 ko-build-tar: ko
 	KO_DOCKER_REPO="$(IMAGE_REPOSITORY)" GOFLAGS="-ldflags=-X=k8s.io/component-base/version.gitVersion=$(VERSION)" ko build --tags ${VERSION} --platform=linux/amd64 --bare ./cmd/aws-cloud-controller-manager/ --tarball aws-cloud-controller-manager.tar --push=false
 
+.PHONY: ko-build-local
+ko-build-local: ko
+	KO_DOCKER_REPO="$(IMAGE_REPOSITORY)" GOFLAGS="-ldflags=-X=k8s.io/component-base/version.gitVersion=$(VERSION)" ko build --tags ${VERSION} --platform=linux/amd64 --bare ./cmd/aws-cloud-controller-manager/ --push=false --local
+	docker tag ko.local:${VERSION} $(IMAGE)
+
 .PHONY: e2e.test
 e2e.test:
 	pushd tests/e2e > /dev/null && \
@@ -153,6 +158,20 @@ publish-docs:
 .PHONY: kops-example
 kops-example:
 	./hack/kops-example.sh
+
+.PHONY: switch-to-latest-k8s
+switch-to-latest-k8s:
+	./hack/switch-to-latest-k8s.sh
+
+.PHONY: test-e2e-latest-k8s
+test-e2e-latest-k8s: switch-to-latest-k8s e2e.test ko-build-local install-e2e-tools
+	AWS_REGION=us-west-2 \
+	TEST_PATH=./tests/e2e/... \
+	BUILD_IMAGE=$(IMAGE) \
+	BUILD_VERSION=$(VERSION) \
+	INSTALL_PATH=$(INSTALL_PATH) \
+	GINKGO_FOCUS="\[cloud-provider-aws-e2e\]" \
+	./hack/e2e/run.sh
 
 .PHONY: test-e2e
 test-e2e: e2e.test docker-build-amd64 install-e2e-tools
