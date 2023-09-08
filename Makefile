@@ -20,7 +20,7 @@ GOARCH ?= $(shell go env GOARCH)
 GOPROXY ?= $(shell go env GOPROXY)
 GIT_VERSION := $(shell git describe --dirty --tags --match='v*')
 VERSION ?= $(GIT_VERSION)
-IMAGE_REPOSITORY ?= amazon/cloud-controller-manager
+IMAGE_REPOSITORY ?= provider-aws/cloud-controller-manager
 IMAGE ?= $(IMAGE_REPOSITORY):$(VERSION)
 OUTPUT ?= $(shell pwd)/_output
 INSTALL_PATH ?= $(OUTPUT)/bin
@@ -102,7 +102,11 @@ ko:
 
 .PHONY: ko-build
 ko-build: ko
-	KO_DOCKER_REPO="$(IMAGE_REPOSITORY)" GOFLAGS="-ldflags=-X=k8s.io/component-base/version.gitVersion=$(VERSION)" ko build --tags ${VERSION}  --platform=linux/amd64,linux/arm64 --bare ./cmd/aws-cloud-controller-manager/
+	KO_DOCKER_REPO="$(IMAGE_REPOSITORY)" GOFLAGS="-ldflags=-X=k8s.io/component-base/version.gitVersion=$(VERSION)" ko build --tags ${VERSION} --platform=linux/amd64,linux/arm64 --bare ./cmd/aws-cloud-controller-manager/
+
+.PHONY: ko-build-tar
+ko-build-tar: ko
+	KO_DOCKER_REPO="$(IMAGE_REPOSITORY)" GOFLAGS="-ldflags=-X=k8s.io/component-base/version.gitVersion=$(VERSION)" ko build --tags ${VERSION} --platform=linux/amd64 --bare ./cmd/aws-cloud-controller-manager/ --tarball aws-cloud-controller-manager.tar --push=false
 
 .PHONY: e2e.test
 e2e.test:
