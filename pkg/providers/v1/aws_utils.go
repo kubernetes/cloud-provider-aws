@@ -47,8 +47,8 @@ func stringSetFromPointers(in []*string) sets.String {
 	return out
 }
 
-// GetSourceAcct constructs source acct and return them for use
-func GetSourceAcct(roleARN string) (string, error) {
+// GetSourceAccount constructs source acct and return them for use
+func GetSourceAccount(roleARN string) (string, error) {
 	// ARN format (https://docs.aws.amazon.com/IAM/latest/UserGuide/reference-arns.html)
 	// arn:partition:service:region:account-id:resource-type/resource-id
 	// IAM format, region is always blank
