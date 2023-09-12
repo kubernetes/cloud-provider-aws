@@ -47,13 +47,13 @@ func TestGetSourceAcctAndArn(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := GetSourceAcct(tt.args.roleARN)
+			got, err := GetSourceAccount(tt.args.roleARN)
 			if (err != nil) != tt.wantErr {
-				t.Errorf("GetSourceAcct() error = %v, wantErr %v", err, tt.wantErr)
+				t.Errorf("GetSourceAccount() error = %v, wantErr %v", err, tt.wantErr)
 				return
 			}
 			if got != tt.want {
-				t.Errorf("GetSourceAcct() got = %v, want %v", got, tt.want)
+				t.Errorf("GetSourceAccount() got = %v, want %v", got, tt.want)
 			}
 		})
 	}
