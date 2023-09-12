@@ -249,8 +249,8 @@ const volumeAttachmentStuck = "VolumeAttachmentStuck"
 // Indicates that a node has volumes stuck in attaching state and hence it is not fit for scheduling more pods
 const nodeWithImpairedVolumes = "NodeWithImpairedVolumes"
 
-const sourceKey = "x-amz-source-arn"
-const accountKey = "x-amz-source-account"
+const headerSourceArn = "x-amz-source-arn"
+const headerSourceAccount = "x-amz-source-account"
 
 const (
 	// volumeAttachmentConsecutiveErrorLimit is the number of consecutive errors we will ignore when waiting for a volume to attach/detach
@@ -625,8 +625,10 @@ type CloudConfig struct {
 
 		// RoleARN is the IAM role to assume when interaction with AWS APIs.
 		RoleARN string
-		// SourceARN is value which is passed while assuming role using RoleARN and used for
-		// restricting the access. https://docs.aws.amazon.com/IAM/latest/UserGuide/confused-deputy.html
+		// SourceARN is value which is passed while assuming role specified by RoleARN. When a service
+		// assumes a role in your account, you can include the aws:SourceAccount and aws:SourceArn global
+		// condition context keys in your role trust policy to limit access to the role to only requests that are generated
+		// by expected resources. https://docs.aws.amazon.com/IAM/latest/UserGuide/confused-deputy.html
 		SourceARN string
 
 		// KubernetesClusterTag is the legacy cluster id we'll use to identify our cluster resources
@@ -1283,23 +1285,10 @@ func init() {
 
 		var creds *credentials.Credentials
 		if cfg.Global.RoleARN != "" {
-			klog.Infof("Using AWS assumed role %v", cfg.Global.RoleARN)
-			stsClient := sts.New(sess)
-			sourceAcct, err := GetSourceAcct(cfg.Global.RoleARN)
+			stsClient, err := getSTSClient(sess, cfg.Global.RoleARN, cfg.Global.SourceARN)
 			if err != nil {
-				return nil, err
+				return nil, fmt.Errorf("unable to create sts client, %v", err)
 			}
-			reqHeaders := map[string]string{
-				accountKey: sourceAcct,
-			}
-			if cfg.Global.SourceARN != "" {
-				reqHeaders[sourceKey] = cfg.Global.SourceARN
-			}
-			stsClient.Handlers.Sign.PushFront(func(s *request.Request) {
-				s.ApplyOptions(request.WithSetRequestHeaders(reqHeaders))
-			})
-			klog.Infof("configuring STS client with extra headers")
-
 			creds = credentials.NewChainCredentials(
 				[]credentials.Provider{
 					&credentials.EnvProvider{},
@@ -1313,6 +1302,26 @@ func init() {
 		aws := newAWSSDKProvider(creds, cfg)
 		return newAWSCloud(*cfg, aws)
 	})
+}
+
+func getSTSClient(sess *session.Session, roleARN, sourceARN string) (*sts.STS, error) {
+	klog.Infof("Using AWS assumed role %v", roleARN)
+	stsClient := sts.New(sess)
+	sourceAcct, err := GetSourceAccount(roleARN)
+	if err != nil {
+		return nil, err
+	}
+	reqHeaders := map[string]string{
+		headerSourceAccount: sourceAcct,
+	}
+	if sourceARN != "" {
+		reqHeaders[headerSourceArn] = sourceARN
+	}
+	stsClient.Handlers.Sign.PushFront(func(s *request.Request) {
+		s.ApplyOptions(request.WithSetRequestHeaders(reqHeaders))
+	})
+	klog.V(4).Infof("configuring STS client with extra headers, %v", reqHeaders)
+	return stsClient, nil
 }
 
 // readAWSCloudConfig reads an instance of AWSCloudConfig from config reader.
