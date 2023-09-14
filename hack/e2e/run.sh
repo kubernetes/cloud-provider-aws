@@ -53,7 +53,7 @@ KOPS_STATE_STORE="${KOPS_STATE_STORE:-}"
 REGION="${AWS_REGION:-us-west-2}"
 ZONES="${AWS_AVAILABILITY_ZONES:-us-west-2a,us-west-2b,us-west-2c}"
 AWS_ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
-IMAGE_NAME=${IMAGE_NAME:-${AWS_ACCOUNT_ID}.dkr.ecr.${REGION}.amazonaws.com/amazon/cloud-controller-manager}
+IMAGE_NAME=${IMAGE_NAME:-${AWS_ACCOUNT_ID}.dkr.ecr.${REGION}.amazonaws.com/provider-aws/cloud-controller-manager}
 IMAGE_TAG=${IMAGE_TAG:-${BUILD_VERSION}-${test_run_id}}
 
 # Test args
