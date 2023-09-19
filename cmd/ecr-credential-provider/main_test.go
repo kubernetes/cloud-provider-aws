@@ -30,7 +30,7 @@ import (
 	"github.com/golang/mock/gomock"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/cloud-provider-aws/pkg/providers/v2/mocks"
-	"k8s.io/kubelet/pkg/apis/credentialprovider/v1"
+	v1 "k8s.io/kubelet/pkg/apis/credentialprovider/v1"
 )
 
 func generatePrivateGetAuthorizationTokenOutput(user string, password string, proxy string, expiration *time.Time) *ecr.GetAuthorizationTokenOutput {
@@ -77,6 +77,12 @@ func Test_GetCredentials_Private(t *testing.T) {
 		{
 			name:                        "success",
 			image:                       "123456789123.dkr.ecr.us-west-2.amazonaws.com",
+			getAuthorizationTokenOutput: generatePrivateGetAuthorizationTokenOutput("user", "pass", "", nil),
+			response:                    generateResponse("123456789123.dkr.ecr.us-west-2.amazonaws.com", "user", "pass"),
+		},
+		{
+			name:                        "image reference containing public ECR host",
+			image:                       "123456789123.dkr.ecr.us-west-2.amazonaws.com/public.ecr.aws/foo:latest",
 			getAuthorizationTokenOutput: generatePrivateGetAuthorizationTokenOutput("user", "pass", "", nil),
 			response:                    generateResponse("123456789123.dkr.ecr.us-west-2.amazonaws.com", "user", "pass"),
 		},
@@ -251,59 +257,85 @@ func Test_GetCredentials_Public(t *testing.T) {
 	}
 }
 
-func Test_ParseURL(t *testing.T) {
+func Test_parseHostFromImageReference(t *testing.T) {
 	testcases := []struct {
-		name       string
-		image      string
-		registryID string
-		region     string
-		registry   string
-		err        error
+		name  string
+		image string
+		host  string
+		err   error
 	}{
 		{
-			name:       "success",
-			image:      "123456789123.dkr.ecr.us-west-2.amazonaws.com",
-			registryID: "123456789123",
-			region:     "us-west-2",
-			registry:   "123456789123.dkr.ecr.us-west-2.amazonaws.com",
-			err:        nil,
+			name:  "success",
+			image: "123456789123.dkr.ecr.us-west-2.amazonaws.com/foo/bar:1.0",
+			host:  "123456789123.dkr.ecr.us-west-2.amazonaws.com",
+			err:   nil,
 		},
 		{
-			name:       "invalid registry",
-			image:      "foobar",
-			registryID: "",
-			region:     "",
-			registry:   "",
-			err:        errors.New("foobar is not a valid ECR repository URL"),
+			name:  "existing scheme",
+			image: "http://foobar",
+			host:  "foobar",
+			err:   nil,
 		},
 		{
-			name:       "invalid URL",
-			image:      "foobar  ",
-			registryID: "",
-			region:     "",
-			registry:   "",
-			err:        errors.New("error parsing image https://foobar  : parse \"https://foobar  \": invalid character \" \" in host name"),
+			name:  "invalid URL",
+			image: "foobar  ",
+			host:  "",
+			err:   errors.New("error parsing image reference https://foobar  : parse \"https://foobar  \": invalid character \" \" in host name"),
 		},
 	}
 
 	for _, testcase := range testcases {
 		t.Run(testcase.name, func(t *testing.T) {
-			registryID, region, registry, err := parseRepoURL(testcase.image)
+			host, err := parseHostFromImageReference(testcase.image)
 
 			if testcase.err != nil && (testcase.err.Error() != err.Error()) {
 				t.Fatalf("expected error %s, got %s", testcase.err, err)
 			}
 
-			if registryID != testcase.registryID {
-				t.Fatalf("registryID mismatch. Expected %s, got %s", testcase.registryID, registryID)
+			if host != testcase.host {
+				t.Fatalf("registry mismatch. Expected %s, got %s", testcase.host, host)
+			}
+		})
+	}
+}
+
+func Test_parseRegionFromECRPrivateHost(t *testing.T) {
+	testcases := []struct {
+		name   string
+		host   string
+		region string
+		err    error
+	}{
+		{
+			name:   "success",
+			host:   "123456789123.dkr.ecr.us-west-2.amazonaws.com",
+			region: "us-west-2",
+			err:    nil,
+		},
+		{
+			name:   "invalid registry",
+			host:   "foobar",
+			region: "",
+			err:    errors.New("invalid private ECR host: foobar"),
+		},
+		{
+			name:   "invalid host",
+			host:   "foobar ",
+			region: "",
+			err:    errors.New("invalid private ECR host: foobar "),
+		},
+	}
+
+	for _, testcase := range testcases {
+		t.Run(testcase.name, func(t *testing.T) {
+			region, err := parseRegionFromECRPrivateHost(testcase.host)
+
+			if testcase.err != nil && (testcase.err.Error() != err.Error()) {
+				t.Fatalf("expected error %s, got %s", testcase.err, err)
 			}
 
 			if region != testcase.region {
 				t.Fatalf("region mismatch. Expected %s, got %s", testcase.region, region)
-			}
-
-			if registry != testcase.registry {
-				t.Fatalf("registry mismatch. Expected %s, got %s", testcase.registry, registry)
 			}
 		})
 	}
@@ -345,7 +377,7 @@ func TestRegistryPatternMatch(t *testing.T) {
 		{"123456789012.lala-land-1.amazonaws.com", false},
 	}
 	for _, g := range grid {
-		actual := ecrPattern.MatchString(g.Registry)
+		actual := ecrPrivateHostPattern.MatchString(g.Registry)
 		if actual != g.Expected {
 			t.Errorf("unexpected pattern match value, want %v for %s", g.Expected, g.Registry)
 		}
