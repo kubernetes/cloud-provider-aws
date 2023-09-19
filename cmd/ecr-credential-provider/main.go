@@ -40,9 +40,9 @@ import (
 )
 
 const ecrPublicRegion string = "us-east-1"
-const ecrPublicURL string = "public.ecr.aws"
+const ecrPublicHost string = "public.ecr.aws"
 
-var ecrPattern = regexp.MustCompile(`^(\d{12})\.dkr\.ecr(\-fips)?\.([a-zA-Z0-9][a-zA-Z0-9-_]*)\.(amazonaws\.com(\.cn)?|sc2s\.sgov\.gov|c2s\.ic\.gov)$`)
+var ecrPrivateHostPattern = regexp.MustCompile(`^(\d{12})\.dkr\.ecr(\-fips)?\.([a-zA-Z0-9][a-zA-Z0-9-_]*)\.(amazonaws\.com(\.cn)?|sc2s\.sgov\.gov|c2s\.ic\.gov)$`)
 
 // ECR abstracts the calls we make to aws-sdk for testing purposes
 type ECR interface {
@@ -86,7 +86,6 @@ func publicECRProvider() (*ecrpublic.ECRPublic, error) {
 }
 
 type credsData struct {
-	registry  string
 	authToken *string
 	expiresAt *time.Time
 }
@@ -116,43 +115,34 @@ func (e *ecrPlugin) getPublicCredsData() (*credsData, error) {
 	}
 
 	return &credsData{
-		registry:  ecrPublicURL,
 		authToken: output.AuthorizationData.AuthorizationToken,
 		expiresAt: output.AuthorizationData.ExpiresAt,
 	}, nil
 }
 
-func (e *ecrPlugin) getPrivateCredsData(image string) (*credsData, error) {
-	klog.Infof("Getting creds for private registry %s", image)
-	registryID, region, registry, err := parseRepoURL(image)
+func (e *ecrPlugin) getPrivateCredsData(imageHost string, image string) (*credsData, error) {
+	klog.Infof("Getting creds for private image %s", image)
+	region, err := parseRegionFromECRPrivateHost(imageHost)
 	if err != nil {
 		return nil, err
 	}
-
 	if e.ecr == nil {
 		e.ecr, err = defaultECRProvider(region)
 		if err != nil {
 			return nil, err
 		}
 	}
-
-	output, err := e.ecr.GetAuthorizationToken(&ecr.GetAuthorizationTokenInput{
-		RegistryIds: []*string{aws.String(registryID)},
-	})
+	output, err := e.ecr.GetAuthorizationToken(&ecr.GetAuthorizationTokenInput{})
 	if err != nil {
 		return nil, err
 	}
-
 	if output == nil {
 		return nil, errors.New("response output from ECR was nil")
 	}
-
 	if len(output.AuthorizationData) == 0 {
 		return nil, errors.New("authorization data was empty")
 	}
-
 	return &credsData{
-		registry:  registry,
 		authToken: output.AuthorizationData[0].AuthorizationToken,
 		expiresAt: output.AuthorizationData[0].ExpiresAt,
 	}, nil
@@ -162,10 +152,15 @@ func (e *ecrPlugin) GetCredentials(ctx context.Context, image string, args []str
 	var creds *credsData
 	var err error
 
-	if strings.Contains(image, ecrPublicURL) {
+	imageHost, err := parseHostFromImageReference(image)
+	if err != nil {
+		return nil, err
+	}
+
+	if imageHost == ecrPublicHost {
 		creds, err = e.getPublicCredsData()
 	} else {
-		creds, err = e.getPrivateCredsData(image)
+		creds, err = e.getPrivateCredsData(imageHost, image)
 	}
 
 	if err != nil {
@@ -192,7 +187,7 @@ func (e *ecrPlugin) GetCredentials(ctx context.Context, image string, args []str
 		CacheKeyType:  v1.RegistryPluginCacheKeyType,
 		CacheDuration: cacheDuration,
 		Auth: map[string]v1.AuthConfig{
-			creds.registry: {
+			imageHost: {
 				Username: parts[0],
 				Password: parts[1],
 			},
@@ -219,24 +214,25 @@ func getCacheDuration(expiresAt *time.Time) *metav1.Duration {
 	return cacheDuration
 }
 
-// parseRepoURL parses and splits the registry URL
-// returns (registryID, region, registry).
-// <registryID>.dkr.ecr(-fips).<region>.amazonaws.com(.cn)
-func parseRepoURL(image string) (string, string, string, error) {
-	if !strings.Contains(image, "https://") {
+// parseHostFromImageReference parses the hostname from an image reference
+func parseHostFromImageReference(image string) (string, error) {
+	// a URL needs a scheme to be parsed correctly
+	if !strings.Contains(image, "://") {
 		image = "https://" + image
 	}
 	parsed, err := url.Parse(image)
 	if err != nil {
-		return "", "", "", fmt.Errorf("error parsing image %s: %v", image, err)
+		return "", fmt.Errorf("error parsing image reference %s: %v", image, err)
 	}
+	return parsed.Hostname(), nil
+}
 
-	splitURL := ecrPattern.FindStringSubmatch(parsed.Hostname())
-	if len(splitURL) < 4 {
-		return "", "", "", fmt.Errorf("%s is not a valid ECR repository URL", parsed.Hostname())
+func parseRegionFromECRPrivateHost(host string) (string, error) {
+	splitHost := ecrPrivateHostPattern.FindStringSubmatch(host)
+	if len(splitHost) != 6 {
+		return "", fmt.Errorf("invalid private ECR host: %s", host)
 	}
-
-	return splitURL[1], splitURL[3], parsed.Hostname(), nil
+	return splitHost[3], nil
 }
 
 func main() {
