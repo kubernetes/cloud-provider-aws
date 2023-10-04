@@ -20,6 +20,13 @@ import (
 	"fmt"
 
 	"github.com/spf13/pflag"
+	"k8s.io/cloud-provider-aws/pkg/controllers/nodeipam/config"
+)
+
+const (
+
+	// DefaultNodeMaskCIDRIPv4 is default mask size for IPv4 node cidr
+	DefaultNodeMaskCIDR = int32(24)
 )
 
 // NodeIpamControllerOptions contains the inputs that can
@@ -27,6 +34,10 @@ import (
 type NodeIpamControllerOptions struct {
 	RateLimit  float64
 	BurstLimit int
+	DualStack  bool
+	// NodeCIDRMaskSize is the mask size for node cidr in single-stack cluster.
+	// This can be used only with single stack clusters and is incompatible with dual stack clusters.
+	NodeCIDRMaskSize int32
 }
 
 // AddFlags add the additional flags for the controller
@@ -35,6 +46,8 @@ func (o *NodeIpamControllerOptions) AddFlags(fs *pflag.FlagSet) {
 		"Steady-state rate limit (per sec) at which the controller processes items in its queue. A value of zero (default) disables rate limiting.")
 	fs.IntVar(&o.BurstLimit, "nodeipam-controller-burst-limit", o.BurstLimit,
 		"Burst limit at which the controller processes items in its queue. A value of zero (default) disables rate limiting.")
+	fs.BoolVar(&o.DualStack, "dualstack", o.DualStack, "IP mode in which the controller runs, can be either dualstack or IPv6. A value of false (default) enables IPv6 only mode.")
+	fs.Int32Var(&o.NodeCIDRMaskSize, "node-cidr-mask-size", o.NodeCIDRMaskSize, "Mask size for node cidr in cluster. Default is 24 for IPv4")
 }
 
 // Validate checks for errors from user input
@@ -48,5 +61,21 @@ func (o *NodeIpamControllerOptions) Validate() error {
 		return fmt.Errorf("--nodeipam-controller-burst-limit should not be less than zero")
 	}
 
+	return nil
+}
+
+// ApplyTo fills up NodeIpamController config with options.
+func (o *NodeIpamControllerOptions) ApplyTo(cfg *config.NodeIPAMControllerConfiguration) error {
+	if o == nil {
+		return nil
+	}
+
+	cfg.DualStack = o.DualStack
+	if o.NodeCIDRMaskSize == 0 {
+		cfg.NodeCIDRMaskSize = DefaultNodeMaskCIDR
+	} else {
+		cfg.NodeCIDRMaskSize = o.NodeCIDRMaskSize
+
+	}
 	return nil
 }
