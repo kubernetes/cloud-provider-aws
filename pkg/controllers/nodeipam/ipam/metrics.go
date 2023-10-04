@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package nodeipam
+package ipam
 
 import (
 	"sync"
@@ -45,7 +45,7 @@ var (
 )
 
 // registerMetrics registers nodeipam-controller metrics.
-func registerMetrics() {
+func RegisterMetrics() {
 	register.Do(func() {
 		legacyregistry.MustRegister(workItemDuration)
 		legacyregistry.MustRegister(workItemError)
