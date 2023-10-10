@@ -87,6 +87,12 @@ func Test_GetCredentials_Private(t *testing.T) {
 			response:                    generateResponse("123456789123.dkr.ecr.us-west-2.amazonaws.com", "user", "pass"),
 		},
 		{
+			name:                        "non ECR host",
+			image:                       "registry.k8s.io/foo:latest",
+			getAuthorizationTokenOutput: generatePrivateGetAuthorizationTokenOutput("user", "pass", "", nil),
+			response:                    generateResponse("registry.k8s.io", "user", "pass"),
+		},
+		{
 			name:                        "empty authorization data",
 			image:                       "123456789123.dkr.ecr.us-west-2.amazonaws.com",
 			getAuthorizationTokenOutput: &ecr.GetAuthorizationTokenOutput{},
@@ -304,35 +310,22 @@ func Test_parseRegionFromECRPrivateHost(t *testing.T) {
 		name   string
 		host   string
 		region string
-		err    error
 	}{
 		{
 			name:   "success",
 			host:   "123456789123.dkr.ecr.us-west-2.amazonaws.com",
 			region: "us-west-2",
-			err:    nil,
 		},
 		{
 			name:   "invalid registry",
 			host:   "foobar",
 			region: "",
-			err:    errors.New("invalid private ECR host: foobar"),
-		},
-		{
-			name:   "invalid host",
-			host:   "foobar ",
-			region: "",
-			err:    errors.New("invalid private ECR host: foobar "),
 		},
 	}
 
 	for _, testcase := range testcases {
 		t.Run(testcase.name, func(t *testing.T) {
-			region, err := parseRegionFromECRPrivateHost(testcase.host)
-
-			if testcase.err != nil && (testcase.err.Error() != err.Error()) {
-				t.Fatalf("expected error %s, got %s", testcase.err, err)
-			}
+			region := parseRegionFromECRPrivateHost(testcase.host)
 
 			if region != testcase.region {
 				t.Fatalf("region mismatch. Expected %s, got %s", testcase.region, region)
