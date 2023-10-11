@@ -62,6 +62,7 @@ type ecrPlugin struct {
 func defaultECRProvider(region string) (*ecr.ECR, error) {
 	cfg := aws.Config{}
 	if region != "" {
+		klog.Warningf("No region found in the image reference, the default region will be used. Please refer to AWS SDK documentation for configuration purpose.")
 		cfg.Region = aws.String(region)
 	}
 	sess, err := session.NewSessionWithOptions(session.Options{
