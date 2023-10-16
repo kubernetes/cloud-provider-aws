@@ -27,14 +27,12 @@ package main
 
 import (
 	"math/rand"
-	"os"
 	"time"
 
 	"k8s.io/apimachinery/pkg/util/wait"
 	cloudprovider "k8s.io/cloud-provider"
 	"k8s.io/cloud-provider-aws/pkg/controllers/tagging"
 	awsv1 "k8s.io/cloud-provider-aws/pkg/providers/v1"
-	awsv2 "k8s.io/cloud-provider-aws/pkg/providers/v2"
 	"k8s.io/cloud-provider/app"
 	"k8s.io/cloud-provider/names"
 	"k8s.io/cloud-provider/options"
@@ -96,14 +94,8 @@ func cloudInitializer(config *cloudcontrollerconfig.CompletedConfig) cloudprovid
 		providerName = awsv1.ProviderName
 	}
 
-	if providerName != awsv1.ProviderName && providerName != awsv2.ProviderName {
+	if providerName != awsv1.ProviderName {
 		klog.Fatalf("unknown cloud provider %s, only 'aws' and 'aws/v2' are supported", providerName)
-	}
-
-	if providerName == awsv2.ProviderName {
-		if v2Enabled := os.Getenv(enableAlphaV2EnvVar); v2Enabled != "true" {
-			klog.Fatalf("aws/v2 cloud provider requires environment variable ENABLE_ALPHA_V2=true to be set")
-		}
 	}
 
 	// initialize cloud provider with the cloud provider name and config file provided
