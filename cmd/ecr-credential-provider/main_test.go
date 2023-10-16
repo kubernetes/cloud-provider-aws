@@ -29,7 +29,7 @@ import (
 	"github.com/aws/aws-sdk-go/service/ecrpublic"
 	"github.com/golang/mock/gomock"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/cloud-provider-aws/pkg/providers/v2/mocks"
+	"k8s.io/cloud-provider-aws/pkg/mocks"
 	v1 "k8s.io/kubelet/pkg/apis/credentialprovider/v1"
 )
 
