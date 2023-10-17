@@ -60,8 +60,13 @@ type ecrPlugin struct {
 }
 
 func defaultECRProvider(region string) (*ecr.ECR, error) {
+	cfg := aws.Config{}
+	if region != "" {
+		klog.Warningf("No region found in the image reference, the default region will be used. Please refer to AWS SDK documentation for configuration purpose.")
+		cfg.Region = aws.String(region)
+	}
 	sess, err := session.NewSessionWithOptions(session.Options{
-		Config:            aws.Config{Region: aws.String(region)},
+		Config:            cfg,
 		SharedConfigState: session.SharedConfigEnable,
 	})
 	if err != nil {
@@ -122,11 +127,10 @@ func (e *ecrPlugin) getPublicCredsData() (*credsData, error) {
 
 func (e *ecrPlugin) getPrivateCredsData(imageHost string, image string) (*credsData, error) {
 	klog.Infof("Getting creds for private image %s", image)
-	region, err := parseRegionFromECRPrivateHost(imageHost)
-	if err != nil {
-		return nil, err
-	}
+	var err error
+
 	if e.ecr == nil {
+		region := parseRegionFromECRPrivateHost(imageHost)
 		e.ecr, err = defaultECRProvider(region)
 		if err != nil {
 			return nil, err
@@ -227,12 +231,12 @@ func parseHostFromImageReference(image string) (string, error) {
 	return parsed.Hostname(), nil
 }
 
-func parseRegionFromECRPrivateHost(host string) (string, error) {
+func parseRegionFromECRPrivateHost(host string) string {
 	splitHost := ecrPrivateHostPattern.FindStringSubmatch(host)
 	if len(splitHost) != 6 {
-		return "", fmt.Errorf("invalid private ECR host: %s", host)
+		return ""
 	}
-	return splitHost[3], nil
+	return splitHost[3]
 }
 
 func main() {
