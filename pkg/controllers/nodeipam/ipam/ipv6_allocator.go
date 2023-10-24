@@ -51,11 +51,12 @@ const (
 )
 
 // IPv6CIDRAllocator is an interface implemented by things that know how
-// to allocate CIDR for nodes.
+// to allocate IPv6 CIDRs.
 type IPv6CIDRAllocator interface {
 	Run(stopCh <-chan struct{})
 }
 
+// IPv6RangeAllocator allocates IPv6 CIDRs
 type IPv6RangeAllocator struct {
 	nodeInformer coreinformers.NodeInformer
 	kubeClient   clientset.Interface
@@ -83,6 +84,7 @@ func (w workItem) String() string {
 	return fmt.Sprintf("[Node: %s, RequeuingCount: %d, EnqueueTime: %s]", w.node.GetName(), w.requeuingCount, w.enqueueTime)
 }
 
+// NewIPv6RangeAllocator returns an IPv6CIDRAllocator
 func NewIPv6RangeAllocator(kubeClient clientset.Interface, nodeInformer informers.NodeInformer, awsCloud *awsv1.Cloud, rateLimiter workqueue.RateLimiter, rateLimitEnabled bool, nodeMonitorPeriod time.Duration) (IPv6CIDRAllocator, error) {
 	ra6 := &IPv6RangeAllocator{
 		nodeInformer:      nodeInformer,

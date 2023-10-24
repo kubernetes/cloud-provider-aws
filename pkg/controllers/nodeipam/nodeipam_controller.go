@@ -58,6 +58,7 @@ const (
 // This is a variable instead of a const to enable testing.
 var nodePollInterval = 10 * time.Second
 
+// Controller is the controller that manages node ipam state.
 type Controller struct {
 	nodeInformer coreinformers.NodeInformer
 	kubeClient   clientset.Interface

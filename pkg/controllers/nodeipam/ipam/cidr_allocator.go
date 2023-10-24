@@ -49,6 +49,8 @@ import (
 
 // cidrs are reserved, then node resource is patched with them
 // this type holds the reservation info for a node
+
+// NodeReservedCIDRs holds the allocated CIDRs
 type NodeReservedCIDRs struct {
 	allocatedCIDRs []*net.IPNet
 	nodeName       string
