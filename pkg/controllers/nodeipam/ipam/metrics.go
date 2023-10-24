@@ -44,7 +44,7 @@ var (
 		[]string{"error_type", "instance_id"})
 )
 
-// registerMetrics registers nodeipam-controller metrics.
+// RegisterMetrics registers nodeipam-controller metrics.
 func RegisterMetrics() {
 	register.Do(func() {
 		legacyregistry.MustRegister(workItemDuration)

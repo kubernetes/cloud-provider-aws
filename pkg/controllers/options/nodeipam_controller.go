@@ -25,7 +25,7 @@ import (
 
 const (
 
-	// DefaultNodeMaskCIDRIPv4 is default mask size for IPv4 node cidr
+	// DefaultNodeMaskCIDR is default mask size for IPv4 node cidr
 	DefaultNodeMaskCIDR = int32(24)
 )
 
