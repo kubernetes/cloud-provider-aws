@@ -131,7 +131,7 @@ if [[ "${UP}" = "yes" ]]; then
       --create-args="--dns=none --zones=${ZONES} --node-size=m5.large --master-size=m5.large --override=cluster.spec.cloudControllerManager.cloudProvider=aws --override=cluster.spec.cloudControllerManager.image=${IMAGE_NAME}:${IMAGE_TAG}" \
       --admin-access="0.0.0.0/0" \
       --kubernetes-version="${KUBERNETES_VERSION}" \
-      --kops-version-marker=https://storage.googleapis.com/kops-ci/bin/latest-ci-updown-green.txt \
+      --kops-version-marker=https://storage.googleapis.com/kops-ci/markers/release-1.28/latest-ci-updown-green.txt \
 
       # Use the kops tester once we have a way of consuming an arbitrary e2e.test binary.
       #--test=kops \
