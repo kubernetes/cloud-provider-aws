@@ -17,7 +17,7 @@ steps:
     - --platform=linux/amd64,linux/arm64
     - .
   # Build cloudbuild artifacts (for attestation)
-  - name: 'docker.io/library/golang:1.19.5-bullseye'
+  - name: 'docker.io/library/golang:1.20.10-bullseye'
     id: cloudbuild-artifacts
     entrypoint: make
     env:
