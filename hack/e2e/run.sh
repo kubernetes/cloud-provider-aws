@@ -138,7 +138,7 @@ if [[ "${UP}" = "yes" ]]; then
       --admin-access="0.0.0.0/0" \
       --kubernetes-version="${KUBERNETES_VERSION}" \
       --ssh-public-key="${SSH_PUBLIC_KEY_PATH}" \
-      --kops-version-marker=https://storage.googleapis.com/kops-ci/bin/latest-ci-updown-green.txt \
+      --kops-version-marker=https://storage.googleapis.com/kops-ci/markers/release-1.28/latest-ci-updown-green.txt \
 
       # Use the kops tester once we have a way of consuming an arbitrary e2e.test binary.
       #--test=kops \
