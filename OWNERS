@@ -5,6 +5,8 @@ approvers:
 - andrewsykim
 - wongma7
 - jaypipes
+- hakman
+- cartermckinnon
 reviewers:
 - justinsb
 - nckturner
@@ -12,6 +14,8 @@ reviewers:
 - andrewsykim
 - wongma7
 - jaypipes
+- hakman
+- cartermckinnon
 emeritus_approvers:
 - zmerlynn
 - gnufied
