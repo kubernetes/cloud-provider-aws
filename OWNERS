@@ -9,6 +9,7 @@ approvers:
 - olemarkus
 - hakman
 - kishorj
+- cartermckinnon
 reviewers:
 - dims
 - justinsb
@@ -20,6 +21,7 @@ reviewers:
 - olemarkus
 - hakman
 - kishorj
+- cartermckinnon
 emeritus_approvers:
 - zmerlynn
 - gnufied
