@@ -16,6 +16,10 @@ package tagging
 import (
 	"crypto/md5"
 	"fmt"
+	"sort"
+	"strings"
+	"time"
+
 	"golang.org/x/time/rate"
 	v1 "k8s.io/api/core/v1"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
@@ -29,9 +33,6 @@ import (
 	awsv1 "k8s.io/cloud-provider-aws/pkg/providers/v1"
 	nodehelpers "k8s.io/cloud-provider/node/helpers"
 	"k8s.io/klog/v2"
-	"sort"
-	"strings"
-	"time"
 )
 
 // workItem contains the node and an action for that node
@@ -213,7 +214,7 @@ func (tc *Controller) process() bool {
 
 		timeTaken := time.Since(workItem.enqueueTime).Seconds()
 		recordWorkItemLatencyMetrics(workItemDequeuingTimeWorkItemMetric, timeTaken)
-		klog.Infof("Dequeuing latency %s", timeTaken)
+		klog.Infof("Dequeuing latency %f seconds", timeTaken)
 
 		instanceID, err := awsv1.KubernetesInstanceID(workItem.node.Spec.ProviderID).MapToAWSInstanceID()
 		if err != nil {
