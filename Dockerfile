@@ -14,7 +14,7 @@
 ##                               BUILD ARGS                                   ##
 ################################################################################
 # This build arg allows the specification of a custom Golang image.
-ARG GOLANG_IMAGE=golang:1.19.7
+ARG GOLANG_IMAGE=golang:1.21.3
 
 # The distroless image on which the CPI manager image is built.
 #
@@ -22,7 +22,7 @@ ARG GOLANG_IMAGE=golang:1.19.7
 # deterministic builds. Follow what kubernetes uses to build
 # kube-controller-manager, for example for 1.23.x:
 # https://github.com/kubernetes/kubernetes/blob/release-1.24/build/common.sh#L94
-ARG DISTROLESS_IMAGE=k8s.gcr.io/build-image/go-runner:v2.3.1-go1.19.7-bullseye.0
+ARG DISTROLESS_IMAGE=registry.k8s.io/build-image/go-runner:v2.3.1-go1.21.3-bookworm.0
 
 ################################################################################
 ##                              BUILD STAGE                                   ##
