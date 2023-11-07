@@ -248,7 +248,7 @@ func (tc *Controller) process() bool {
 			klog.Infof("Finished processing %s", workItem)
 			timeTaken = time.Since(workItem.enqueueTime).Seconds()
 			recordWorkItemLatencyMetrics(workItemProcessingTimeWorkItemMetric, timeTaken)
-			klog.Infof("Processing latency %s", timeTaken)
+			klog.Infof("Processing latency %f seconds", timeTaken)
 		}
 
 		tc.workqueue.Forget(obj)
