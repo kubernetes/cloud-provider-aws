@@ -5,7 +5,6 @@ approvers:
 - M00nF1sh
 - andrewsykim
 - wongma7
-- jaypipes
 - olemarkus
 - hakman
 - kishorj
@@ -17,7 +16,6 @@ reviewers:
 - M00nF1sh
 - andrewsykim
 - wongma7
-- jaypipes
 - olemarkus
 - hakman
 - kishorj
@@ -33,3 +31,4 @@ emeritus_approvers:
 - d-nishi
 - leakingtapan
 - ayberk
+- jaypipes
