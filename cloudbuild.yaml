@@ -7,12 +7,22 @@ steps:
   - name: gcr.io/k8s-testimages/gcb-docker-gcloud
     entrypoint: /buildx-entrypoint
     args:
-    - build
-    - --tag=gcr.io/$PROJECT_ID/cloud-controller-manager:$_SHORT_TAG
-    - --build-arg=VERSION=$_SHORT_TAG
-    - --output=type=registry
-    - --platform=linux/amd64,linux/arm64
-    - .
+      - build
+      - --tag=gcr.io/$PROJECT_ID/cloud-controller-manager:$_SHORT_TAG
+      - --tag=gcr.io/$PROJECT_ID/cloud-controller-manager:latest
+      - --build-arg=VERSION=$_SHORT_TAG
+      - --output=type=registry
+      - --platform=linux/amd64,linux/arm64
+      - .
+  # Build cloudbuild artifacts (for attestation)
+  - name: 'docker.io/library/golang:1.21.4-bookworm'
+    id: cloudbuild-artifacts
+    entrypoint: make
+    env:
+      - PULL_BASE_REF=$_PULL_BASE_REF
+      - LATEST_FILE=markers/${_PULL_BASE_REF}/latest-tag.txt
+    args:
+      - cloudbuild-artifacts
 substitutions:
   _GIT_TAG: 'v99999999-v12345'
   _SHORT_TAG: '${_GIT_TAG:10}'
