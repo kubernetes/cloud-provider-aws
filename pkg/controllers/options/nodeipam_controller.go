@@ -46,7 +46,7 @@ func (o *NodeIpamControllerOptions) AddFlags(fs *pflag.FlagSet) {
 		"Steady-state rate limit (per sec) at which the controller processes items in its queue. A value of zero (default) disables rate limiting.")
 	fs.IntVar(&o.BurstLimit, "nodeipam-controller-burst-limit", o.BurstLimit,
 		"Burst limit at which the controller processes items in its queue. A value of zero (default) disables rate limiting.")
-	fs.BoolVar(&o.DualStack, "dualstack", o.DualStack, "IP mode in which the controller runs, can be either dualstack or IPv6. A value of false (default) enables IPv6 only mode.")
+	fs.BoolVar(&o.DualStack, "dualstack", o.DualStack, "IP mode in which the controller runs. Can be either dualstack or IPv6. A value of false (default) enables IPv6 only mode. Experimental feature: may not work, enable at your own risk.")
 	fs.Int32Var(&o.NodeCIDRMaskSize, "node-cidr-mask-size", o.NodeCIDRMaskSize, "Mask size for node cidr in cluster. Default is 24 for IPv4")
 }
 
