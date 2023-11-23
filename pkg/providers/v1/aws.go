@@ -2498,7 +2498,7 @@ func (c *Cloud) EnsureLoadBalancer(ctx context.Context, clusterName string, apiS
 		}
 	}
 
-	err = c.updateInstanceSecurityGroupsForLoadBalancer(loadBalancer, instances, annotations)
+	err = c.updateInstanceSecurityGroupsForLoadBalancer(loadBalancer, instances, annotations, false)
 	if err != nil {
 		klog.Warningf("Error opening ingress rules for the load balancer to the instances: %q", err)
 		return nil, err
@@ -2659,7 +2659,7 @@ func (c *Cloud) getTaggedSecurityGroups() (map[string]*ec2.SecurityGroup, error)
 
 // Open security group ingress rules on the instances so that the load balancer can talk to them
 // Will also remove any security groups ingress rules for the load balancer that are _not_ needed for allInstances
-func (c *Cloud) updateInstanceSecurityGroupsForLoadBalancer(lb *elb.LoadBalancerDescription, instances map[InstanceID]*ec2.Instance, annotations map[string]string) error {
+func (c *Cloud) updateInstanceSecurityGroupsForLoadBalancer(lb *elb.LoadBalancerDescription, instances map[InstanceID]*ec2.Instance, annotations map[string]string, isDeleting bool) error {
 	if c.cfg.Global.DisableSecurityGroupIngress {
 		return nil
 	}
@@ -2673,7 +2673,7 @@ func (c *Cloud) updateInstanceSecurityGroupsForLoadBalancer(lb *elb.LoadBalancer
 	loadBalancerSecurityGroupID := lbSecurityGroupIDs[0]
 
 	// Get the actual list of groups that allow ingress from the load-balancer
-	var actualGroups []*ec2.SecurityGroup
+	actualGroups := make(map[*ec2.SecurityGroup]bool)
 	{
 		describeRequest := &ec2.DescribeSecurityGroupsInput{}
 		describeRequest.Filters = []*ec2.Filter{
@@ -2684,10 +2684,7 @@ func (c *Cloud) updateInstanceSecurityGroupsForLoadBalancer(lb *elb.LoadBalancer
 			return fmt.Errorf("error querying security groups for ELB: %q", err)
 		}
 		for _, sg := range response {
-			if !c.tagging.hasClusterTag(sg.Tags) {
-				continue
-			}
-			actualGroups = append(actualGroups, sg)
+			actualGroups[sg] = c.tagging.hasClusterTag(sg.Tags)
 		}
 	}
 
@@ -2725,7 +2722,7 @@ func (c *Cloud) updateInstanceSecurityGroupsForLoadBalancer(lb *elb.LoadBalancer
 	}
 
 	// Compare to actual groups
-	for _, actualGroup := range actualGroups {
+	for actualGroup, hasClusterTag := range actualGroups {
 		actualGroupID := aws.StringValue(actualGroup.GroupId)
 		if actualGroupID == "" {
 			klog.Warning("Ignoring group without ID: ", actualGroup)
@@ -2737,8 +2734,12 @@ func (c *Cloud) updateInstanceSecurityGroupsForLoadBalancer(lb *elb.LoadBalancer
 			// We don't need to make a change; the permission is already in place
 			delete(instanceSecurityGroupIds, actualGroupID)
 		} else {
-			// This group is not needed by allInstances; delete it
-			instanceSecurityGroupIds[actualGroupID] = false
+			if hasClusterTag || isDeleting {
+				// If the group is tagged, and we don't need the rule, we should remove it.
+				// If the security group is deleting, we should also remove the rule else
+				// we cannot remove the security group, we wiil get a dependency violation.
+				instanceSecurityGroupIds[actualGroupID] = false
+			}
 		}
 	}
 
@@ -2847,28 +2848,10 @@ func (c *Cloud) EnsureLoadBalancerDeleted(ctx context.Context, clusterName strin
 		return nil
 	}
 
-	{
-		// De-authorize the load balancer security group from the instances security group
-		err = c.updateInstanceSecurityGroupsForLoadBalancer(lb, nil, service.Annotations)
-		if err != nil {
-			klog.Errorf("Error deregistering load balancer from instance security groups: %q", err)
-			return err
-		}
-	}
-
-	{
-		// Delete the load balancer itself
-		request := &elb.DeleteLoadBalancerInput{}
-		request.LoadBalancerName = lb.LoadBalancerName
-
-		_, err = c.elb.DeleteLoadBalancer(request)
-		if err != nil {
-			// TODO: Check if error was because load balancer was concurrently deleted
-			klog.Errorf("Error deleting load balancer: %q", err)
-			return err
-		}
-	}
-
+	// Collect the security groups to delete.
+	// We need to know this ahead of time so that we can check
+	// if the load balancer security group is being deleted.
+	securityGroupIDs := map[string]struct{}{}
 	{
 		// Delete the security group(s) for the load balancer
 		// Note that this is annoying: the load balancer disappears from the API immediately, but it is still
@@ -2884,9 +2867,6 @@ func (c *Cloud) EnsureLoadBalancerDeleted(ctx context.Context, clusterName strin
 		if err != nil {
 			return fmt.Errorf("error querying security groups for ELB: %q", err)
 		}
-
-		// Collect the security groups to delete
-		securityGroupIDs := map[string]struct{}{}
 		annotatedSgSet := map[string]bool{}
 		annotatedSgsList := getSGListFromAnnotation(service.Annotations[ServiceAnnotationLoadBalancerSecurityGroups])
 		annotatedExtraSgsList := getSGListFromAnnotation(service.Annotations[ServiceAnnotationLoadBalancerExtraSecurityGroups])
@@ -2921,6 +2901,41 @@ func (c *Cloud) EnsureLoadBalancerDeleted(ctx context.Context, clusterName strin
 
 			securityGroupIDs[sgID] = struct{}{}
 		}
+	}
+
+	{
+		// Determine the load balancer security group id
+		lbSecurityGroupIDs := aws.StringValueSlice(lb.SecurityGroups)
+		if len(lbSecurityGroupIDs) == 0 {
+			return fmt.Errorf("could not determine security group for load balancer: %s", aws.StringValue(lb.LoadBalancerName))
+		}
+		c.sortELBSecurityGroupList(lbSecurityGroupIDs, service.Annotations)
+		loadBalancerSecurityGroupID := lbSecurityGroupIDs[0]
+
+		_, isDeleteingLBSecurityGroup := securityGroupIDs[loadBalancerSecurityGroupID]
+
+		// De-authorize the load balancer security group from the instances security group
+		err = c.updateInstanceSecurityGroupsForLoadBalancer(lb, nil, service.Annotations, isDeleteingLBSecurityGroup)
+		if err != nil {
+			klog.Errorf("Error deregistering load balancer from instance security groups: %q", err)
+			return err
+		}
+	}
+
+	{
+		// Delete the load balancer itself
+		request := &elb.DeleteLoadBalancerInput{}
+		request.LoadBalancerName = lb.LoadBalancerName
+
+		_, err = c.elb.DeleteLoadBalancer(request)
+		if err != nil {
+			// TODO: Check if error was because load balancer was concurrently deleted
+			klog.Errorf("Error deleting load balancer: %q", err)
+			return err
+		}
+	}
+
+	{
 
 		// Loop through and try to delete them
 		timeoutAt := time.Now().Add(time.Second * 600)
@@ -3017,7 +3032,7 @@ func (c *Cloud) UpdateLoadBalancer(ctx context.Context, clusterName string, serv
 		return err
 	}
 
-	err = c.updateInstanceSecurityGroupsForLoadBalancer(lb, instances, service.Annotations)
+	err = c.updateInstanceSecurityGroupsForLoadBalancer(lb, instances, service.Annotations, false)
 	if err != nil {
 		return err
 	}
