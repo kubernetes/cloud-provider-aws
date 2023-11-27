@@ -63,6 +63,9 @@ const (
 
 	// The label for depicting total number of errors a work item encounter and fail
 	errorsAfterRetriesExhaustedWorkItemErrorMetric = "errors_after_retries_exhausted"
+
+	// The period of time after Node creation to retry tagging due to eventual consistency of the CreateTags API.
+	newNodeEventualConsistencyGracePeriod = time.Minute * 5
 )
 
 // Controller is the controller implementation for tagging cluster resources.
@@ -292,6 +295,18 @@ func (tc *Controller) tagEc2Instance(node *v1.Node) error {
 	err := tc.cloud.TagResource(string(instanceID), tc.tags)
 
 	if err != nil {
+		if awsv1.IsAWSErrorInstanceNotFound(err) {
+			// This can happen for two reasons.
+			// 1. The CreateTags API is eventually consistent. In rare cases, a newly-created instance may not be taggable for a short period.
+			//    We will re-queue the event and retry.
+			if isNodeWithinEventualConsistencyGracePeriod(node) {
+				return fmt.Errorf("EC2 instance %s for node %s does not exist, but node is within eventual consistency grace period", instanceID, node.GetName())
+			}
+			// 2. The event in our workQueue is stale, and the instance no longer exists.
+			//    Tagging will never succeed, and the event should not be re-queued.
+			klog.Infof("Skip tagging since EC2 instance %s for node %s does not exist", instanceID, node.GetName())
+			return nil
+		}
 		klog.Errorf("Error in tagging EC2 instance %s for node %s, error: %v", instanceID, node.GetName(), err)
 		return err
 	}
@@ -379,4 +394,8 @@ func (tc *Controller) getChecksumOfTags() string {
 	}
 	sort.Strings(tags)
 	return fmt.Sprintf("%x", md5.Sum([]byte(strings.Join(tags, ","))))
+}
+
+func isNodeWithinEventualConsistencyGracePeriod(node *v1.Node) bool {
+	return time.Since(node.CreationTimestamp.Time) < newNodeEventualConsistencyGracePeriod
 }
