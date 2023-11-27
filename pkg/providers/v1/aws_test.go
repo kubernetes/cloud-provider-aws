@@ -67,6 +67,29 @@ func (m *MockedFakeEC2) expectDescribeSecurityGroups(clusterID, groupName string
 	}}).Return([]*ec2.SecurityGroup{{Tags: tags}})
 }
 
+func (m *MockedFakeEC2) expectDescribeSecurityGroupsAll(clusterID string) {
+	tags := []*ec2.Tag{
+		{Key: aws.String(TagNameKubernetesClusterLegacy), Value: aws.String(clusterID)},
+		{Key: aws.String(fmt.Sprintf("%s%s", TagNameKubernetesClusterPrefix, clusterID)), Value: aws.String(ResourceLifecycleOwned)},
+	}
+
+	m.On("DescribeSecurityGroups", &ec2.DescribeSecurityGroupsInput{}).Return([]*ec2.SecurityGroup{{
+		GroupId: aws.String("sg-123456"),
+		Tags:    tags,
+	}})
+}
+
+func (m *MockedFakeEC2) expectDescribeSecurityGroupsByFilter(clusterID, filterName string, filterValues ...string) {
+	tags := []*ec2.Tag{
+		{Key: aws.String(TagNameKubernetesClusterLegacy), Value: aws.String(clusterID)},
+		{Key: aws.String(fmt.Sprintf("%s%s", TagNameKubernetesClusterPrefix, clusterID)), Value: aws.String(ResourceLifecycleOwned)},
+	}
+
+	m.On("DescribeSecurityGroups", &ec2.DescribeSecurityGroupsInput{Filters: []*ec2.Filter{
+		newEc2Filter(filterName, filterValues...),
+	}}).Return([]*ec2.SecurityGroup{{Tags: tags}})
+}
+
 func (m *MockedFakeEC2) DescribeSecurityGroups(request *ec2.DescribeSecurityGroupsInput) ([]*ec2.SecurityGroup, error) {
 	args := m.Called(request)
 	return args.Get(0).([]*ec2.SecurityGroup), nil
@@ -84,7 +107,11 @@ func (m *MockedFakeELB) DescribeLoadBalancers(input *elb.DescribeLoadBalancersIn
 
 func (m *MockedFakeELB) expectDescribeLoadBalancers(loadBalancerName string) {
 	m.On("DescribeLoadBalancers", &elb.DescribeLoadBalancersInput{LoadBalancerNames: []*string{aws.String(loadBalancerName)}}).Return(&elb.DescribeLoadBalancersOutput{
-		LoadBalancerDescriptions: []*elb.LoadBalancerDescription{{}},
+		LoadBalancerDescriptions: []*elb.LoadBalancerDescription{
+			{
+				SecurityGroups: []*string{aws.String("sg-123456")},
+			},
+		},
 	})
 }
 
@@ -1647,6 +1674,9 @@ func TestDescribeLoadBalancerOnDelete(t *testing.T) {
 	awsServices := newMockedFakeAWSServices(TestClusterID)
 	c, _ := newAWSCloud(config.CloudConfig{}, awsServices)
 	awsServices.elb.(*MockedFakeELB).expectDescribeLoadBalancers("aid")
+	awsServices.ec2.(*MockedFakeEC2).expectDescribeSecurityGroupsByFilter(TestClusterID, "group-id", "sg-123456")
+	awsServices.ec2.(*MockedFakeEC2).expectDescribeSecurityGroupsAll(TestClusterID)
+	awsServices.ec2.(*MockedFakeEC2).expectDescribeSecurityGroupsByFilter(TestClusterID, "ip-permission.group-id", "sg-123456")
 
 	c.EnsureLoadBalancerDeleted(context.TODO(), TestClusterName, &v1.Service{ObjectMeta: metav1.ObjectMeta{Name: "myservice", UID: "id"}})
 }
@@ -1655,6 +1685,8 @@ func TestDescribeLoadBalancerOnUpdate(t *testing.T) {
 	awsServices := newMockedFakeAWSServices(TestClusterID)
 	c, _ := newAWSCloud(config.CloudConfig{}, awsServices)
 	awsServices.elb.(*MockedFakeELB).expectDescribeLoadBalancers("aid")
+	awsServices.ec2.(*MockedFakeEC2).expectDescribeSecurityGroupsAll(TestClusterID)
+	awsServices.ec2.(*MockedFakeEC2).expectDescribeSecurityGroupsByFilter(TestClusterID, "ip-permission.group-id", "sg-123456")
 
 	c.UpdateLoadBalancer(context.TODO(), TestClusterName, &v1.Service{ObjectMeta: metav1.ObjectMeta{Name: "myservice", UID: "id"}}, []*v1.Node{})
 }
@@ -3121,8 +3153,9 @@ func TestAzToRegion(t *testing.T) {
 
 func TestCloud_sortELBSecurityGroupList(t *testing.T) {
 	type args struct {
-		securityGroupIDs []string
-		annotations      map[string]string
+		securityGroupIDs       []string
+		annotations            map[string]string
+		taggedLBSecurityGroups map[string]struct{}
 	}
 	tests := []struct {
 		name                 string
@@ -3168,11 +3201,21 @@ func TestCloud_sortELBSecurityGroupList(t *testing.T) {
 			},
 			wantSecurityGroupIDs: []string{"sg-3", "sg-2", "sg-1", "sg-4", "sg-6", "sg-5"},
 		},
+		{
+			name: "with an untagged, and unknown security group",
+			args: args{
+				securityGroupIDs: []string{"sg-2", "sg-1"},
+				taggedLBSecurityGroups: map[string]struct{}{
+					"sg-1": {},
+				},
+			},
+			wantSecurityGroupIDs: []string{"sg-1", "sg-2"},
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			c := &Cloud{}
-			c.sortELBSecurityGroupList(tt.args.securityGroupIDs, tt.args.annotations)
+			c.sortELBSecurityGroupList(tt.args.securityGroupIDs, tt.args.annotations, tt.args.taggedLBSecurityGroups)
 			assert.Equal(t, tt.wantSecurityGroupIDs, tt.args.securityGroupIDs)
 		})
 	}

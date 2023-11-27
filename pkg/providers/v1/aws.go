@@ -1946,11 +1946,15 @@ func (c *Cloud) buildELBSecurityGroupList(serviceName types.NamespacedName, load
 // from buildELBSecurityGroupList. The logic is:
 //   - securityGroups specified by ServiceAnnotationLoadBalancerSecurityGroups appears first in order
 //   - securityGroups specified by ServiceAnnotationLoadBalancerExtraSecurityGroups appears last in order
-func (c *Cloud) sortELBSecurityGroupList(securityGroupIDs []string, annotations map[string]string) {
+func (c *Cloud) sortELBSecurityGroupList(securityGroupIDs []string, annotations map[string]string, taggedLBSecurityGroups map[string]struct{}) {
 	annotatedSGList := getSGListFromAnnotation(annotations[ServiceAnnotationLoadBalancerSecurityGroups])
 	annotatedExtraSGList := getSGListFromAnnotation(annotations[ServiceAnnotationLoadBalancerExtraSecurityGroups])
 	annotatedSGIndex := make(map[string]int, len(annotatedSGList))
 	annotatedExtraSGIndex := make(map[string]int, len(annotatedExtraSGList))
+
+	if taggedLBSecurityGroups == nil {
+		taggedLBSecurityGroups = make(map[string]struct{})
+	}
 
 	for i, sgID := range annotatedSGList {
 		annotatedSGIndex[sgID] = i
@@ -1969,7 +1973,11 @@ func (c *Cloud) sortELBSecurityGroupList(securityGroupIDs []string, annotations 
 		}
 	}
 	sort.Slice(securityGroupIDs, func(i, j int) bool {
-		return sgOrderMapping[securityGroupIDs[i]] < sgOrderMapping[securityGroupIDs[j]]
+		// If i is tagged but j is not, then i should be before j.
+		_, iTagged := taggedLBSecurityGroups[securityGroupIDs[i]]
+		_, jTagged := taggedLBSecurityGroups[securityGroupIDs[j]]
+
+		return sgOrderMapping[securityGroupIDs[i]] < sgOrderMapping[securityGroupIDs[j]] || iTagged && !jTagged
 	})
 }
 
@@ -2669,7 +2677,20 @@ func (c *Cloud) updateInstanceSecurityGroupsForLoadBalancer(lb *elb.LoadBalancer
 	if len(lbSecurityGroupIDs) == 0 {
 		return fmt.Errorf("could not determine security group for load balancer: %s", aws.StringValue(lb.LoadBalancerName))
 	}
-	c.sortELBSecurityGroupList(lbSecurityGroupIDs, annotations)
+
+	taggedSecurityGroups, err := c.getTaggedSecurityGroups()
+	if err != nil {
+		return fmt.Errorf("error querying for tagged security groups: %q", err)
+	}
+
+	taggedLBSecurityGroups := make(map[string]struct{})
+	for _, sg := range lbSecurityGroupIDs {
+		if _, ok := taggedSecurityGroups[sg]; ok {
+			taggedLBSecurityGroups[sg] = struct{}{}
+		}
+	}
+
+	c.sortELBSecurityGroupList(lbSecurityGroupIDs, annotations, taggedLBSecurityGroups)
 	loadBalancerSecurityGroupID := lbSecurityGroupIDs[0]
 
 	// Get the actual list of groups that allow ingress from the load-balancer
@@ -2686,11 +2707,6 @@ func (c *Cloud) updateInstanceSecurityGroupsForLoadBalancer(lb *elb.LoadBalancer
 		for _, sg := range response {
 			actualGroups[sg] = c.tagging.hasClusterTag(sg.Tags)
 		}
-	}
-
-	taggedSecurityGroups, err := c.getTaggedSecurityGroups()
-	if err != nil {
-		return fmt.Errorf("error querying for tagged security groups: %q", err)
 	}
 
 	// Open the firewall from the load balancer to the instance
@@ -2852,6 +2868,7 @@ func (c *Cloud) EnsureLoadBalancerDeleted(ctx context.Context, clusterName strin
 	// We need to know this ahead of time so that we can check
 	// if the load balancer security group is being deleted.
 	securityGroupIDs := map[string]struct{}{}
+	taggedLBSecurityGroups := map[string]struct{}{}
 	{
 		// Delete the security group(s) for the load balancer
 		// Note that this is annoying: the load balancer disappears from the API immediately, but it is still
@@ -2891,6 +2908,8 @@ func (c *Cloud) EnsureLoadBalancerDeleted(ctx context.Context, clusterName strin
 			if !c.tagging.hasClusterTag(sg.Tags) {
 				klog.Warningf("Ignoring security group with no cluster tag in %s", service.Name)
 				continue
+			} else {
+				taggedLBSecurityGroups[sgID] = struct{}{}
 			}
 
 			// This is an extra protection of deletion of non provisioned Security Group which is annotated with `service.beta.kubernetes.io/aws-load-balancer-security-groups`.
@@ -2909,7 +2928,7 @@ func (c *Cloud) EnsureLoadBalancerDeleted(ctx context.Context, clusterName strin
 		if len(lbSecurityGroupIDs) == 0 {
 			return fmt.Errorf("could not determine security group for load balancer: %s", aws.StringValue(lb.LoadBalancerName))
 		}
-		c.sortELBSecurityGroupList(lbSecurityGroupIDs, service.Annotations)
+		c.sortELBSecurityGroupList(lbSecurityGroupIDs, service.Annotations, taggedLBSecurityGroups)
 		loadBalancerSecurityGroupID := lbSecurityGroupIDs[0]
 
 		_, isDeleteingLBSecurityGroup := securityGroupIDs[loadBalancerSecurityGroupID]
