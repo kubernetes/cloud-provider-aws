@@ -1724,7 +1724,7 @@ func (c *Cloud) InstanceExistsByProviderID(ctx context.Context, providerID strin
 	instances, err := c.ec2.DescribeInstances(request)
 	if err != nil {
 		// if err is InstanceNotFound, return false with no error
-		if isAWSErrorInstanceNotFound(err) {
+		if IsAWSErrorInstanceNotFound(err) {
 			return false, nil
 		}
 		return false, err
@@ -1963,7 +1963,8 @@ func (c *Cloud) GetZoneByNodeName(ctx context.Context, nodeName types.NodeName) 
 
 }
 
-func isAWSErrorInstanceNotFound(err error) bool {
+// IsAWSErrorInstanceNotFound returns true if the specified error is an awserr.Error with the code `InvalidInstanceId.NotFound`.
+func IsAWSErrorInstanceNotFound(err error) bool {
 	if err == nil {
 		return false
 	}

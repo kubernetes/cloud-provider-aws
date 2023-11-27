@@ -17,6 +17,11 @@ import (
 	"bytes"
 	"context"
 	"flag"
+	"os"
+	"strings"
+	"testing"
+	"time"
+
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/informers"
@@ -25,10 +30,6 @@ import (
 	"k8s.io/client-go/util/workqueue"
 	awsv1 "k8s.io/cloud-provider-aws/pkg/providers/v1"
 	"k8s.io/klog/v2"
-	"os"
-	"strings"
-	"testing"
-	"time"
 )
 
 const TestClusterID = "clusterid.test"
@@ -161,6 +162,34 @@ func Test_NodesJoiningAndLeaving(t *testing.T) {
 			},
 			toBeTagged:       false,
 			expectedMessages: []string{"Successfully untagged i-0001"},
+		},
+		{
+			name: "node0 is recently created and the instance is not found the first 3 CreateTags attempts",
+			currNode: &v1.Node{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:              "node0",
+					CreationTimestamp: metav1.Now(),
+				},
+				Spec: v1.NodeSpec{
+					ProviderID: "i-not-found-count-3-0001",
+				},
+			},
+			toBeTagged:       true,
+			expectedMessages: []string{"Successfully tagged i-not-found-count-3-0001", "node is within eventual consistency grace period"},
+		},
+		{
+			name: "node0 is not recently created and the instance is not found",
+			currNode: &v1.Node{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:              "node0",
+					CreationTimestamp: metav1.Date(2012, 1, 1, 0, 0, 0, 0, time.UTC),
+				},
+				Spec: v1.NodeSpec{
+					ProviderID: "i-not-found",
+				},
+			},
+			toBeTagged:       true,
+			expectedMessages: []string{"Skip tagging since EC2 instance i-not-found for node node0 does not exist"},
 		},
 	}
 
