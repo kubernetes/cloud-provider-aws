@@ -805,6 +805,20 @@ func (ec2i *FakeEC2Impl) DescribeNetworkInterfaces(input *ec2.DescribeNetworkInt
 				},
 			}
 		}
+
+		if *filter.Values[0] == "i-123456789" {
+			networkInterface[0].Ipv6Addresses = []*ec2.NetworkInterfaceIpv6Address{
+				{
+					Ipv6Address: aws.String("2001:db8:3333:4444:5555:6666:7777:8888"),
+				},
+			}
+			networkInterface[0].Ipv6Prefixes = []*ec2.Ipv6PrefixSpecification{
+				{
+					Ipv6Prefix: aws.String("2001:0db8:85a3:0000:0000:8a2e:0000:0000/80"),
+				},
+			}
+		}
+
 	}
 
 	return &ec2.DescribeNetworkInterfacesOutput{
