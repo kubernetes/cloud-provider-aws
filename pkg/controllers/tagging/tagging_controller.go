@@ -32,8 +32,13 @@ import (
 	opt "k8s.io/cloud-provider-aws/pkg/controllers/options"
 	awsv1 "k8s.io/cloud-provider-aws/pkg/providers/v1"
 	nodehelpers "k8s.io/cloud-provider/node/helpers"
+	_ "k8s.io/component-base/metrics/prometheus/workqueue" // enable prometheus provider for workqueue metrics
 	"k8s.io/klog/v2"
 )
+
+func init() {
+	registerMetrics()
+}
 
 // workItem contains the node and an action for that node
 type workItem struct {
@@ -126,14 +131,13 @@ func NewTaggingController(
 		rateLimitEnabled = false
 	}
 
-	registerMetrics()
 	tc := &Controller{
 		nodeInformer:      nodeInformer,
 		kubeClient:        kubeClient,
 		cloud:             awsCloud,
 		tags:              tags,
 		resources:         resources,
-		workqueue:         workqueue.NewNamedRateLimitingQueue(rateLimiter, "Tagging"),
+		workqueue:         workqueue.NewNamedRateLimitingQueue(rateLimiter, TaggingControllerClientName),
 		nodesSynced:       nodeInformer.Informer().HasSynced,
 		nodeMonitorPeriod: nodeMonitorPeriod,
 		rateLimitEnabled:  rateLimitEnabled,
