@@ -20,23 +20,12 @@ jobs:
         run: |
           git config user.name "$GITHUB_ACTOR"
           git config user.email "$GITHUB_ACTOR@users.noreply.github.com"
+
+      - name: Install bom
+        uses: kubernetes-sigs/release-actions/setup-bom@dd08496c83441d6477114cc0555b96d404dacff7 # v0.1.2
       - name: Run chart-releaser
         uses: helm/chart-releaser-action@v1.1.0
         env:
           CR_TOKEN: "${{ secrets.GITHUB_TOKEN }}"
         with:
           config: .github/cr.yaml
-
-  generate-sbom:
-    runs-on: ubuntu-latest
-
-    permissions: {}
-
-    name: Install bom and test presence in path
-    steps:
-      - name: Install bom
-        uses: puerco/release-actions/setup-bom@main
-        with:
-          bom-release: '0.5.1'
-      - name: Check install!
-        run: bom version
