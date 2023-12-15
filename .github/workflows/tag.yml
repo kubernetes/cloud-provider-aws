@@ -8,6 +8,9 @@ on:
     paths:
       - version.txt
 
+permissions:
+  contents: read
+
 jobs:
   tag:
     if: ${{ github.repository == 'kubernetes/cloud-provider-aws' }}
