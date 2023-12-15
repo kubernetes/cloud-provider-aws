@@ -4155,21 +4155,16 @@ func (c *Cloud) EnsureLoadBalancer(ctx context.Context, clusterName string, apiS
 			return nil, err
 		}
 
-		// try to get the existing subnets of existing LBs from AZs
+		// try to get the ensured subnets of the LBs from AZs
 		var ensuredSubnetIDs []string
 		var subnetCidrs []string
 		for _, az := range v2LoadBalancer.AvailabilityZones {
 			ensuredSubnetIDs = append(ensuredSubnetIDs, *az.SubnetId)
 		}
-		// for newly created LBs, the ensured subnets are nil since the loadbalancer.AvailabilityZones are none
-		// we use discovered subnets in this case
 		if len(ensuredSubnetIDs) == 0 {
-			klog.Infof("did not find existing subnets on LB %s, use discovered subnets %d", loadBalancerName, discoveredSubnetIDs)
-			subnetCidrs, err = c.getSubnetCidrs(discoveredSubnetIDs)
-		} else {
-			klog.Infof("use exising subnets on LB %s, subnet IDs: %d", loadBalancerName, ensuredSubnetIDs)
-			subnetCidrs, err = c.getSubnetCidrs(ensuredSubnetIDs)
+			return nil, fmt.Errorf("did not find ensured subnets on LB %s", loadBalancerName)
 		}
+		subnetCidrs, err = c.getSubnetCidrs(ensuredSubnetIDs)
 		if err != nil {
 			klog.Errorf("Error getting subnet cidrs: %q", err)
 			return nil, err
