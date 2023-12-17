@@ -147,6 +147,10 @@ vet:
 update-fmt:
 	./hack/update-gofmt.sh
 
+.PHONY: update-deps
+update-deps:
+	./hack/update-deps.sh
+
 .PHONY: docs
 docs:
 	./hack/build-gitbooks.sh
