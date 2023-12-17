@@ -23,14 +23,14 @@
     <img alt="GitHub release (latest SemVer including pre-releases)" src="https://img.shields.io/github/v/release/kubernetes/cloud-provider-aws?include_prereleases">
 </p>
 <p align="center">
-    <a href="https://github.com/kubernetes/cloud-provider-aws/issues">
-        <img src="https://img.shields.io/badge/contributions-welcome-brightgreen.svg?style=flat" alt="contributions welcome"/>
-    </a>
     <a href="https://github.com/kubernetes/cloud-provider-aws/blob/master/LICENSE">
         <img alt="GitHub license" src="https://img.shields.io/github/license/kubernetes/cloud-provider-aws">
     </a>
-    <a href="https://goreportcard.com/badge/github.com/kubernetes/cloud-provider-aws">
+    <a href="https://goreportcard.com/report/github.com/kubernetes/cloud-provider-aws">
         <img src="https://goreportcard.com/badge/github.com/kubernetes/cloud-provider-aws" alt="go report card"/>
+    </a>
+    <a href="https://github.com/kubernetes/cloud-provider-aws/actions/workflows/deps.yml">
+        <img src="https://github.com/kubernetes/cloud-provider-aws/actions/workflows/deps.yml/badge.svg" alt="Dependency Review"/>
     </a>
 </p>
 
