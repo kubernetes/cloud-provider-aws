@@ -41,6 +41,11 @@ fi
 
 cd "${KOPS_ROOT}/tests/e2e" > /dev/null
 
+# kops deployer began passing a flag that does not exist (--interval) in the older version that supports k8s 1.23
+# see: https://github.com/kubernetes/kops/commit/3f171475717fcf67fc98c652bd4eea10f8664d88
+# so, we'll pin the kops deployer/tester to the previous commit
+git checkout 40ec87b0f7f0aac0c4a2344e984623dcd2ea1c20
+
 echo " + Installing kubetest2-tester-kops"
 go install ./kubetest2-tester-kops
 
