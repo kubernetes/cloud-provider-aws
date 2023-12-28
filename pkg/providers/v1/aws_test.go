@@ -2776,6 +2776,12 @@ func (m *MockedFakeELBV2) CreateLoadBalancer(request *elbv2.CreateLoadBalancerIn
 		LoadBalancerName: request.Name,
 		Type:             aws.String(elbv2.LoadBalancerTypeEnumNetwork),
 		VpcId:            aws.String("vpc-abc123def456abc78"),
+		AvailabilityZones: []*elbv2.AvailabilityZone{
+			{
+				ZoneName: aws.String("us-west-2a"),
+				SubnetId: aws.String("subnet-abc123de"),
+			},
+		},
 	}
 	m.LoadBalancers = append(m.LoadBalancers, newLB)
 
