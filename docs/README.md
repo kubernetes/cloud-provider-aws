@@ -45,19 +45,6 @@ The AWS cloud provider provides the interface between a Kubernetes cluster and A
 
 The AWS cloud provider is released with a specific semantic version that correlates with the Kubernetes upstream version. The major and minor versions are equivalent to the compatible upstream release, and the patch version is reserved to denote subsequent releases of the cloud provider code for that Kubernetes release.  Currently, for a given cloud provider release version, compatibility is ONLY guaranteed between that release and the corresponding Kubernetes version, meaning you need to upgrade the cloud provider components every time you upgrade Kubernetes, just like you would do for the kube controller manager.  See the [external cloud provider versioning KEP](https://github.com/kubernetes/enhancements/tree/master/keps/sig-cloud-provider/1771-versioning-policy-for-external-cloud-providers) for more details.
 
-| Kubernetes Version          | Latest AWS Cloud Provider Release Version     |
-|-----------------------------|-----------------------------------------------|
-| v1.27                       | v1.27.1                                       |
-| v1.26                       | v1.26.1                                       |
-| v1.25                       | v1.25.3                                       |
-| v1.24                       | v1.24.4                                       |
-| v1.23                       | v1.23.6                                       |
-| v1.22                       | v1.22.7                                       |
-| v1.21                       | v1.21.6                                       |
-| v1.20                       | v1.20.4                                       |
-| v1.19                       | v1.19.0-alpha.1                               |
-| v1.18                       | v1.18.0-alpha.1                               |
-
 ## Migration from In-Tree
 The in-tree cloud provider code has mostly stopped accepting new features, so future development for the AWS cloud provider should continue here.  The in-tree plugins will be removed in a future release of Kubernetes.
 
