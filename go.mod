@@ -3,7 +3,7 @@ module k8s.io/cloud-provider-aws
 go 1.21
 
 require (
-	github.com/aws/aws-sdk-go v1.49.13
+	github.com/aws/aws-sdk-go v1.49.16
 	github.com/golang/mock v1.6.0
 	github.com/spf13/cobra v1.8.0
 	github.com/spf13/pflag v1.0.5
@@ -20,7 +20,7 @@ require (
 	k8s.io/csi-translation-lib v0.29.0
 	k8s.io/klog/v2 v2.110.1
 	k8s.io/kubelet v0.29.0
-	k8s.io/utils v0.0.0-20231127182322-b307cd553661
+	k8s.io/utils v0.0.0-20240102154912-e7106e64919e
 )
 
 require (
