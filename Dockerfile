@@ -46,6 +46,12 @@ RUN GO111MODULE=on CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} GOPROXY=$
 		-ldflags="-w -s -X k8s.io/component-base/version.gitVersion=${VERSION}" \
 		-o=aws-cloud-controller-manager \
 		cmd/aws-cloud-controller-manager/main.go
+RUN GO111MODULE=on CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} GOPROXY=${GOPROXY} \
+		go build \
+		-trimpath \
+		-ldflags="-w -s -X k8s.io/component-base/version.gitVersion=${VERSION}" \
+		-o=ecr-credential-provider \
+		cmd/ecr-credential-provider/main.go
 
 ################################################################################
 ##                               MAIN STAGE                                   ##
@@ -53,4 +59,5 @@ RUN GO111MODULE=on CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} GOPROXY=$
 # Copy the manager into the distroless image.
 FROM --platform=${TARGETPLATFORM} ${DISTROLESS_IMAGE}
 COPY --from=builder /build/aws-cloud-controller-manager /bin/aws-cloud-controller-manager
+COPY --from=builder /build/ecr-credential-provider /bin/ecr-credential-provider
 ENTRYPOINT [ "/bin/aws-cloud-controller-manager" ]
