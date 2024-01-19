@@ -16,20 +16,15 @@
 # This build arg allows the specification of a custom Golang image.
 ARG GOLANG_IMAGE=golang:1.21.5
 
-# The distroless image on which the CPI manager image is built.
-#
-# Please do not use "latest". Explicit tags should be used to provide
-# deterministic builds. Follow what kubernetes uses to build
-# kube-controller-manager, for example for 1.23.x:
-# https://github.com/kubernetes/kubernetes/blob/release-1.24/build/common.sh#L94
-ARG DISTROLESS_IMAGE=registry.k8s.io/build-image/go-runner:v2.3.1-go1.21.5-bookworm.0
+# Datadog's base docker image
+ARG BASE_IMAGE
 
 ################################################################################
 ##                              BUILD STAGE                                   ##
 ################################################################################
 # Build the manager as a statically compiled binary so it has no dependencies
 # libc, muscl, etc.
-FROM --platform=linux/amd64 ${GOLANG_IMAGE} as builder
+FROM ${GOLANG_IMAGE} as builder
 
 ARG GOPROXY=https://goproxy.io,direct
 ARG TARGETOS
@@ -51,6 +46,6 @@ RUN GO111MODULE=on CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} GOPROXY=$
 ##                               MAIN STAGE                                   ##
 ################################################################################
 # Copy the manager into the distroless image.
-FROM --platform=${TARGETPLATFORM} ${DISTROLESS_IMAGE}
+FROM --platform=${TARGETPLATFORM} ${BASE_IMAGE}
 COPY --from=builder /build/aws-cloud-controller-manager /bin/aws-cloud-controller-manager
 ENTRYPOINT [ "/bin/aws-cloud-controller-manager" ]

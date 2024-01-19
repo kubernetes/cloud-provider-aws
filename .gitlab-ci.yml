@@ -1,0 +1,22 @@
+include: https://gitlab-templates.ddbuild.io/compute-delivery/v2/compute-delivery.yml
+
+variables:
+  KPR_CHART_NAME: k8s-platform-k8s-cloud-controller-manager
+test:
+  stage: verify
+  tags: [ "arch:amd64" ]
+  image: registry.ddbuild.io/images/mirror/golang:1.21.1
+  script:
+    - make test
+
+build-docker-image:
+  variables:
+    IMAGE_NAME: aws-cloud-controller-manager
+  extends: .build-docker-image
+
+# run-campaign:
+#   variables:
+#     CHART_NAME: k8s-platform-k8s-cloud-controller-manager
+#     COMPONENT: aws-cloud-controller-manager
+#     SLACK_CHANNEL: compute-ops
+#   extends: .run-campaign
