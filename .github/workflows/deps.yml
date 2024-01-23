@@ -28,7 +28,7 @@ jobs:
         with:
           show-progress: false
       - name: "Dependency Review"
-        uses: actions/dependency-review-action@v3
+        uses: actions/dependency-review-action@v4
         with:
           base-ref: ${{ inputs.base_ref || github.event.pull_request.base.sha || 'master' }}
           head-ref: ${{ inputs.head_ref || github.event.pull_request.head.sha || github.ref }}
