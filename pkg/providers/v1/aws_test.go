@@ -559,6 +559,10 @@ func testHasNodeAddress(t *testing.T, addrs []v1.NodeAddress, addressType v1.Nod
 	t.Errorf("Did not find expected address: %s:%s in %v", addressType, address, addrs)
 }
 
+func makeMinimalInstance(instanceID string) ec2.Instance {
+	return makeInstance(instanceID, "", "", "", "", nil, false)
+}
+
 func makeInstance(instanceID string, privateIP, publicIP, privateDNSName, publicDNSName string, ipv6s []string, setNetInterface bool) ec2.Instance {
 	var tag ec2.Tag
 	tag.Key = aws.String(TagNameKubernetesClusterLegacy)
