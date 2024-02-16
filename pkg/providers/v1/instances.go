@@ -17,6 +17,7 @@ limitations under the License.
 package aws
 
 import (
+	"context"
 	"fmt"
 	"net/url"
 	"regexp"
@@ -27,6 +28,8 @@ import (
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/service/ec2"
 	v1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/types"
+	cloudprovider "k8s.io/cloud-provider"
 	"k8s.io/klog/v2"
 )
 
@@ -248,4 +251,224 @@ func (s *allInstancesSnapshot) FindInstances(ids []InstanceID) map[InstanceID]*e
 		}
 	}
 	return m
+}
+
+/*
+The following methods implement the Instances interface, which will be superceded by the
+InstancesV2 interface.
+*/
+
+// NodeAddresses is an implementation of Instances.NodeAddresses.
+func (c *Cloud) NodeAddresses(ctx context.Context, name types.NodeName) ([]v1.NodeAddress, error) {
+	instanceID, err := c.nodeNameToInstanceID(name)
+	if err != nil {
+		return nil, fmt.Errorf("could not look up instance ID for node %q: %v", name, err)
+	}
+	return c.NodeAddressesByProviderID(ctx, string(instanceID))
+}
+
+// NodeAddressesByProviderID returns the node addresses of an instances with the specified unique providerID
+// This method will not be called from the node that is requesting this ID. i.e. metadata service
+// and other local methods cannot be used here
+func (c *Cloud) NodeAddressesByProviderID(ctx context.Context, providerID string) ([]v1.NodeAddress, error) {
+	instanceID, err := KubernetesInstanceID(providerID).MapToAWSInstanceID()
+	if err != nil {
+		return nil, err
+	}
+
+	if IsFargateNode(string(instanceID)) {
+		eni, err := c.describeNetworkInterfaces(string(instanceID))
+		if eni == nil || err != nil {
+			return nil, err
+		}
+
+		var addresses []v1.NodeAddress
+
+		// Assign NodeInternalIP based on IP family
+		for _, family := range c.cfg.Global.NodeIPFamilies {
+			switch family {
+			case "ipv4":
+				nodeAddresses := getNodeAddressesForFargateNode(aws.StringValue(eni.PrivateDnsName), aws.StringValue(eni.PrivateIpAddress))
+				addresses = append(addresses, nodeAddresses...)
+			case "ipv6":
+				if eni.Ipv6Addresses == nil || len(eni.Ipv6Addresses) == 0 {
+					klog.Errorf("no Ipv6Addresses associated with the eni")
+					continue
+				}
+				internalIPv6Address := eni.Ipv6Addresses[0].Ipv6Address
+				nodeAddresses := getNodeAddressesForFargateNode(aws.StringValue(eni.PrivateDnsName), aws.StringValue(internalIPv6Address))
+				addresses = append(addresses, nodeAddresses...)
+			}
+		}
+		return addresses, nil
+	}
+
+	instance, err := describeInstance(c.ec2, instanceID)
+	if err != nil {
+		return nil, err
+	}
+
+	var addresses []v1.NodeAddress
+
+	for _, family := range c.cfg.Global.NodeIPFamilies {
+		switch family {
+		case "ipv4":
+			ipv4addr, err := extractIPv4NodeAddresses(instance)
+			if err != nil {
+				return nil, err
+			}
+			addresses = append(addresses, ipv4addr...)
+		case "ipv6":
+			ipv6addr, err := extractIPv6NodeAddresses(instance)
+			if err != nil {
+				return nil, err
+			}
+			addresses = append(addresses, ipv6addr...)
+		}
+	}
+
+	return addresses, nil
+}
+
+// InstanceID returns the cloud provider ID of the node with the specified nodeName.
+func (c *Cloud) InstanceID(ctx context.Context, nodeName types.NodeName) (string, error) {
+	// In the future it is possible to also return an endpoint as:
+	// <endpoint>/<zone>/<instanceid>
+	if c.selfAWSInstance.nodeName == nodeName {
+		return "/" + c.selfAWSInstance.availabilityZone + "/" + c.selfAWSInstance.awsID, nil
+	}
+	inst, err := c.getInstanceByNodeName(nodeName)
+	if err != nil {
+		if err == cloudprovider.InstanceNotFound {
+			// The Instances interface requires that we return InstanceNotFound (without wrapping)
+			return "", err
+		}
+		return "", fmt.Errorf("getInstanceByNodeName failed for %q with %q", nodeName, err)
+	}
+	return "/" + aws.StringValue(inst.Placement.AvailabilityZone) + "/" + aws.StringValue(inst.InstanceId), nil
+}
+
+// InstanceType returns the type of the node with the specified nodeName.
+func (c *Cloud) InstanceType(ctx context.Context, nodeName types.NodeName) (string, error) {
+	if c.selfAWSInstance.nodeName == nodeName {
+		return c.selfAWSInstance.instanceType, nil
+	}
+	inst, err := c.getInstanceByNodeName(nodeName)
+	if err != nil {
+		return "", fmt.Errorf("getInstanceByNodeName failed for %q with %q", nodeName, err)
+	}
+	return aws.StringValue(inst.InstanceType), nil
+}
+
+// InstanceTypeByProviderID returns the cloudprovider instance type of the node with the specified unique providerID
+// This method will not be called from the node that is requesting this ID. i.e. metadata service
+// and other local methods cannot be used here
+func (c *Cloud) InstanceTypeByProviderID(ctx context.Context, providerID string) (string, error) {
+	instanceID, err := KubernetesInstanceID(providerID).MapToAWSInstanceID()
+	if err != nil {
+		return "", err
+	}
+
+	if IsFargateNode(string(instanceID)) {
+		return "", nil
+	}
+
+	instance, err := describeInstance(c.ec2, instanceID)
+	if err != nil {
+		return "", err
+	}
+
+	return aws.StringValue(instance.InstanceType), nil
+}
+
+// AddSSHKeyToAllInstances is currently not implemented.
+func (c *Cloud) AddSSHKeyToAllInstances(ctx context.Context, user string, keyData []byte) error {
+	return cloudprovider.NotImplemented
+}
+
+// CurrentNodeName returns the name of the current node
+func (c *Cloud) CurrentNodeName(ctx context.Context, hostname string) (types.NodeName, error) {
+	return c.selfAWSInstance.nodeName, nil
+}
+
+// InstanceExistsByProviderID returns true if the instance with the given provider id still exists.
+// If false is returned with no error, the instance will be immediately deleted by the cloud controller manager.
+func (c *Cloud) InstanceExistsByProviderID(ctx context.Context, providerID string) (bool, error) {
+	instanceID, err := KubernetesInstanceID(providerID).MapToAWSInstanceID()
+	if err != nil {
+		return false, err
+	}
+
+	if IsFargateNode(string(instanceID)) {
+		eni, err := c.describeNetworkInterfaces(string(instanceID))
+		return eni != nil, err
+	}
+
+	request := &ec2.DescribeInstancesInput{
+		InstanceIds: []*string{instanceID.awsString()},
+	}
+
+	instances, err := c.ec2.DescribeInstances(request)
+	if err != nil {
+		// if err is InstanceNotFound, return false with no error
+		if IsAWSErrorInstanceNotFound(err) {
+			return false, nil
+		}
+		return false, err
+	}
+	if len(instances) == 0 {
+		return false, nil
+	}
+	if len(instances) > 1 {
+		return false, fmt.Errorf("multiple instances found for instance: %s", instanceID)
+	}
+
+	state := instances[0].State.Name
+	if *state == ec2.InstanceStateNameTerminated {
+		klog.Warningf("the instance %s is terminated", instanceID)
+		return false, nil
+	}
+
+	return true, nil
+}
+
+// InstanceShutdownByProviderID returns true if the instance is in safe state to detach volumes
+func (c *Cloud) InstanceShutdownByProviderID(ctx context.Context, providerID string) (bool, error) {
+	instanceID, err := KubernetesInstanceID(providerID).MapToAWSInstanceID()
+	if err != nil {
+		return false, err
+	}
+
+	if IsFargateNode(string(instanceID)) {
+		eni, err := c.describeNetworkInterfaces(string(instanceID))
+		return eni != nil, err
+	}
+
+	request := &ec2.DescribeInstancesInput{
+		InstanceIds: []*string{instanceID.awsString()},
+	}
+
+	instances, err := c.ec2.DescribeInstances(request)
+	if err != nil {
+		return false, err
+	}
+	if len(instances) == 0 {
+		klog.Warningf("the instance %s does not exist anymore", providerID)
+		// returns false, because otherwise node is not deleted from cluster
+		// false means that it will continue to check InstanceExistsByProviderID
+		return false, nil
+	}
+	if len(instances) > 1 {
+		return false, fmt.Errorf("multiple instances found for instance: %s", instanceID)
+	}
+
+	instance := instances[0]
+	if instance.State != nil {
+		state := aws.StringValue(instance.State.Name)
+		// valid state for detaching volumes
+		if state == ec2.InstanceStateNameStopped {
+			return true, nil
+		}
+	}
+	return false, nil
 }
