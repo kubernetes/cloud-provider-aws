@@ -1502,9 +1502,8 @@ func (c *Cloud) Instances() (cloudprovider.Instances, bool) {
 }
 
 // InstancesV2 returns an implementation of InstancesV2 for Amazon Web Services.
-// TODO: implement ONLY for external cloud provider
 func (c *Cloud) InstancesV2() (cloudprovider.InstancesV2, bool) {
-	return nil, false
+	return c, true
 }
 
 // Zones returns an implementation of Zones for Amazon Web Services.
