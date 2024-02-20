@@ -6,6 +6,7 @@ approvers:
 - kishorj
 - cartermckinnon
 - mmerkes
+- wongma7
 reviewers:
 - dims
 - nckturner
@@ -26,6 +27,5 @@ emeritus_approvers:
 - ayberk
 - jaypipes
 - M00nF1sh
-- wongma7
 - andrewsykim
 - justinsb
