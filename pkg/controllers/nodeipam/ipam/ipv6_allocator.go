@@ -168,7 +168,7 @@ func (ra6 *IPv6RangeAllocator) process() bool {
 
 		timeTaken := time.Since(workItem.enqueueTime).Seconds()
 		recordWorkItemLatencyMetrics(workItemDequeuingTimeWorkItemMetric, timeTaken)
-		klog.Infof("Dequeuing latency %s", timeTaken)
+		klog.Infof("Dequeuing latency %f", timeTaken)
 
 		instanceID, err := awsv1.KubernetesInstanceID(workItem.node.Spec.ProviderID).MapToAWSInstanceID()
 		if err != nil {
@@ -202,7 +202,7 @@ func (ra6 *IPv6RangeAllocator) process() bool {
 			klog.Infof("Finished processing %s", workItem)
 			timeTaken = time.Since(workItem.enqueueTime).Seconds()
 			recordWorkItemLatencyMetrics(workItemProcessingTimeWorkItemMetric, timeTaken)
-			klog.Infof("Processing latency %s", timeTaken)
+			klog.Infof("Processing latency %f", timeTaken)
 		}
 
 		ra6.workqueue.Forget(obj)
