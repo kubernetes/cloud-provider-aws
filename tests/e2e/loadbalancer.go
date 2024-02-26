@@ -23,7 +23,7 @@ import (
 	admissionapi "k8s.io/pod-security-admission/api"
 )
 
-var _ = Describe("[cloud-provider-aws-e2e] loadbalancer", func() {
+var _ = Describe("[cloud-provider-aws-e2e]", Label("loadbalancer"), func() {
 	f := framework.NewDefaultFramework("cloud-provider-aws")
 	f.NamespacePodSecurityEnforceLevel = admissionapi.LevelPrivileged
 
