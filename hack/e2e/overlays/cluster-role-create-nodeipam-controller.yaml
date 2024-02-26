@@ -1,0 +1,25 @@
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: provider-aws:nodeipam-controller-clusterrole
+  annotations:
+    resources.gardener.cloud/keep-object: "true"
+rules:
+- apiGroups: [""]
+  resources: ["nodes"]
+  verbs: ["patch","list"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: nodeipam-clusterrolebinding
+  annotations:
+    resources.gardener.cloud/keep-object: "true"
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: provider-aws:nodeipam-controller-clusterrole
+subjects:
+- kind: ServiceAccount
+  name: nodeipam-controller
+  namespace: kube-system

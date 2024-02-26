@@ -18,7 +18,7 @@ set -o errexit
 set -o nounset
 set -o pipefail
 
-GINKGO_VERSION="${GINKGO_VERSION:-v1.14.0}"
+GINKGO_VERSION="${GINKGO_VERSION:-v2.13.2}"
 KOPS_ROOT="${KOPS_ROOT:-}"
 export GO111MODULE=on
 
@@ -31,8 +31,8 @@ cd "$(mktemp -d)" > /dev/null
 echo " + Installing kubetest2"
 go install "sigs.k8s.io/kubetest2@latest"
 
-echo " + Installing ginkgo"
-go install "github.com/onsi/ginkgo/ginkgo@${GINKGO_VERSION}"
+echo " + Installing ginkgo v2"
+go install "github.com/onsi/ginkgo/v2/ginkgo@${GINKGO_VERSION}"
 
 if [[ -z "${KOPS_ROOT}" ]]; then
     git clone https://github.com/kubernetes/kops.git
