@@ -51,7 +51,7 @@ func TestGetProviderId(t *testing.T) {
 			node: v1.Node{
 				Spec: v1.NodeSpec{},
 			},
-			expectedProviderID: "aws:///us-east-1a/i-00000000000000001",
+			expectedProviderID: "aws:///us-west-2a/i-00000000000000001",
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -184,8 +184,8 @@ func TestInstanceMetadata(t *testing.T) {
 			{Type: "Hostname", Address: "instance-same.ec2.internal"},
 			{Type: "ExternalDNS", Address: "instance-same.ec2.external"},
 		}, result.NodeAddresses)
-		assert.Equal(t, "us-east-1a", result.Zone)
-		assert.Equal(t, "us-east-1", result.Region)
+		assert.Equal(t, "us-west-2a", result.Zone)
+		assert.Equal(t, "us-west-2", result.Region)
 	})
 }
 
