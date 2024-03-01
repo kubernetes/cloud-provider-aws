@@ -96,8 +96,8 @@ func (z *zoneCache) populate() error {
 	}
 
 	// Initialize the map if it's unset
-	if len(z.zoneNameToDetails) == 0 {
-		z.zoneNameToDetails = map[string]zoneDetails{}
+	if z.zoneNameToDetails == nil {
+		z.zoneNameToDetails = make(map[string]zoneDetails)
 	}
 
 	for _, zone := range zones {
