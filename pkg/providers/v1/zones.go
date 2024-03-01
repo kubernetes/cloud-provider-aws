@@ -33,7 +33,7 @@ type zoneDetails struct {
 
 type zoneCache struct {
 	cloud             *Cloud
-	mutex             sync.Mutex
+	mutex             sync.RWMutex
 	zoneNameToDetails map[string]zoneDetails
 }
 
@@ -44,9 +44,6 @@ func (z *zoneCache) getZoneDetailsByNames(zoneNames []string) (map[string]zoneDe
 		return map[string]zoneDetails{}, nil
 	}
 
-	z.mutex.Lock()
-	defer z.mutex.Unlock()
-
 	if z.shouldPopulateCache(zoneNames) {
 		// Populate the cache if it hasn't been populated yet
 		err := z.populate()
@@ -54,6 +51,9 @@ func (z *zoneCache) getZoneDetailsByNames(zoneNames []string) (map[string]zoneDe
 			return nil, err
 		}
 	}
+
+	z.mutex.RLock()
+	defer z.mutex.RUnlock()
 
 	requestedZoneDetails := map[string]zoneDetails{}
 	for _, zone := range zoneNames {
@@ -67,8 +67,10 @@ func (z *zoneCache) getZoneDetailsByNames(zoneNames []string) (map[string]zoneDe
 	return requestedZoneDetails, nil
 }
 
-// NOTE: This method is not thread safe and should not be called outside of getZoneDetailsByNames
 func (z *zoneCache) shouldPopulateCache(zoneNames []string) bool {
+	z.mutex.RLock()
+	defer z.mutex.RUnlock()
+
 	if len(z.zoneNameToDetails) == 0 {
 		// Populate the cache if it hasn't been populated yet
 		return true
@@ -87,8 +89,10 @@ func (z *zoneCache) shouldPopulateCache(zoneNames []string) bool {
 
 // Populates the zone cache. If cache is already populated, it will overwrite entries,
 // which is useful when accounts get access to new zones.
-// NOTE: This method is not thread safe and should not be called outside of getZoneDetailsByNames
 func (z *zoneCache) populate() error {
+	z.mutex.Lock()
+	defer z.mutex.Unlock()
+
 	azRequest := &ec2.DescribeAvailabilityZonesInput{}
 	zones, err := z.cloud.ec2.DescribeAvailabilityZones(azRequest)
 	if err != nil {
