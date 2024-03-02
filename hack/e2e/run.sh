@@ -55,11 +55,12 @@ ZONES="${AWS_AVAILABILITY_ZONES:-us-west-2a,us-west-2b,us-west-2c}"
 AWS_ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
 IMAGE_NAME=${IMAGE_NAME:-${AWS_ACCOUNT_ID}.dkr.ecr.${REGION}.amazonaws.com/provider-aws/cloud-controller-manager}
 IMAGE_TAG=${IMAGE_TAG:-${BUILD_VERSION}-${test_run_id}}
-
+DNS_ZONE="${DNS_ZONE:-example.com}"
 # Test args
 GINKGO_FOCUS=${GINKGO_FOCUS:-"\[cloud-provider-aws-e2e\]"}
 GINKGO_SKIP=${GINKGO_SKIP:-"\[Disruptive\]"}
 GINKGO_NODES=${GINKGO_NODES:-4}
+GINKGO_LABEL_FILTER="loadbalancer"
 
 EXPANDED_TEST_EXTRA_FLAGS="${EXPANDED_TEST_EXTRA_FLAGS:-}"
 
@@ -94,12 +95,13 @@ fi
 
 export PATH="${INSTALL_PATH}:${PATH}"
 
-echo "Starting test run ---"
+echo "Starting test run for loadbalancer ---"
 echo " + Region:              ${REGION} (${ZONES})"
 echo " + Cluster name:        ${CLUSTER_NAME}"
 echo " + Kubernetes version:  ${KUBERNETES_VERSION}"
 echo " + Focus:               ${GINKGO_FOCUS}"
 echo " + Skip:                ${GINKGO_SKIP}"
+echo " + Label Filter:        ${GINKGO_LABEL_FILTER}"
 echo " + kOps state store:    ${KOPS_STATE_STORE}"
 echo " + SSH public key path: ${SSH_PUBLIC_KEY_PATH}"
 echo " + Test run ID:         ${test_run_id}"
@@ -143,10 +145,62 @@ fi
 
 set -x
 pushd ./tests/e2e
-ginkgo . -v -p --nodes="${GINKGO_NODES}" --focus="${GINKGO_FOCUS}" --skip="${GINKGO_SKIP}" --report-dir="${ARTIFACTS}"
+ginkgo --focus="${GINKGO_FOCUS}" --skip="${GINKGO_SKIP}" --label-filter="${GINKGO_LABEL_FILTER}" . -v -p --nodes="${GINKGO_NODES}"  --report-dir="${ARTIFACTS}"
 popd
 
 if [[ "${DOWN}" = "yes" ]]; then
     # This should be changed to ${test_run}/kops once https://github.com/kubernetes/kops/pull/13217 is merged.
     ${test_run}/${test_run_id}/kops delete cluster --name "${CLUSTER_NAME}" --yes
+fi
+
+GINKGO_LABEL_FILTER="ipv6 prefix"
+
+echo "Starting test run for nodeipam controller ---"
+echo " + Region:              ${REGION} (${ZONES})"
+echo " + Cluster name:        ${CLUSTER_NAME}.${DNS_ZONE}"
+echo " + Kubernetes version:  ${KUBERNETES_VERSION}"
+echo " + Focus:               ${GINKGO_FOCUS}"
+echo " + Skip:                ${GINKGO_SKIP}"
+echo " + Label Filter:        ${GINKGO_LABEL_FILTER}"
+echo " + kOps state store:    ${KOPS_STATE_STORE}"
+echo " + SSH public key path: ${SSH_PUBLIC_KEY_PATH}"
+echo " + Test run ID:         ${test_run_id}"
+echo " + Kubetest run dir:    ${test_run}"
+echo " + Image:               ${IMAGE_NAME}:${IMAGE_TAG}"
+echo " + Create cluster:      ${UP}"
+echo " + Delete cluster:      ${DOWN}"
+
+if [[ "${UP}" = "yes" ]]; then
+    kubetest2 kops \
+      -v 2 \
+      --up \
+      --run-id="${test_run_id}" \
+      --cloud-provider=aws \
+      --cluster-name="${CLUSTER_NAME}.${DNS_ZONE}" \
+      --create-args="--dns-zone=${DNS_ZONE} --ipv6 --zones=${ZONES} --node-size=m5.large --master-size=m5.large --set cluster.spec.cloudControllerManager.cloudProvider=aws --set cluster.spec.cloudControllerManager.clusterCIDR=10.0.0.0/16 --set cluster.spec.cloudControllerManager.configureCloudRoutes=false --set cluster.spec.cloudControllerManager.controllers=cloud-node --set cluster.spec.cloudControllerManager.controllers=cloud-node-lifecycle --set cluster.spec.cloudControllerManager.controllers=nodeipam --set cluster.spec.cloudControllerManager.controllers=service --set cluster.spec.cloudControllerManager.controllers=route --set cluster.spec.cloudControllerManager.image=${IMAGE_NAME}:${IMAGE_TAG} --set cluster.spec.kubeControllerManager.configureCloudRoutes=false" \
+      --admin-access="0.0.0.0/0" \
+      --kubernetes-version="${KUBERNETES_VERSION}" \
+      --kops-version-marker=https://storage.googleapis.com/kops-ci/bin/latest-ci-updown-green.txt \
+
+      # Use the kops tester once we have a way of consuming an arbitrary e2e.test binary.
+      #--test=kops \
+      #-- \
+      #--use-built-binaries=true \
+      #--focus-regex="${GINKGO_FOCUS}" \
+      #--parallel 25
+fi
+
+set -x
+pushd ./hack/e2e/overlays
+kubectl patch clusterrole system:cloud-controller-manager --type strategic  --patch-file cluster-role-patch-cloud-controller.yaml
+kubectl create -f cluster-role-create-nodeipam-controller.yaml
+popd
+
+pushd ./tests/e2e
+ginkgo --focus="${GINKGO_FOCUS}" --skip="${GINKGO_SKIP}" --label-filter="${GINKGO_LABEL_FILTER}" . -v -p --nodes="${GINKGO_NODES}" --report-dir="${ARTIFACTS}"
+popd
+
+if [[ "${DOWN}" = "yes" ]]; then
+    # This should be changed to ${test_run}/kops once https://github.com/kubernetes/kops/pull/13217 is merged.
+    ${test_run}/${test_run_id}/kops delete cluster --name "${CLUSTER_NAME}.${DNS_ZONE}" --yes
 fi

@@ -31,6 +31,7 @@ import (
 
 	"k8s.io/apimachinery/pkg/util/wait"
 	cloudprovider "k8s.io/cloud-provider"
+	"k8s.io/cloud-provider-aws/pkg/controllers/nodeipam"
 	"k8s.io/cloud-provider-aws/pkg/controllers/tagging"
 	awsv1 "k8s.io/cloud-provider-aws/pkg/providers/v1"
 	"k8s.io/cloud-provider/app"
@@ -77,6 +78,19 @@ func main() {
 
 	controllerAliases := names.CCMControllerAliases()
 	controllerAliases[tagging.TaggingControllerKey] = tagging.TaggingControllerKey
+
+	nodeIpamControllerWrapper := nodeipam.ControllerWrapper{}
+	nodeIpamControllerWrapper.Options.AddFlags(fss.FlagSet("nodeipam controller"))
+
+	nodeIpamControllerConstructor := app.ControllerInitFuncConstructor{
+		InitContext: app.ControllerInitContext{
+			ClientName: nodeipam.NodeIpamControllerClientName,
+		},
+		Constructor: nodeIpamControllerWrapper.StartNodeIpamControllerWrapper,
+	}
+
+	controllerInitializers[nodeipam.NodeIpamControllerKey] = nodeIpamControllerConstructor
+	app.ControllersDisabledByDefault.Insert(nodeipam.NodeIpamControllerKey)
 
 	command := app.NewCloudControllerManagerCommand(opts, cloudInitializer, controllerInitializers, controllerAliases, fss, wait.NeverStop)
 
