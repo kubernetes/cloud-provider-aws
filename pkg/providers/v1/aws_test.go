@@ -488,7 +488,7 @@ func TestNewAWSCloud(t *testing.T) {
 			"Gets zone from metadata when not in config",
 			strings.NewReader("[global]\n"),
 			newMockedFakeAWSServices(TestClusterID),
-			false, "us-east-1",
+			false, "us-west-2",
 		},
 	}
 
@@ -577,7 +577,7 @@ func makeInstance(instanceID string, privateIP, publicIP, privateDNSName, public
 		PublicIpAddress:  aws.String(publicIP),
 		InstanceType:     aws.String("c3.large"),
 		Tags:             tags,
-		Placement:        &ec2.Placement{AvailabilityZone: aws.String("us-east-1a")},
+		Placement:        &ec2.Placement{AvailabilityZone: aws.String("us-west-2a")},
 		State: &ec2.InstanceState{
 			Name: aws.String("running"),
 		},
@@ -1685,7 +1685,7 @@ func TestGetVolumeLabels(t *testing.T) {
 	awsServices.ec2.(*MockedFakeEC2).On("DescribeVolumes", expectedVolumeRequest).Return([]*ec2.Volume{
 		{
 			VolumeId:         volumeID.awsString(),
-			AvailabilityZone: aws.String("us-east-1a"),
+			AvailabilityZone: aws.String("us-west-2a"),
 		},
 	})
 
@@ -1693,8 +1693,8 @@ func TestGetVolumeLabels(t *testing.T) {
 
 	assert.Nil(t, err, "Error creating Volume %v", err)
 	assert.Equal(t, map[string]string{
-		v1.LabelTopologyZone:   "us-east-1a",
-		v1.LabelTopologyRegion: "us-east-1"}, labels)
+		v1.LabelTopologyZone:   "us-west-2a",
+		v1.LabelTopologyRegion: "us-west-2"}, labels)
 	awsServices.ec2.(*MockedFakeEC2).AssertExpectations(t)
 }
 
@@ -1764,11 +1764,11 @@ func TestGetLabelsForVolume(t *testing.T) {
 			defaultVolume,
 			[]*ec2.Volume{{
 				VolumeId:         defaultVolume,
-				AvailabilityZone: aws.String("us-east-1a"),
+				AvailabilityZone: aws.String("us-west-2a"),
 			}},
 			map[string]string{
-				v1.LabelTopologyZone:   "us-east-1a",
-				v1.LabelTopologyRegion: "us-east-1",
+				v1.LabelTopologyZone:   "us-west-2a",
+				v1.LabelTopologyRegion: "us-west-2",
 			},
 			nil,
 		},
@@ -2503,11 +2503,11 @@ func TestCreateDisk(t *testing.T) {
 	c, _ := newAWSCloud(CloudConfig{}, awsServices)
 
 	volumeOptions := &VolumeOptions{
-		AvailabilityZone: "us-east-1a",
+		AvailabilityZone: "us-west-2a",
 		CapacityGB:       10,
 	}
 	request := &ec2.CreateVolumeInput{
-		AvailabilityZone: aws.String("us-east-1a"),
+		AvailabilityZone: aws.String("us-west-2a"),
 		Encrypted:        aws.Bool(false),
 		VolumeType:       aws.String(DefaultVolumeType),
 		Size:             aws.Int64(10),
@@ -2522,7 +2522,7 @@ func TestCreateDisk(t *testing.T) {
 	}
 
 	volume := &ec2.Volume{
-		AvailabilityZone: aws.String("us-east-1a"),
+		AvailabilityZone: aws.String("us-west-2a"),
 		VolumeId:         aws.String("vol-volumeId0"),
 		State:            aws.String("available"),
 	}
@@ -2535,7 +2535,7 @@ func TestCreateDisk(t *testing.T) {
 
 	volumeID, err := c.CreateDisk(volumeOptions)
 	assert.Nil(t, err, "Error creating disk: %v", err)
-	assert.Equal(t, volumeID, KubernetesVolumeID("aws://us-east-1a/vol-volumeId0"))
+	assert.Equal(t, volumeID, KubernetesVolumeID("aws://us-west-2a/vol-volumeId0"))
 	awsServices.ec2.(*MockedFakeEC2).AssertExpectations(t)
 }
 
@@ -2544,11 +2544,11 @@ func TestCreateDiskFailDescribeVolume(t *testing.T) {
 	c, _ := newAWSCloud(CloudConfig{}, awsServices)
 
 	volumeOptions := &VolumeOptions{
-		AvailabilityZone: "us-east-1a",
+		AvailabilityZone: "us-west-2a",
 		CapacityGB:       10,
 	}
 	request := &ec2.CreateVolumeInput{
-		AvailabilityZone: aws.String("us-east-1a"),
+		AvailabilityZone: aws.String("us-west-2a"),
 		Encrypted:        aws.Bool(false),
 		VolumeType:       aws.String(DefaultVolumeType),
 		Size:             aws.Int64(10),
@@ -2563,7 +2563,7 @@ func TestCreateDiskFailDescribeVolume(t *testing.T) {
 	}
 
 	volume := &ec2.Volume{
-		AvailabilityZone: aws.String("us-east-1a"),
+		AvailabilityZone: aws.String("us-west-2a"),
 		VolumeId:         aws.String("vol-volumeId0"),
 		State:            aws.String("creating"),
 	}
@@ -2588,7 +2588,7 @@ const (
 	testNodeName           = types.NodeName("ip-10-0-0-1.ec2.internal")
 	testInstanceIDNodeName = types.NodeName("i-02bce90670bb0c7cd")
 	testOverriddenNodeName = types.NodeName("foo")
-	testProviderID         = "aws:///us-east-1c/i-02bce90670bb0c7cd"
+	testProviderID         = "aws:///us-west-2c/i-02bce90670bb0c7cd"
 	testInstanceID         = "i-02bce90670bb0c7cd"
 )
 
@@ -2687,7 +2687,7 @@ func TestInstanceIDToNodeName(t *testing.T) {
 					Name: string(testOverriddenNodeName),
 				},
 				Spec: v1.NodeSpec{
-					ProviderID: "aws:///us-east-1c/i-foo",
+					ProviderID: "aws:///us-west-2c/i-foo",
 				},
 			},
 			expectedNodeName: types.NodeName(""),
@@ -2753,7 +2753,7 @@ func (m *MockedFakeELBV2) AddTags(request *elbv2.AddTagsInput) (*elbv2.AddTagsOu
 
 func (m *MockedFakeELBV2) CreateLoadBalancer(request *elbv2.CreateLoadBalancerInput) (*elbv2.CreateLoadBalancerOutput, error) {
 	accountID := 123456789
-	arn := fmt.Sprintf("arn:aws:elasticloadbalancing:us-east-1:%d:loadbalancer/net/%x/%x",
+	arn := fmt.Sprintf("arn:aws:elasticloadbalancing:us-west-2:%d:loadbalancer/net/%x/%x",
 		accountID,
 		rand.Uint64(),
 		rand.Uint32())
@@ -2849,7 +2849,7 @@ func (m *MockedFakeELBV2) DescribeLoadBalancerAttributes(request *elbv2.Describe
 
 func (m *MockedFakeELBV2) CreateTargetGroup(request *elbv2.CreateTargetGroupInput) (*elbv2.CreateTargetGroupOutput, error) {
 	accountID := 123456789
-	arn := fmt.Sprintf("arn:aws:elasticloadbalancing:us-east-1:%d:targetgroup/%x/%x",
+	arn := fmt.Sprintf("arn:aws:elasticloadbalancing:us-west-2:%d:targetgroup/%x/%x",
 		accountID,
 		rand.Uint64(),
 		rand.Uint32())
@@ -3057,7 +3057,7 @@ func (m *MockedFakeELBV2) DeregisterTargets(request *elbv2.DeregisterTargetsInpu
 
 func (m *MockedFakeELBV2) CreateListener(request *elbv2.CreateListenerInput) (*elbv2.CreateListenerOutput, error) {
 	accountID := 123456789
-	arn := fmt.Sprintf("arn:aws:elasticloadbalancing:us-east-1:%d:listener/net/%x/%x/%x",
+	arn := fmt.Sprintf("arn:aws:elasticloadbalancing:us-west-2:%d:listener/net/%x/%x/%x",
 		accountID,
 		rand.Uint64(),
 		rand.Uint32(),
@@ -3302,7 +3302,7 @@ func makeNamedNode(s *FakeAWSServices, offset int, name string) *v1.Node {
 	instance := &ec2.Instance{}
 	instance.InstanceId = aws.String(instanceID)
 	instance.Placement = &ec2.Placement{
-		AvailabilityZone: aws.String("us-east-1c"),
+		AvailabilityZone: aws.String("us-west-2c"),
 	}
 	instance.PrivateDnsName = aws.String(fmt.Sprintf("ip-172-20-0-%d.ec2.internal", 101+offset))
 	instance.PrivateIpAddress = aws.String(fmt.Sprintf("192.168.0.%d", 1+offset))
@@ -3314,7 +3314,7 @@ func makeNamedNode(s *FakeAWSServices, offset int, name string) *v1.Node {
 
 	s.instances = append(s.instances, instance)
 
-	testProviderID := "aws:///us-east-1c/" + instanceID
+	testProviderID := "aws:///us-west-2c/" + instanceID
 	return &v1.Node{
 		ObjectMeta: metav1.ObjectMeta{
 			Name: name,
@@ -3885,7 +3885,7 @@ func TestGetRegionFromMetadata(t *testing.T) {
 	cfg = CloudConfig{}
 	region, err = getRegionFromMetadata(cfg, awsServices.metadata)
 	assert.NoError(t, err)
-	assert.Equal(t, "us-east-1", region)
+	assert.Equal(t, "us-west-2", region)
 }
 
 type MockedEC2API struct {
@@ -3896,6 +3896,11 @@ type MockedEC2API struct {
 func (m *MockedEC2API) DescribeInstances(input *ec2.DescribeInstancesInput) (*ec2.DescribeInstancesOutput, error) {
 	args := m.Called(input)
 	return args.Get(0).(*ec2.DescribeInstancesOutput), args.Error(1)
+}
+
+func (m *MockedEC2API) DescribeAvailabilityZones(input *ec2.DescribeAvailabilityZonesInput) (*ec2.DescribeAvailabilityZonesOutput, error) {
+	args := m.Called(input)
+	return args.Get(0).(*ec2.DescribeAvailabilityZonesOutput), args.Error(1)
 }
 
 func newMockedEC2API() *MockedEC2API {

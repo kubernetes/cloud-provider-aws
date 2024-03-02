@@ -580,6 +580,7 @@ type Cloud struct {
 	selfAWSInstance *awsInstance
 
 	instanceCache instanceCache
+	zoneCache     zoneCache
 
 	clientBuilder cloudprovider.ControllerClientBuilder
 	kubeClient    clientset.Interface
@@ -1422,6 +1423,7 @@ func newAWSCloud(cfg CloudConfig, awsServices Services) (*Cloud, error) {
 		deviceAllocators: make(map[types.NodeName]DeviceAllocator),
 	}
 	awsCloud.instanceCache.cloud = awsCloud
+	awsCloud.zoneCache.cloud = awsCloud
 
 	tagged := cfg.Global.KubernetesClusterTag != "" || cfg.Global.KubernetesClusterID != ""
 	if cfg.Global.VPC != "" && (cfg.Global.SubnetID != "" || cfg.Global.RoleARN != "") && tagged {
@@ -3522,35 +3524,6 @@ func (c *Cloud) findSubnets() ([]*ec2.Subnet, error) {
 	return subnets, nil
 }
 
-// Returns a mapping between availability zone names and their types
-// Zone will not be included in the map in case it was not found in AWS by name
-func (c *Cloud) getZoneTypesByName(azNames []string) (map[string]string, error) {
-	if len(azNames) == 0 {
-		// if az names slice is empty, no need to make a request, return early with empty map
-		return map[string]string{}, nil
-	}
-	azFilter := newEc2Filter("zone-name", azNames...)
-	azRequest := &ec2.DescribeAvailabilityZonesInput{}
-	azRequest.Filters = []*ec2.Filter{azFilter}
-
-	azs, err := c.ec2.DescribeAvailabilityZones(azRequest)
-	if err != nil {
-		return nil, fmt.Errorf("error describe availability zones: %q", err)
-	}
-
-	azTypesMapping := make(map[string]string)
-	for _, az := range azs {
-		name := aws.StringValue(az.ZoneName)
-		zoneType := aws.StringValue(az.ZoneType)
-		if name == "" || zoneType == "" {
-			klog.Warningf("Ignoring zone with empty name/type: %v", az)
-			continue
-		}
-		azTypesMapping[name] = zoneType
-	}
-	return azTypesMapping, nil
-}
-
 // Finds the subnets to use for an ELB we are creating.
 // Normal (Internet-facing) ELBs must use public subnets, so we skip private subnets.
 // Internal ELBs can use public or private subnets, but if we have a private subnet we should prefer that.
@@ -3639,21 +3612,21 @@ func (c *Cloud) findELBSubnets(internalELB bool) ([]string, error) {
 
 	sort.Strings(azNames)
 
-	azTypesMapping, err := c.getZoneTypesByName(azNames)
+	zoneNameToDetails, err := c.zoneCache.getZoneDetailsByNames(azNames)
 	if err != nil {
 		return nil, fmt.Errorf("error get availability zone types: %q", err)
 	}
 
 	var subnetIDs []string
-	for _, key := range azNames {
-		azType, found := azTypesMapping[key]
-		if found && azType != regularAvailabilityZoneType {
+	for _, zone := range azNames {
+		azType, found := zoneNameToDetails[zone]
+		if found && azType.zoneType != regularAvailabilityZoneType {
 			// take subnets only from zones with `availability-zone` type
 			// because another zone types (like local, wavelength and outpost zones)
 			// does not support NLB/CLB for the moment, only ALB.
 			continue
 		}
-		subnetIDs = append(subnetIDs, aws.StringValue(subnetsByAZ[key].SubnetId))
+		subnetIDs = append(subnetIDs, aws.StringValue(subnetsByAZ[zone].SubnetId))
 	}
 
 	return subnetIDs, nil
