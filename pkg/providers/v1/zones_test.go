@@ -24,6 +24,43 @@ import (
 	"testing"
 )
 
+func TestGetZoneIDByZoneName(t *testing.T) {
+	for _, tc := range []struct {
+		name           string
+		zoneName       string
+		expectedResult string
+		expectError    bool
+	}{
+		{
+			name:           "Should return requested zone ID",
+			zoneName:       "az1",
+			expectedResult: "az1-id",
+			expectError:    false,
+		},
+		{
+			name:           "Should return error if AZ doesn't exist",
+			zoneName:       "az4",
+			expectedResult: "",
+			expectError:    true,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			c, _ := getCloudWithMockedDescribeAvailabilityZones()
+
+			result, err := c.zoneCache.getZoneIDByZoneName(tc.zoneName)
+			if tc.expectError {
+				if err == nil {
+					t.Error("Expected to see an error")
+				}
+			} else if err != nil {
+				t.Errorf("Should not error getting zone ID: %s", err)
+			}
+
+			assert.Equal(t, tc.expectedResult, result, "Should return the expected zone ID")
+		})
+	}
+}
+
 func TestGetZoneDetailsByNames(t *testing.T) {
 	for _, tc := range []struct {
 		name             string

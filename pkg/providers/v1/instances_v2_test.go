@@ -186,6 +186,9 @@ func TestInstanceMetadata(t *testing.T) {
 		}, result.NodeAddresses)
 		assert.Equal(t, "us-west-2a", result.Zone)
 		assert.Equal(t, "us-west-2", result.Region)
+		assert.Equal(t, map[string]string{
+			LabelZoneID: "az1",
+		}, result.AdditionalLabels)
 	})
 }
 

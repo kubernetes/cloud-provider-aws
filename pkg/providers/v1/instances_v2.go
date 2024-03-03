@@ -63,6 +63,20 @@ func (c *Cloud) InstanceShutdown(ctx context.Context, node *v1.Node) (bool, erro
 	return c.InstanceShutdownByProviderID(ctx, providerID)
 }
 
+func (c *Cloud) getAdditionalLabels(zoneName string) (map[string]string, error) {
+	additionalLabels := map[string]string{}
+
+	// Add the zone ID to the additional labels
+	zoneID, err := c.zoneCache.getZoneIDByZoneName(zoneName)
+	if err != nil {
+		return nil, err
+	}
+
+	additionalLabels[LabelZoneID] = zoneID
+
+	return additionalLabels, nil
+}
+
 // InstanceMetadata returns the instance's metadata. The values returned in InstanceMetadata are
 // translated into specific fields and labels in the Node object on registration.
 // Implementations should always check node.spec.providerID first when trying to discover the instance
@@ -89,11 +103,17 @@ func (c *Cloud) InstanceMetadata(ctx context.Context, node *v1.Node) (*cloudprov
 		return nil, err
 	}
 
+	additionalLabels, err := c.getAdditionalLabels(zone.FailureDomain)
+	if err != nil {
+		return nil, err
+	}
+
 	return &cloudprovider.InstanceMetadata{
-		ProviderID:    providerID,
-		InstanceType:  instanceType,
-		NodeAddresses: nodeAddresses,
-		Zone:          zone.FailureDomain,
-		Region:        zone.Region,
+		ProviderID:       providerID,
+		InstanceType:     instanceType,
+		NodeAddresses:    nodeAddresses,
+		Zone:             zone.FailureDomain,
+		Region:           zone.Region,
+		AdditionalLabels: additionalLabels,
 	}, nil
 }
