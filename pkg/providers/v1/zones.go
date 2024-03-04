@@ -48,7 +48,7 @@ func (z *zoneCache) getZoneIDByZoneName(zoneName string) (string, error) {
 		return "", fmt.Errorf("Could not get zone ID from zone name %s", zoneName)
 	}
 
-	return zoneDetail.id, err
+	return zoneDetail.id, nil
 }
 
 // Get the zone details by zone names and load from the cache if available as
