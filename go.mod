@@ -3,11 +3,11 @@ module k8s.io/cloud-provider-aws
 go 1.21
 
 require (
-	github.com/aws/aws-sdk-go v1.50.25
+	github.com/aws/aws-sdk-go v1.50.30
 	github.com/golang/mock v1.6.0
 	github.com/spf13/cobra v1.8.0
 	github.com/spf13/pflag v1.0.5
-	github.com/stretchr/testify v1.8.4
+	github.com/stretchr/testify v1.9.0
 	golang.org/x/time v0.5.0
 	gopkg.in/gcfg.v1 v1.2.3
 	k8s.io/api v0.29.2
@@ -72,7 +72,7 @@ require (
 	github.com/prometheus/common v0.44.0 // indirect
 	github.com/prometheus/procfs v0.10.1 // indirect
 	github.com/stoewer/go-strcase v1.3.0 // indirect
-	github.com/stretchr/objx v0.5.0 // indirect
+	github.com/stretchr/objx v0.5.2 // indirect
 	go.etcd.io/etcd/api/v3 v3.5.10 // indirect
 	go.etcd.io/etcd/client/pkg/v3 v3.5.10 // indirect
 	go.etcd.io/etcd/client/v3 v3.5.10 // indirect
