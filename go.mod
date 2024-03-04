@@ -10,16 +10,16 @@ require (
 	github.com/stretchr/testify v1.9.0
 	golang.org/x/time v0.5.0
 	gopkg.in/gcfg.v1 v1.2.3
-	k8s.io/api v0.29.2
-	k8s.io/apimachinery v0.29.2
-	k8s.io/client-go v0.29.2
-	k8s.io/cloud-provider v0.29.2
-	k8s.io/code-generator v0.29.2
-	k8s.io/component-base v0.29.2
-	k8s.io/controller-manager v0.29.2
-	k8s.io/csi-translation-lib v0.29.2
+	k8s.io/api v0.30.0-alpha.3
+	k8s.io/apimachinery v0.30.0-alpha.3
+	k8s.io/client-go v0.30.0-alpha.3
+	k8s.io/cloud-provider v0.30.0-alpha.3
+	k8s.io/code-generator v0.30.0-alpha.3
+	k8s.io/component-base v0.30.0-alpha.3
+	k8s.io/controller-manager v0.30.0-alpha.3
+	k8s.io/csi-translation-lib v0.30.0-alpha.3
 	k8s.io/klog/v2 v2.120.1
-	k8s.io/kubelet v0.29.2
+	k8s.io/kubelet v0.30.0-alpha.3
 	k8s.io/utils v0.0.0-20240102154912-e7106e64919e
 )
 
@@ -85,17 +85,16 @@ require (
 	go.opentelemetry.io/otel/sdk v1.20.0 // indirect
 	go.opentelemetry.io/otel/trace v1.20.0 // indirect
 	go.opentelemetry.io/proto/otlp v1.0.0 // indirect
-	go.uber.org/atomic v1.10.0 // indirect
 	go.uber.org/multierr v1.11.0 // indirect
-	go.uber.org/zap v1.24.0 // indirect
-	golang.org/x/crypto v0.16.0 // indirect
+	go.uber.org/zap v1.26.0 // indirect
+	golang.org/x/crypto v0.19.0 // indirect
 	golang.org/x/exp v0.0.0-20230321023759-10a507213a29 // indirect
 	golang.org/x/mod v0.14.0 // indirect
 	golang.org/x/net v0.19.0 // indirect
 	golang.org/x/oauth2 v0.11.0 // indirect
 	golang.org/x/sync v0.5.0 // indirect
-	golang.org/x/sys v0.15.0 // indirect
-	golang.org/x/term v0.15.0 // indirect
+	golang.org/x/sys v0.17.0 // indirect
+	golang.org/x/term v0.17.0 // indirect
 	golang.org/x/text v0.14.0 // indirect
 	golang.org/x/tools v0.16.1 // indirect
 	google.golang.org/appengine v1.6.7 // indirect
@@ -109,12 +108,12 @@ require (
 	gopkg.in/warnings.v0 v0.1.2 // indirect
 	gopkg.in/yaml.v2 v2.4.0 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
-	k8s.io/apiserver v0.29.2 // indirect
-	k8s.io/component-helpers v0.29.2 // indirect
+	k8s.io/apiserver v0.30.0-alpha.3 // indirect
+	k8s.io/component-helpers v0.30.0-alpha.3 // indirect
 	k8s.io/gengo v0.0.0-20230829151522-9cce18d56c01 // indirect
-	k8s.io/kms v0.29.2 // indirect
-	k8s.io/kube-openapi v0.0.0-20231010175941-2dd684a91f00 // indirect
-	sigs.k8s.io/apiserver-network-proxy/konnectivity-client v0.28.0 // indirect
+	k8s.io/kms v0.30.0-alpha.3 // indirect
+	k8s.io/kube-openapi v0.0.0-20231113174909-778a5567bc1e // indirect
+	sigs.k8s.io/apiserver-network-proxy/konnectivity-client v0.29.0 // indirect
 	sigs.k8s.io/json v0.0.0-20221116044647-bc3834ca7abd // indirect
 	sigs.k8s.io/structured-merge-diff/v4 v4.4.1 // indirect
 	sigs.k8s.io/yaml v1.3.0 // indirect
