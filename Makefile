@@ -25,6 +25,13 @@ IMAGE ?= $(IMAGE_REPOSITORY):$(VERSION)
 OUTPUT ?= $(shell pwd)/_output
 INSTALL_PATH ?= $(OUTPUT)/bin
 LDFLAGS ?= -w -s -X k8s.io/component-base/version.gitVersion=$(VERSION) -X main.gitVersion=$(VERSION)
+GOLANG_VERSION ?= $(shell cat .go-version)
+
+GOLANG_IMAGE ?= golang:$(GOLANG_VERSION)
+DISTROLESS_IMAGE ?= registry.k8s.io/build-image/go-runner:v2.3.1-go$(GOLANG_VERSION)-bookworm.0
+
+export GOSUMDB = sum.golang.org
+export GOTOOLCHAIN = go$(GOLANG_VERSION)
 
 # flags for ecr-credential-provider artifact promotion
 UPLOAD ?= $(OUTPUT)/upload
@@ -77,6 +84,8 @@ docker-build-amd64:
 	docker buildx build --output=type=docker \
 		--build-arg VERSION=$(VERSION) \
 		--build-arg GOPROXY=$(GOPROXY) \
+		--build-arg GOLANG_IMAGE=$(GOLANG_IMAGE) \
+		--build-arg DISTROLESS_IMAGE=$(DISTROLESS_IMAGE) \
 		--platform linux/amd64 \
 		--tag $(IMAGE) .
 
@@ -85,6 +94,8 @@ docker-build-arm64:
 	docker buildx build --output=type=docker \
 		--build-arg VERSION=$(VERSION) \
 		--build-arg GOPROXY=$(GOPROXY) \
+		--build-arg GOLANG_IMAGE=$(GOLANG_IMAGE) \
+		--build-arg DISTROLESS_IMAGE=$(DISTROLESS_IMAGE) \
 		--platform linux/arm64 \
 		--tag $(IMAGE) .
 
@@ -93,6 +104,8 @@ docker-build:
 	docker buildx build --output=type=registry \
 		--build-arg LDFLAGS="$(LDFLAGS)" \
 		--build-arg GOPROXY=$(GOPROXY) \
+		--build-arg GOLANG_IMAGE=$(GOLANG_IMAGE) \
+		--build-arg DISTROLESS_IMAGE=$(DISTROLESS_IMAGE) \
 		--platform linux/amd64,linux/arm64 \
 		--tag $(IMAGE) .
 
