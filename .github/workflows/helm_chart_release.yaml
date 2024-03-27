@@ -25,6 +25,9 @@ jobs:
         run: |
           git config user.name "$GITHUB_ACTOR"
           git config user.email "$GITHUB_ACTOR@users.noreply.github.com"
+
+      - name: Install bom
+        uses: kubernetes-sigs/release-actions/setup-bom@dd08496c83441d6477114cc0555b96d404dacff7 # v0.1.2
       - name: Run chart-releaser
         uses: helm/chart-releaser-action@v1.6.0
         env:
