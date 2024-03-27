@@ -16,8 +16,8 @@
 
 VERSION=$(cat version.txt)
 
-if [[ ! "${VERSION}" =~ ^([0-9]+[.][0-9]+)[.]([0-9]+)(-(alpha|beta)[.]([0-9]+))?$ ]]; then
-  echo "Version ${VERSION} must be 'X.Y.Z', 'X.Y.Z-alpha.N', or 'X.Y.Z-beta.N'"
+if [[ ! "${VERSION}" =~ ^([0-9]+[.][0-9]+)[.]([0-9]+)(-(alpha|beta|rc)[.]([0-9]+))?$ ]]; then
+  echo "Version ${VERSION} must be 'X.Y.Z', 'X.Y.Z-alpha.N', 'X.Y.Z-beta.N' or 'X.Y.Z-rc.N'"
   exit 1
 fi
 
