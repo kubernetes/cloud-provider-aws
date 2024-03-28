@@ -68,6 +68,9 @@ var (
 	defaultHealthCheckPort         = "traffic-port"
 	defaultHealthCheckPath         = "/"
 
+	kubeProxyHealthCheckPort = 10256
+	kubeProxyHealthCheckPath = "/healthz"
+
 	// Defaults for ELB Target operations
 	defaultRegisterTargetsChunkSize   = 100
 	defaultDeregisterTargetsChunkSize = 100
