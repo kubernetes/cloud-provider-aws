@@ -37,6 +37,8 @@ import (
 	"k8s.io/component-base/logs"
 	"k8s.io/klog/v2"
 	v1 "k8s.io/kubelet/pkg/apis/credentialprovider/v1"
+
+	"k8s.io/cloud-provider-aws/cmd/ecr-credential-provider/plugin"
 )
 
 const ecrPublicRegion string = "us-east-1"
@@ -256,7 +258,7 @@ func newCredentialProviderCommand() *cobra.Command {
 		Short:   "ECR credential provider for kubelet",
 		Version: gitVersion,
 		Run: func(cmd *cobra.Command, args []string) {
-			p := NewCredentialProvider(&ecrPlugin{})
+			p := plugin.NewCredentialProvider(&ecrPlugin{})
 			if err := p.Run(context.TODO()); err != nil {
 				klog.Errorf("Error running credential provider plugin: %v", err)
 				os.Exit(1)
