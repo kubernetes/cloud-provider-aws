@@ -403,21 +403,6 @@ type EC2Metadata interface {
 	Region() (string, error)
 }
 
-// InstanceGroups is an interface for managing cloud-managed instance groups / autoscaling instance groups
-// TODO: Allow other clouds to implement this
-type InstanceGroups interface {
-	// Set the size to the fixed size
-	ResizeInstanceGroup(instanceGroupName string, size int) error
-	// Queries the cloud provider for information about the specified instance group
-	DescribeInstanceGroup(instanceGroupName string) (InstanceGroupInfo, error)
-}
-
-// InstanceGroupInfo is returned by InstanceGroups.Describe, and exposes information about the group.
-type InstanceGroupInfo interface {
-	// The number of instances currently running under control of this group
-	CurrentSize() (int, error)
-}
-
 var _ cloudprovider.Interface = (*Cloud)(nil)
 var _ cloudprovider.Instances = (*Cloud)(nil)
 var _ cloudprovider.LoadBalancer = (*Cloud)(nil)
