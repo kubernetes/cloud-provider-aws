@@ -43,7 +43,6 @@ import (
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/client-go/informers"
 	"k8s.io/client-go/kubernetes/fake"
-	cloudvolume "k8s.io/cloud-provider/volume"
 )
 
 const TestClusterID = "clusterid.test"
@@ -66,43 +65,9 @@ func (m *MockedFakeEC2) expectDescribeSecurityGroups(clusterID, groupName string
 	}}).Return([]*ec2.SecurityGroup{{Tags: tags}})
 }
 
-func (m *MockedFakeEC2) DescribeVolumes(request *ec2.DescribeVolumesInput) ([]*ec2.Volume, error) {
-	args := m.Called(request)
-	return args.Get(0).([]*ec2.Volume), nil
-}
-
-func (m *MockedFakeEC2) DeleteVolume(request *ec2.DeleteVolumeInput) (*ec2.DeleteVolumeOutput, error) {
-	args := m.Called(request)
-	return args.Get(0).(*ec2.DeleteVolumeOutput), nil
-}
-
 func (m *MockedFakeEC2) DescribeSecurityGroups(request *ec2.DescribeSecurityGroupsInput) ([]*ec2.SecurityGroup, error) {
 	args := m.Called(request)
 	return args.Get(0).([]*ec2.SecurityGroup), nil
-}
-
-func (m *MockedFakeEC2) CreateVolume(request *ec2.CreateVolumeInput) (*ec2.Volume, error) {
-	// mock requires stable input, and in CreateDisk we invoke buildTags which uses
-	// a map to create tags, which then get converted into an array. This leads to
-	// unstable sorting order which confuses mock. Sorted tags are not needed in
-	// regular code, but are a must in tests here:
-	for i := 0; i < len(request.TagSpecifications); i++ {
-		if request.TagSpecifications[i] == nil {
-			continue
-		}
-		tags := request.TagSpecifications[i].Tags
-		sort.Slice(tags, func(i, j int) bool {
-			if tags[i] == nil && tags[j] != nil {
-				return false
-			}
-			if tags[i] != nil && tags[j] == nil {
-				return true
-			}
-			return *tags[i].Key < *tags[j].Key
-		})
-	}
-	args := m.Called(request)
-	return args.Get(0).(*ec2.Volume), nil
 }
 
 type MockedFakeELB struct {
@@ -1676,120 +1641,6 @@ func TestGetInstanceByNodeNameBatching(t *testing.T) {
 	assert.Equal(t, 200, len(instances), "Expected 200 but got less")
 }
 
-func TestGetVolumeLabels(t *testing.T) {
-	awsServices := newMockedFakeAWSServices(TestClusterID)
-	c, err := newAWSCloud(CloudConfig{}, awsServices)
-	assert.Nil(t, err, "Error building aws cloud: %v", err)
-	volumeID := EBSVolumeID("vol-VolumeId")
-	expectedVolumeRequest := &ec2.DescribeVolumesInput{VolumeIds: []*string{volumeID.awsString()}}
-	awsServices.ec2.(*MockedFakeEC2).On("DescribeVolumes", expectedVolumeRequest).Return([]*ec2.Volume{
-		{
-			VolumeId:         volumeID.awsString(),
-			AvailabilityZone: aws.String("us-west-2a"),
-		},
-	})
-
-	labels, err := c.GetVolumeLabels(KubernetesVolumeID("aws:///" + string(volumeID)))
-
-	assert.Nil(t, err, "Error creating Volume %v", err)
-	assert.Equal(t, map[string]string{
-		v1.LabelTopologyZone:   "us-west-2a",
-		v1.LabelTopologyRegion: "us-west-2"}, labels)
-	awsServices.ec2.(*MockedFakeEC2).AssertExpectations(t)
-}
-
-func TestGetLabelsForVolume(t *testing.T) {
-	defaultVolume := EBSVolumeID("vol-VolumeId").awsString()
-	tests := []struct {
-		name               string
-		pv                 *v1.PersistentVolume
-		expectedVolumeID   *string
-		expectedEC2Volumes []*ec2.Volume
-		expectedLabels     map[string]string
-		expectedError      error
-	}{
-		{
-			"not an EBS volume",
-			&v1.PersistentVolume{
-				Spec: v1.PersistentVolumeSpec{},
-			},
-			nil,
-			nil,
-			nil,
-			nil,
-		},
-		{
-			"volume which is being provisioned",
-			&v1.PersistentVolume{
-				Spec: v1.PersistentVolumeSpec{
-					PersistentVolumeSource: v1.PersistentVolumeSource{
-						AWSElasticBlockStore: &v1.AWSElasticBlockStoreVolumeSource{
-							VolumeID: cloudvolume.ProvisionedVolumeName,
-						},
-					},
-				},
-			},
-			nil,
-			nil,
-			nil,
-			nil,
-		},
-		{
-			"no volumes found",
-			&v1.PersistentVolume{
-				Spec: v1.PersistentVolumeSpec{
-					PersistentVolumeSource: v1.PersistentVolumeSource{
-						AWSElasticBlockStore: &v1.AWSElasticBlockStoreVolumeSource{
-							VolumeID: "vol-VolumeId",
-						},
-					},
-				},
-			},
-			defaultVolume,
-			nil,
-			nil,
-			fmt.Errorf("no volumes found"),
-		},
-		{
-			"correct labels for volume",
-			&v1.PersistentVolume{
-				Spec: v1.PersistentVolumeSpec{
-					PersistentVolumeSource: v1.PersistentVolumeSource{
-						AWSElasticBlockStore: &v1.AWSElasticBlockStoreVolumeSource{
-							VolumeID: "vol-VolumeId",
-						},
-					},
-				},
-			},
-			defaultVolume,
-			[]*ec2.Volume{{
-				VolumeId:         defaultVolume,
-				AvailabilityZone: aws.String("us-west-2a"),
-			}},
-			map[string]string{
-				v1.LabelTopologyZone:   "us-west-2a",
-				v1.LabelTopologyRegion: "us-west-2",
-			},
-			nil,
-		},
-	}
-	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			awsServices := newMockedFakeAWSServices(TestClusterID)
-			expectedVolumeRequest := &ec2.DescribeVolumesInput{VolumeIds: []*string{test.expectedVolumeID}}
-			awsServices.ec2.(*MockedFakeEC2).On("DescribeVolumes", expectedVolumeRequest).Return(test.expectedEC2Volumes)
-
-			c, err := newAWSCloud(CloudConfig{}, awsServices)
-			assert.Nil(t, err, "Error building aws cloud: %v", err)
-
-			l, err := c.GetLabelsForVolume(context.TODO(), test.pv)
-			assert.Equal(t, test.expectedLabels, l)
-			assert.Equal(t, test.expectedError, err)
-		})
-
-	}
-}
-
 func TestDescribeLoadBalancerOnDelete(t *testing.T) {
 	awsServices := newMockedFakeAWSServices(TestClusterID)
 	c, _ := newAWSCloud(CloudConfig{}, awsServices)
@@ -2496,92 +2347,6 @@ func TestFindSecurityGroupForInstanceMultipleTagged(t *testing.T) {
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "sg123(my_group)")
 	assert.Contains(t, err.Error(), "sg123(another_group)")
-}
-
-func TestCreateDisk(t *testing.T) {
-	awsServices := newMockedFakeAWSServices(TestClusterID)
-	c, _ := newAWSCloud(CloudConfig{}, awsServices)
-
-	volumeOptions := &VolumeOptions{
-		AvailabilityZone: "us-west-2a",
-		CapacityGB:       10,
-	}
-	request := &ec2.CreateVolumeInput{
-		AvailabilityZone: aws.String("us-west-2a"),
-		Encrypted:        aws.Bool(false),
-		VolumeType:       aws.String(DefaultVolumeType),
-		Size:             aws.Int64(10),
-		TagSpecifications: []*ec2.TagSpecification{
-			{ResourceType: aws.String(ec2.ResourceTypeVolume), Tags: []*ec2.Tag{
-				// CreateVolume from MockedFakeEC2 expects sorted tags, so we need to
-				// always have these tags sorted:
-				{Key: aws.String(TagNameKubernetesClusterLegacy), Value: aws.String(TestClusterID)},
-				{Key: aws.String(fmt.Sprintf("%s%s", TagNameKubernetesClusterPrefix, TestClusterID)), Value: aws.String(ResourceLifecycleOwned)},
-			}},
-		},
-	}
-
-	volume := &ec2.Volume{
-		AvailabilityZone: aws.String("us-west-2a"),
-		VolumeId:         aws.String("vol-volumeId0"),
-		State:            aws.String("available"),
-	}
-	awsServices.ec2.(*MockedFakeEC2).On("CreateVolume", request).Return(volume, nil)
-
-	describeVolumesRequest := &ec2.DescribeVolumesInput{
-		VolumeIds: []*string{aws.String("vol-volumeId0")},
-	}
-	awsServices.ec2.(*MockedFakeEC2).On("DescribeVolumes", describeVolumesRequest).Return([]*ec2.Volume{volume}, nil)
-
-	volumeID, err := c.CreateDisk(volumeOptions)
-	assert.Nil(t, err, "Error creating disk: %v", err)
-	assert.Equal(t, volumeID, KubernetesVolumeID("aws://us-west-2a/vol-volumeId0"))
-	awsServices.ec2.(*MockedFakeEC2).AssertExpectations(t)
-}
-
-func TestCreateDiskFailDescribeVolume(t *testing.T) {
-	awsServices := newMockedFakeAWSServices(TestClusterID)
-	c, _ := newAWSCloud(CloudConfig{}, awsServices)
-
-	volumeOptions := &VolumeOptions{
-		AvailabilityZone: "us-west-2a",
-		CapacityGB:       10,
-	}
-	request := &ec2.CreateVolumeInput{
-		AvailabilityZone: aws.String("us-west-2a"),
-		Encrypted:        aws.Bool(false),
-		VolumeType:       aws.String(DefaultVolumeType),
-		Size:             aws.Int64(10),
-		TagSpecifications: []*ec2.TagSpecification{
-			{ResourceType: aws.String(ec2.ResourceTypeVolume), Tags: []*ec2.Tag{
-				// CreateVolume from MockedFakeEC2 expects sorted tags, so we need to
-				// always have these tags sorted:
-				{Key: aws.String(TagNameKubernetesClusterLegacy), Value: aws.String(TestClusterID)},
-				{Key: aws.String(fmt.Sprintf("%s%s", TagNameKubernetesClusterPrefix, TestClusterID)), Value: aws.String(ResourceLifecycleOwned)},
-			}},
-		},
-	}
-
-	volume := &ec2.Volume{
-		AvailabilityZone: aws.String("us-west-2a"),
-		VolumeId:         aws.String("vol-volumeId0"),
-		State:            aws.String("creating"),
-	}
-	awsServices.ec2.(*MockedFakeEC2).On("CreateVolume", request).Return(volume, nil)
-
-	describeVolumesRequest := &ec2.DescribeVolumesInput{
-		VolumeIds: []*string{aws.String("vol-volumeId0")},
-	}
-	deleteVolumeRequest := &ec2.DeleteVolumeInput{
-		VolumeId: aws.String("vol-volumeId0"),
-	}
-	awsServices.ec2.(*MockedFakeEC2).On("DescribeVolumes", describeVolumesRequest).Return([]*ec2.Volume{volume}, nil)
-	awsServices.ec2.(*MockedFakeEC2).On("DeleteVolume", deleteVolumeRequest).Return(&ec2.DeleteVolumeOutput{}, nil)
-
-	volumeID, err := c.CreateDisk(volumeOptions)
-	assert.Error(t, err)
-	assert.Equal(t, volumeID, KubernetesVolumeID(""))
-	awsServices.ec2.(*MockedFakeEC2).AssertExpectations(t)
 }
 
 const (
