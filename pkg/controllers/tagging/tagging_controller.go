@@ -16,6 +16,10 @@ package tagging
 import (
 	"crypto/md5"
 	"fmt"
+	"sort"
+	"strings"
+	"time"
+
 	"golang.org/x/time/rate"
 	v1 "k8s.io/api/core/v1"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
@@ -27,11 +31,9 @@ import (
 	cloudprovider "k8s.io/cloud-provider"
 	opt "k8s.io/cloud-provider-aws/pkg/controllers/options"
 	awsv1 "k8s.io/cloud-provider-aws/pkg/providers/v1"
+	"k8s.io/cloud-provider-aws/pkg/providers/v1/variant"
 	nodehelpers "k8s.io/cloud-provider/node/helpers"
 	"k8s.io/klog/v2"
-	"sort"
-	"strings"
-	"time"
 )
 
 // workItem contains the node and an action for that node
@@ -226,8 +228,9 @@ func (tc *Controller) process() bool {
 		}
 		klog.Infof("Instance ID of work item %s is %s", workItem, instanceID)
 
-		if awsv1.IsFargateNode(string(instanceID)) {
-			klog.Infof("Skip processing the node %s since it is a Fargate node", instanceID)
+		if variant.IsVariantNode(string(instanceID)) {
+			klog.Infof("Skip processing the node %s since it is a %s node",
+				instanceID, variant.NodeType(string(instanceID)))
 			tc.workqueue.Forget(obj)
 			return nil
 		}
