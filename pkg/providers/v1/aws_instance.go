@@ -20,10 +20,12 @@ import (
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/service/ec2"
 	"k8s.io/apimachinery/pkg/types"
+
+	"k8s.io/cloud-provider-aws/pkg/providers/v1/iface"
 )
 
 type awsInstance struct {
-	ec2 EC2
+	ec2 iface.EC2
 
 	// id in AWS
 	awsID string
@@ -45,7 +47,7 @@ type awsInstance struct {
 }
 
 // newAWSInstance creates a new awsInstance object
-func newAWSInstance(ec2Service EC2, instance *ec2.Instance) *awsInstance {
+func newAWSInstance(ec2Service iface.EC2, instance *ec2.Instance) *awsInstance {
 	az := ""
 	if instance.Placement != nil {
 		az = aws.StringValue(instance.Placement.AvailabilityZone)
