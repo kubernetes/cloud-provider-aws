@@ -34,6 +34,8 @@ import (
 	nodehelpers "k8s.io/cloud-provider/node/helpers"
 	_ "k8s.io/component-base/metrics/prometheus/workqueue" // enable prometheus provider for workqueue metrics
 	"k8s.io/klog/v2"
+
+	"k8s.io/cloud-provider-aws/pkg/providers/v1/variant"
 )
 
 func init() {
@@ -231,8 +233,9 @@ func (tc *Controller) process() bool {
 		}
 		klog.Infof("Instance ID of work item %s is %s", workItem, instanceID)
 
-		if awsv1.IsFargateNode(string(instanceID)) {
-			klog.Infof("Skip processing the node %s since it is a Fargate node", instanceID)
+		if variant.IsVariantNode(string(instanceID)) {
+			klog.Infof("Skip processing the node %s since it is a %s node",
+				instanceID, variant.NodeType(string(instanceID)))
 			tc.workqueue.Forget(obj)
 			return nil
 		}
