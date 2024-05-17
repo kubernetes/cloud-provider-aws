@@ -26,7 +26,6 @@ import (
 	"sort"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/aws/aws-sdk-go/aws"
@@ -39,7 +38,6 @@ import (
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/autoscaling"
 	"github.com/aws/aws-sdk-go/service/ec2"
-	"github.com/aws/aws-sdk-go/service/ec2/ec2iface"
 	"github.com/aws/aws-sdk-go/service/elb"
 	"github.com/aws/aws-sdk-go/service/elbv2"
 	"github.com/aws/aws-sdk-go/service/kms"
@@ -57,7 +55,6 @@ import (
 	clientset "k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/kubernetes/scheme"
 	v1core "k8s.io/client-go/kubernetes/typed/core/v1"
-	"k8s.io/client-go/pkg/version"
 	"k8s.io/client-go/tools/cache"
 	"k8s.io/client-go/tools/record"
 	cloudprovider "k8s.io/cloud-provider"
@@ -68,6 +65,11 @@ import (
 	volumehelpers "k8s.io/cloud-provider/volume/helpers"
 	"k8s.io/klog/v2"
 	netutils "k8s.io/utils/net"
+
+	"k8s.io/cloud-provider-aws/pkg/providers/v1/config"
+	"k8s.io/cloud-provider-aws/pkg/providers/v1/iface"
+	"k8s.io/cloud-provider-aws/pkg/providers/v1/variant"
+	_ "k8s.io/cloud-provider-aws/pkg/providers/v1/variant/fargate" // ensure the fargate variant gets registered
 )
 
 // NLBHealthCheckRuleDescription is the comment used on a security group rule to
@@ -285,9 +287,6 @@ const (
 	// but we are using a lower limit on purpose
 	filterNodeLimit = 150
 
-	// fargateNodeNamePrefix string is added to awsInstance nodeName and providerID of Fargate nodes.
-	fargateNodeNamePrefix = "fargate-"
-
 	// privateDNSNamePrefix is the prefix added to ENI Private DNS Name.
 	privateDNSNamePrefix = "ip-"
 
@@ -334,60 +333,12 @@ const DefaultVolumeType = "gp2"
 
 // Services is an abstraction over AWS, to allow mocking/other implementations
 type Services interface {
-	Compute(region string) (EC2, error)
+	Compute(region string) (iface.EC2, error)
 	LoadBalancing(region string) (ELB, error)
 	LoadBalancingV2(region string) (ELBV2, error)
 	Autoscaling(region string) (ASG, error)
-	Metadata() (EC2Metadata, error)
+	Metadata() (config.EC2Metadata, error)
 	KeyManagement(region string) (KMS, error)
-}
-
-// EC2 is an abstraction over AWS', to allow mocking/other implementations
-// Note that the DescribeX functions return a list, so callers don't need to deal with paging
-// TODO: Should we rename this to AWS (EBS & ELB are not technically part of EC2)
-type EC2 interface {
-	// Query EC2 for instances matching the filter
-	DescribeInstances(request *ec2.DescribeInstancesInput) ([]*ec2.Instance, error)
-
-	// Attach a volume to an instance
-	AttachVolume(*ec2.AttachVolumeInput) (*ec2.VolumeAttachment, error)
-	// Detach a volume from an instance it is attached to
-	DetachVolume(request *ec2.DetachVolumeInput) (resp *ec2.VolumeAttachment, err error)
-	// Lists volumes
-	DescribeVolumes(request *ec2.DescribeVolumesInput) ([]*ec2.Volume, error)
-	// Create an EBS volume
-	CreateVolume(request *ec2.CreateVolumeInput) (resp *ec2.Volume, err error)
-	// Delete an EBS volume
-	DeleteVolume(*ec2.DeleteVolumeInput) (*ec2.DeleteVolumeOutput, error)
-
-	ModifyVolume(*ec2.ModifyVolumeInput) (*ec2.ModifyVolumeOutput, error)
-
-	DescribeVolumeModifications(*ec2.DescribeVolumesModificationsInput) ([]*ec2.VolumeModification, error)
-
-	DescribeSecurityGroups(request *ec2.DescribeSecurityGroupsInput) ([]*ec2.SecurityGroup, error)
-
-	CreateSecurityGroup(*ec2.CreateSecurityGroupInput) (*ec2.CreateSecurityGroupOutput, error)
-	DeleteSecurityGroup(request *ec2.DeleteSecurityGroupInput) (*ec2.DeleteSecurityGroupOutput, error)
-
-	AuthorizeSecurityGroupIngress(*ec2.AuthorizeSecurityGroupIngressInput) (*ec2.AuthorizeSecurityGroupIngressOutput, error)
-	RevokeSecurityGroupIngress(*ec2.RevokeSecurityGroupIngressInput) (*ec2.RevokeSecurityGroupIngressOutput, error)
-
-	DescribeSubnets(*ec2.DescribeSubnetsInput) ([]*ec2.Subnet, error)
-
-	DescribeAvailabilityZones(request *ec2.DescribeAvailabilityZonesInput) ([]*ec2.AvailabilityZone, error)
-
-	CreateTags(*ec2.CreateTagsInput) (*ec2.CreateTagsOutput, error)
-	DeleteTags(input *ec2.DeleteTagsInput) (*ec2.DeleteTagsOutput, error)
-
-	DescribeRouteTables(request *ec2.DescribeRouteTablesInput) ([]*ec2.RouteTable, error)
-	CreateRoute(request *ec2.CreateRouteInput) (*ec2.CreateRouteOutput, error)
-	DeleteRoute(request *ec2.DeleteRouteInput) (*ec2.DeleteRouteOutput, error)
-
-	ModifyInstanceAttribute(request *ec2.ModifyInstanceAttributeInput) (*ec2.ModifyInstanceAttributeOutput, error)
-
-	DescribeVpcs(input *ec2.DescribeVpcsInput) (*ec2.DescribeVpcsOutput, error)
-
-	DescribeNetworkInterfaces(input *ec2.DescribeNetworkInterfacesInput) (*ec2.DescribeNetworkInterfacesOutput, error)
 }
 
 // ELB is a simple pass-through of AWS' ELB client interface, which allows for testing
@@ -462,98 +413,6 @@ type KMS interface {
 	DescribeKey(*kms.DescribeKeyInput) (*kms.DescribeKeyOutput, error)
 }
 
-// EC2Metadata is an abstraction over the AWS metadata service.
-type EC2Metadata interface {
-	// Query the EC2 metadata service (used to discover instance-id etc)
-	GetMetadata(path string) (string, error)
-	Region() (string, error)
-}
-
-// AWS volume types
-const (
-	// Provisioned IOPS SSD
-	VolumeTypeIO1 = "io1"
-	// General Purpose SSD
-	VolumeTypeGP2 = "gp2"
-	// Cold HDD (sc1)
-	VolumeTypeSC1 = "sc1"
-	// Throughput Optimized HDD
-	VolumeTypeST1 = "st1"
-)
-
-// AWS provisioning limits.
-// Source: http://docs.aws.amazon.com/AWSEC2/latest/UserGuide/EBSVolumeTypes.html
-const (
-	MinTotalIOPS = 100
-	MaxTotalIOPS = 64000
-)
-
-// VolumeOptions specifies capacity and tags for a volume.
-type VolumeOptions struct {
-	CapacityGB       int
-	Tags             map[string]string
-	VolumeType       string
-	AvailabilityZone string
-	// IOPSPerGB x CapacityGB will give total IOPS of the volume to create.
-	// Calculated total IOPS will be capped at MaxTotalIOPS.
-	IOPSPerGB int
-	Encrypted bool
-	// fully qualified resource name to the key to use for encryption.
-	// example: arn:aws:kms:us-east-1:012345678910:key/abcd1234-a123-456a-a12b-a123b4cd56ef
-	KmsKeyID string
-}
-
-// Volumes is an interface for managing cloud-provisioned volumes
-// TODO: Allow other clouds to implement this
-type Volumes interface {
-	// Attach the disk to the node with the specified NodeName
-	// nodeName can be empty to mean "the instance on which we are running"
-	// Returns the device (e.g. /dev/xvdf) where we attached the volume
-	AttachDisk(diskName KubernetesVolumeID, nodeName types.NodeName) (string, error)
-	// Detach the disk from the node with the specified NodeName
-	// nodeName can be empty to mean "the instance on which we are running"
-	// Returns the device where the volume was attached
-	DetachDisk(diskName KubernetesVolumeID, nodeName types.NodeName) (string, error)
-
-	// Create a volume with the specified options
-	CreateDisk(volumeOptions *VolumeOptions) (volumeName KubernetesVolumeID, err error)
-	// Delete the specified volume
-	// Returns true iff the volume was deleted
-	// If the was not found, returns (false, nil)
-	DeleteDisk(volumeName KubernetesVolumeID) (bool, error)
-
-	// Get labels to apply to volume on creation
-	GetVolumeLabels(volumeName KubernetesVolumeID) (map[string]string, error)
-
-	// Get volume's disk path from volume name
-	// return the device path where the volume is attached
-	GetDiskPath(volumeName KubernetesVolumeID) (string, error)
-
-	// Check if the volume is already attached to the node with the specified NodeName
-	DiskIsAttached(diskName KubernetesVolumeID, nodeName types.NodeName) (bool, error)
-
-	// Check if disks specified in argument map are still attached to their respective nodes.
-	DisksAreAttached(map[types.NodeName][]KubernetesVolumeID) (map[types.NodeName]map[KubernetesVolumeID]bool, error)
-
-	// Expand the disk to new size
-	ResizeDisk(diskName KubernetesVolumeID, oldSize resource.Quantity, newSize resource.Quantity) (resource.Quantity, error)
-}
-
-// InstanceGroups is an interface for managing cloud-managed instance groups / autoscaling instance groups
-// TODO: Allow other clouds to implement this
-type InstanceGroups interface {
-	// Set the size to the fixed size
-	ResizeInstanceGroup(instanceGroupName string, size int) error
-	// Queries the cloud provider for information about the specified instance group
-	DescribeInstanceGroup(instanceGroupName string) (InstanceGroupInfo, error)
-}
-
-// InstanceGroupInfo is returned by InstanceGroups.Describe, and exposes information about the group.
-type InstanceGroupInfo interface {
-	// The number of instances currently running under control of this group
-	CurrentSize() (int, error)
-}
-
 var _ cloudprovider.Interface = (*Cloud)(nil)
 var _ cloudprovider.Instances = (*Cloud)(nil)
 var _ cloudprovider.LoadBalancer = (*Cloud)(nil)
@@ -563,13 +422,13 @@ var _ cloudprovider.PVLabeler = (*Cloud)(nil)
 
 // Cloud is an implementation of Interface, LoadBalancer and Instances for Amazon Web Services.
 type Cloud struct {
-	ec2      EC2
+	ec2      iface.EC2
 	elb      ELB
 	elbv2    ELBV2
 	asg      ASG
 	kms      KMS
-	metadata EC2Metadata
-	cfg      *CloudConfig
+	metadata config.EC2Metadata
+	cfg      *config.CloudConfig
 	region   string
 	vpcID    string
 
@@ -591,260 +450,11 @@ type Cloud struct {
 
 	eventBroadcaster record.EventBroadcaster
 	eventRecorder    record.EventRecorder
-
-	// We keep an active list of devices we have assigned but not yet
-	// attached, to avoid a race condition where we assign a device mapping
-	// and then get a second request before we attach the volume
-	attachingMutex sync.Mutex
-	attaching      map[types.NodeName]map[mountDevice]EBSVolumeID
-
-	// state of our device allocator for each node
-	deviceAllocators map[types.NodeName]DeviceAllocator
-}
-
-var _ Volumes = &Cloud{}
-
-// CloudConfig wraps the settings for the AWS cloud provider.
-// NOTE: Cloud config files should follow the same Kubernetes deprecation policy as
-// flags or CLIs. Config fields should not change behavior in incompatible ways and
-// should be deprecated for at least 2 release prior to removing.
-// See https://kubernetes.io/docs/reference/using-api/deprecation-policy/#deprecating-a-flag-or-cli
-// for more details.
-type CloudConfig struct {
-	Global struct {
-		// TODO: Is there any use for this?  We can get it from the instance metadata service
-		// Maybe if we're not running on AWS, e.g. bootstrap; for now it is not very useful
-		Zone string
-
-		Region string
-
-		// The AWS VPC flag enables the possibility to run the master components
-		// on a different aws account, on a different cloud provider or on-premises.
-		// If the flag is set also the KubernetesClusterTag must be provided
-		VPC string
-		// SubnetID enables using a specific subnet to use for ELB's
-		SubnetID string
-		// RouteTableID enables using a specific RouteTable
-		RouteTableID string
-
-		// RoleARN is the IAM role to assume when interaction with AWS APIs.
-		RoleARN string
-		// SourceARN is value which is passed while assuming role specified by RoleARN. When a service
-		// assumes a role in your account, you can include the aws:SourceAccount and aws:SourceArn global
-		// condition context keys in your role trust policy to limit access to the role to only requests that are generated
-		// by expected resources. https://docs.aws.amazon.com/IAM/latest/UserGuide/confused-deputy.html
-		SourceARN string
-
-		// KubernetesClusterTag is the legacy cluster id we'll use to identify our cluster resources
-		KubernetesClusterTag string
-		// KubernetesClusterID is the cluster id we'll use to identify our cluster resources
-		KubernetesClusterID string
-
-		//The aws provider creates an inbound rule per load balancer on the node security
-		//group. However, this can run into the AWS security group rule limit of 50 if
-		//many LoadBalancers are created.
-		//
-		//This flag disables the automatic ingress creation. It requires that the user
-		//has setup a rule that allows inbound traffic on kubelet ports from the
-		//local VPC subnet (so load balancers can access it). E.g. 10.82.0.0/16 30000-32000.
-		DisableSecurityGroupIngress bool
-
-		//AWS has a hard limit of 500 security groups. For large clusters creating a security group for each ELB
-		//can cause the max number of security groups to be reached. If this is set instead of creating a new
-		//Security group for each ELB this security group will be used instead.
-		ElbSecurityGroup string
-
-		// NodeIPFamilies determines which IP addresses are added to node objects and their ordering.
-		NodeIPFamilies []string
-	}
-	// [ServiceOverride "1"]
-	//  Service = s3
-	//  Region = region1
-	//  URL = https://s3.foo.bar
-	//  SigningRegion = signing_region
-	//  SigningMethod = signing_method
-	//
-	//  [ServiceOverride "2"]
-	//     Service = ec2
-	//     Region = region2
-	//     URL = https://ec2.foo.bar
-	//     SigningRegion = signing_region
-	//     SigningMethod = signing_method
-	ServiceOverride map[string]*struct {
-		Service       string
-		Region        string
-		URL           string
-		SigningRegion string
-		SigningMethod string
-		SigningName   string
-	}
-}
-
-// GetRegion returns the AWS region from the config, if set, or gets it from the metadata
-// service if unset and sets in config
-func (cfg *CloudConfig) GetRegion(metadata EC2Metadata) (string, error) {
-	if cfg.Global.Region != "" {
-		return cfg.Global.Region, nil
-	}
-
-	klog.Info("Loading region from metadata service")
-	region, err := metadata.Region()
-	if err != nil {
-		return "", err
-	}
-
-	cfg.Global.Region = region
-	return region, nil
-}
-
-func (cfg *CloudConfig) validateOverrides() error {
-	if len(cfg.ServiceOverride) == 0 {
-		return nil
-	}
-	set := make(map[string]bool)
-	for onum, ovrd := range cfg.ServiceOverride {
-		// Note: gcfg does not space trim, so we have to when comparing to empty string ""
-		name := strings.TrimSpace(ovrd.Service)
-		if name == "" {
-			return fmt.Errorf("service name is missing [Service is \"\"] in override %s", onum)
-		}
-		// insure the map service name is space trimmed
-		ovrd.Service = name
-
-		region := strings.TrimSpace(ovrd.Region)
-		if region == "" {
-			return fmt.Errorf("service region is missing [Region is \"\"] in override %s", onum)
-		}
-		// insure the map region is space trimmed
-		ovrd.Region = region
-
-		url := strings.TrimSpace(ovrd.URL)
-		if url == "" {
-			return fmt.Errorf("url is missing [URL is \"\"] in override %s", onum)
-		}
-		signingRegion := strings.TrimSpace(ovrd.SigningRegion)
-		if signingRegion == "" {
-			return fmt.Errorf("signingRegion is missing [SigningRegion is \"\"] in override %s", onum)
-		}
-		signature := name + "_" + region
-		if set[signature] {
-			return fmt.Errorf("duplicate entry found for service override [%s] (%s in %s)", onum, name, region)
-		}
-		set[signature] = true
-	}
-	return nil
-}
-
-func (cfg *CloudConfig) getResolver() endpoints.ResolverFunc {
-	defaultResolver := endpoints.DefaultResolver()
-	defaultResolverFn := func(service, region string,
-		optFns ...func(*endpoints.Options)) (endpoints.ResolvedEndpoint, error) {
-		return defaultResolver.EndpointFor(service, region, optFns...)
-	}
-	if len(cfg.ServiceOverride) == 0 {
-		return defaultResolverFn
-	}
-
-	return func(service, region string,
-		optFns ...func(*endpoints.Options)) (endpoints.ResolvedEndpoint, error) {
-		for _, override := range cfg.ServiceOverride {
-			if override.Service == service && override.Region == region {
-				return endpoints.ResolvedEndpoint{
-					URL:           override.URL,
-					SigningRegion: override.SigningRegion,
-					SigningMethod: override.SigningMethod,
-					SigningName:   override.SigningName,
-				}, nil
-			}
-		}
-		return defaultResolver.EndpointFor(service, region, optFns...)
-	}
-}
-
-// awsSdkEC2 is an implementation of the EC2 interface, backed by aws-sdk-go
-type awsSdkEC2 struct {
-	ec2 ec2iface.EC2API
 }
 
 // Interface to make the CloudConfig immutable for awsSDKProvider
 type awsCloudConfigProvider interface {
-	getResolver() endpoints.ResolverFunc
-}
-
-type awsSDKProvider struct {
-	creds *credentials.Credentials
-	cfg   awsCloudConfigProvider
-
-	mutex          sync.Mutex
-	regionDelayers map[string]*CrossRequestRetryDelay
-}
-
-func newAWSSDKProvider(creds *credentials.Credentials, cfg *CloudConfig) *awsSDKProvider {
-	return &awsSDKProvider{
-		creds:          creds,
-		cfg:            cfg,
-		regionDelayers: make(map[string]*CrossRequestRetryDelay),
-	}
-}
-
-func (p *awsSDKProvider) addHandlers(regionName string, h *request.Handlers) {
-	h.Build.PushFrontNamed(request.NamedHandler{
-		Name: "k8s/user-agent",
-		Fn:   request.MakeAddToUserAgentHandler("kubernetes", version.Get().String()),
-	})
-
-	h.Sign.PushFrontNamed(request.NamedHandler{
-		Name: "k8s/logger",
-		Fn:   awsHandlerLogger,
-	})
-
-	delayer := p.getCrossRequestRetryDelay(regionName)
-	if delayer != nil {
-		h.Sign.PushFrontNamed(request.NamedHandler{
-			Name: "k8s/delay-presign",
-			Fn:   delayer.BeforeSign,
-		})
-
-		h.AfterRetry.PushFrontNamed(request.NamedHandler{
-			Name: "k8s/delay-afterretry",
-			Fn:   delayer.AfterRetry,
-		})
-	}
-
-	p.addAPILoggingHandlers(h)
-}
-
-func (p *awsSDKProvider) addAPILoggingHandlers(h *request.Handlers) {
-	h.Send.PushBackNamed(request.NamedHandler{
-		Name: "k8s/api-request",
-		Fn:   awsSendHandlerLogger,
-	})
-
-	h.ValidateResponse.PushFrontNamed(request.NamedHandler{
-		Name: "k8s/api-validate-response",
-		Fn:   awsValidateResponseHandlerLogger,
-	})
-}
-
-// Get a CrossRequestRetryDelay, scoped to the region, not to the request.
-// This means that when we hit a limit on a call, we will delay _all_ calls to the API.
-// We do this to protect the AWS account from becoming overloaded and effectively locked.
-// We also log when we hit request limits.
-// Note that this delays the current goroutine; this is bad behaviour and will
-// likely cause k8s to become slow or unresponsive for cloud operations.
-// However, this throttle is intended only as a last resort.  When we observe
-// this throttling, we need to address the root cause (e.g. add a delay to a
-// controller retry loop)
-func (p *awsSDKProvider) getCrossRequestRetryDelay(regionName string) *CrossRequestRetryDelay {
-	p.mutex.Lock()
-	defer p.mutex.Unlock()
-
-	delayer, found := p.regionDelayers[regionName]
-	if !found {
-		delayer = NewCrossRequestRetryDelay()
-		p.regionDelayers[regionName] = delayer
-	}
-	return delayer
+	GetResolver() endpoints.ResolverFunc
 }
 
 // InstanceIDIndexFunc indexes based on a Node's instance ID found in its spec.providerID
@@ -1273,7 +883,7 @@ func init() {
 			return nil, fmt.Errorf("unable to read AWS cloud provider config file: %v", err)
 		}
 
-		if err = cfg.validateOverrides(); err != nil {
+		if err = cfg.ValidateOverrides(); err != nil {
 			return nil, fmt.Errorf("unable to validate custom endpoint overrides: %v", err)
 		}
 
@@ -1312,7 +922,7 @@ func init() {
 		}
 
 		aws := newAWSSDKProvider(creds, cfg)
-		return newAWSCloud(*cfg, aws)
+		return newAWSCloud2(*cfg, aws, aws, creds)
 	})
 }
 
@@ -1337,12 +947,12 @@ func getSTSClient(sess *session.Session, roleARN, sourceARN string) (*sts.STS, e
 }
 
 // readAWSCloudConfig reads an instance of AWSCloudConfig from config reader.
-func readAWSCloudConfig(config io.Reader) (*CloudConfig, error) {
-	var cfg CloudConfig
+func readAWSCloudConfig(cloudConfig io.Reader) (*config.CloudConfig, error) {
+	var cfg config.CloudConfig
 	var err error
 
-	if config != nil {
-		err = gcfg.FatalOnly(gcfg.ReadInto(&cfg, config))
+	if cloudConfig != nil {
+		err = gcfg.FatalOnly(gcfg.ReadInto(&cfg, cloudConfig))
 		if err != nil {
 			return nil, err
 		}
@@ -1367,10 +977,14 @@ func azToRegion(az string) (string, error) {
 	return region, nil
 }
 
+func newAWSCloud(cfg config.CloudConfig, awsServices Services) (*Cloud, error) {
+	return newAWSCloud2(cfg, awsServices, nil, nil)
+}
+
 // newAWSCloud creates a new instance of AWSCloud.
 // AWSProvider and instanceId are primarily for tests
-func newAWSCloud(cfg CloudConfig, awsServices Services) (*Cloud, error) {
-	// We have some state in the Cloud object - in particular the attaching map
+func newAWSCloud2(cfg config.CloudConfig, awsServices Services, provider config.SDKProvider, credentials *credentials.Credentials) (*Cloud, error) {
+	// We have some state in the Cloud object
 	// Log so that if we are building multiple Cloud objects, it is obvious!
 	klog.Infof("Building AWS cloudprovider")
 
@@ -1465,11 +1079,17 @@ func newAWSCloud(cfg CloudConfig, awsServices Services) (*Cloud, error) {
 	}
 	klog.Infof("The following IP families will be added to nodes: %v", cfg.Global.NodeIPFamilies)
 
+	variants := variant.GetVariants()
+	for _, v := range variants {
+		if err := v.Initialize(&cfg, credentials, provider, awsCloud.ec2, awsCloud.region); err != nil {
+			return nil, err
+		}
+	}
 	return awsCloud, nil
 }
 
 // NewAWSCloud calls and return new aws cloud from newAWSCloud with the supplied configuration
-func NewAWSCloud(cfg CloudConfig, awsServices Services) (*Cloud, error) {
+func NewAWSCloud(cfg config.CloudConfig, awsServices Services) (*Cloud, error) {
 	return newAWSCloud(cfg, awsServices)
 }
 
@@ -1628,16 +1248,6 @@ func extractIPv6NodeAddresses(instance *ec2.Instance) ([]v1.NodeAddress, error) 
 	return addresses, nil
 }
 
-// getNodeAddressesForFargateNode generates list of Node addresses for Fargate node.
-func getNodeAddressesForFargateNode(privateDNSName, privateIP string) []v1.NodeAddress {
-	addresses := []v1.NodeAddress{}
-	addresses = append(addresses, v1.NodeAddress{Type: v1.NodeInternalIP, Address: privateIP})
-	if privateDNSName != "" {
-		addresses = append(addresses, v1.NodeAddress{Type: v1.NodeInternalDNS, Address: privateDNSName})
-	}
-	return addresses
-}
-
 // NodeAddressesByProviderID returns the node addresses of an instances with the specified unique providerID
 // This method will not be called from the node that is requesting this ID. i.e. metadata service
 // and other local methods cannot be used here
@@ -1647,31 +1257,8 @@ func (c *Cloud) NodeAddressesByProviderID(ctx context.Context, providerID string
 		return nil, err
 	}
 
-	if IsFargateNode(string(instanceID)) {
-		eni, err := c.describeNetworkInterfaces(string(instanceID))
-		if eni == nil || err != nil {
-			return nil, err
-		}
-
-		var addresses []v1.NodeAddress
-
-		// Assign NodeInternalIP based on IP family
-		for _, family := range c.cfg.Global.NodeIPFamilies {
-			switch family {
-			case "ipv4":
-				nodeAddresses := getNodeAddressesForFargateNode(aws.StringValue(eni.PrivateDnsName), aws.StringValue(eni.PrivateIpAddress))
-				addresses = append(addresses, nodeAddresses...)
-			case "ipv6":
-				if eni.Ipv6Addresses == nil || len(eni.Ipv6Addresses) == 0 {
-					klog.Errorf("no Ipv6Addresses associated with the eni")
-					continue
-				}
-				internalIPv6Address := eni.Ipv6Addresses[0].Ipv6Address
-				nodeAddresses := getNodeAddressesForFargateNode(aws.StringValue(eni.PrivateDnsName), aws.StringValue(internalIPv6Address))
-				addresses = append(addresses, nodeAddresses...)
-			}
-		}
-		return addresses, nil
+	if v := variant.GetVariant(string(instanceID)); v != nil {
+		return v.NodeAddresses(string(instanceID), c.vpcID)
 	}
 
 	instance, err := describeInstance(c.ec2, instanceID)
@@ -1709,9 +1296,8 @@ func (c *Cloud) InstanceExistsByProviderID(ctx context.Context, providerID strin
 		return false, err
 	}
 
-	if IsFargateNode(string(instanceID)) {
-		eni, err := c.describeNetworkInterfaces(string(instanceID))
-		return eni != nil, err
+	if v := variant.GetVariant(string(instanceID)); v != nil {
+		return v.InstanceExists(string(instanceID), c.vpcID)
 	}
 
 	request := &ec2.DescribeInstancesInput{
@@ -1749,9 +1335,8 @@ func (c *Cloud) InstanceShutdownByProviderID(ctx context.Context, providerID str
 		return false, err
 	}
 
-	if IsFargateNode(string(instanceID)) {
-		eni, err := c.describeNetworkInterfaces(string(instanceID))
-		return eni != nil, err
+	if v := variant.GetVariant(string(instanceID)); v != nil {
+		return v.InstanceShutdown(string(instanceID), c.vpcID)
 	}
 
 	request := &ec2.DescribeInstancesInput{
@@ -1810,8 +1395,8 @@ func (c *Cloud) InstanceTypeByProviderID(ctx context.Context, providerID string)
 		return "", err
 	}
 
-	if IsFargateNode(string(instanceID)) {
-		return "", nil
+	if v := variant.GetVariant(string(instanceID)); v != nil {
+		return v.InstanceTypeByProviderID(string(instanceID))
 	}
 
 	instance, err := describeInstance(c.ec2, instanceID)
@@ -1919,15 +1504,8 @@ func (c *Cloud) GetZoneByProviderID(ctx context.Context, providerID string) (clo
 		return cloudprovider.Zone{}, err
 	}
 
-	if IsFargateNode(string(instanceID)) {
-		eni, err := c.describeNetworkInterfaces(string(instanceID))
-		if eni == nil || err != nil {
-			return cloudprovider.Zone{}, err
-		}
-		return cloudprovider.Zone{
-			FailureDomain: *eni.AvailabilityZone,
-			Region:        c.region,
-		}, nil
+	if v := variant.GetVariant(string(instanceID)); v != nil {
+		return v.GetZone(string(instanceID), c.vpcID, c.region)
 	}
 
 	instance, err := c.getInstanceByID(string(instanceID))
@@ -5138,11 +4716,6 @@ func (c *Cloud) getFullInstance(nodeName types.NodeName) (*awsInstance, *ec2.Ins
 	return awsInstance, instance, err
 }
 
-// IsFargateNode returns true if given node runs on Fargate compute
-func IsFargateNode(nodeName string) bool {
-	return strings.HasPrefix(nodeName, fargateNodeNamePrefix)
-}
-
 // extract private ip address from node name
 func nodeNameToIPAddress(nodeName string) string {
 	nodeName = strings.TrimPrefix(nodeName, privateDNSNamePrefix)
@@ -5225,65 +4798,7 @@ func checkProtocol(port v1.ServicePort, annotations map[string]string) error {
 	return fmt.Errorf("Protocol %s not supported by LoadBalancer", port.Protocol)
 }
 
-func setNodeDisk(
-	nodeDiskMap map[types.NodeName]map[KubernetesVolumeID]bool,
-	volumeID KubernetesVolumeID,
-	nodeName types.NodeName,
-	check bool) {
-
-	volumeMap := nodeDiskMap[nodeName]
-
-	if volumeMap == nil {
-		volumeMap = make(map[KubernetesVolumeID]bool)
-		nodeDiskMap[nodeName] = volumeMap
-	}
-	volumeMap[volumeID] = check
-}
-
-func getInitialAttachDetachDelay(status string) time.Duration {
-	if status == volumeDetachedStatus {
-		return volumeDetachmentStatusInitialDelay
-	}
-	return volumeAttachmentStatusInitialDelay
-}
-
-// describeNetworkInterfaces returns network interface information for the given DNS name.
-func (c *Cloud) describeNetworkInterfaces(nodeName string) (*ec2.NetworkInterface, error) {
-	eniEndpoint := strings.TrimPrefix(nodeName, fargateNodeNamePrefix)
-
-	filters := []*ec2.Filter{
-		newEc2Filter("attachment.status", "attached"),
-		newEc2Filter("vpc-id", c.vpcID),
-	}
-
-	// when enableDnsSupport is set to false in a VPC, interface will not have private DNS names.
-	// convert node name to ip address because ip-name based and resource-named EC2 resources
-	// may have different privateDNSName formats but same privateIpAddress format
-	if strings.HasPrefix(eniEndpoint, privateDNSNamePrefix) {
-		eniEndpoint = nodeNameToIPAddress(eniEndpoint)
-	}
-
-	filters = append(filters, newEc2Filter("private-ip-address", eniEndpoint))
-
-	request := &ec2.DescribeNetworkInterfacesInput{
-		Filters: filters,
-	}
-
-	eni, err := c.ec2.DescribeNetworkInterfaces(request)
-	if err != nil {
-		return nil, err
-	}
-	if len(eni.NetworkInterfaces) == 0 {
-		return nil, nil
-	}
-	if len(eni.NetworkInterfaces) != 1 {
-		// This should not be possible - ids should be unique
-		return nil, fmt.Errorf("multiple interfaces found with same id %q", eni.NetworkInterfaces)
-	}
-	return eni.NetworkInterfaces[0], nil
-}
-
-func getRegionFromMetadata(cfg CloudConfig, metadata EC2Metadata) (string, error) {
+func getRegionFromMetadata(cfg config.CloudConfig, metadata config.EC2Metadata) (string, error) {
 	// For backwards compatibility reasons, keeping this check to avoid breaking possible
 	// cases where Zone was set to override the region configuration. Otherwise, fall back
 	// to getting region the standard way.
