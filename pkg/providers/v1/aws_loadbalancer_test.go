@@ -31,6 +31,8 @@ import (
 	"github.com/aws/aws-sdk-go/service/elb"
 	"github.com/aws/aws-sdk-go/service/elbv2"
 	"github.com/stretchr/testify/assert"
+
+	"k8s.io/cloud-provider-aws/pkg/providers/v1/config"
 )
 
 func TestElbProtocolsAreEqual(t *testing.T) {
@@ -584,7 +586,7 @@ func TestCloud_findInstancesForELB(t *testing.T) {
 	}
 	newNode, newInstance := makeNodeInstancePair(1)
 	awsServices := NewFakeAWSServices(TestClusterID)
-	c, err := newAWSCloud(CloudConfig{}, awsServices)
+	c, err := newAWSCloud(config.CloudConfig{}, awsServices)
 	if err != nil {
 		t.Errorf("Error building aws cloud: %v", err)
 		return

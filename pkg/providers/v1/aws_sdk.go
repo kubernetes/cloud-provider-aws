@@ -31,6 +31,9 @@ import (
 	"github.com/aws/aws-sdk-go/service/elbv2"
 	"github.com/aws/aws-sdk-go/service/kms"
 	"k8s.io/client-go/pkg/version"
+
+	"k8s.io/cloud-provider-aws/pkg/providers/v1/config"
+	"k8s.io/cloud-provider-aws/pkg/providers/v1/iface"
 )
 
 type awsSDKProvider struct {
@@ -41,7 +44,7 @@ type awsSDKProvider struct {
 	regionDelayers map[string]*CrossRequestRetryDelay
 }
 
-func newAWSSDKProvider(creds *credentials.Credentials, cfg *CloudConfig) *awsSDKProvider {
+func newAWSSDKProvider(creds *credentials.Credentials, cfg *config.CloudConfig) *awsSDKProvider {
 	return &awsSDKProvider{
 		creds:          creds,
 		cfg:            cfg,
@@ -49,7 +52,7 @@ func newAWSSDKProvider(creds *credentials.Credentials, cfg *CloudConfig) *awsSDK
 	}
 }
 
-func (p *awsSDKProvider) addHandlers(regionName string, h *request.Handlers) {
+func (p *awsSDKProvider) AddHandlers(regionName string, h *request.Handlers) {
 	h.Build.PushFrontNamed(request.NamedHandler{
 		Name: "k8s/user-agent",
 		Fn:   request.MakeAddToUserAgentHandler("kubernetes", version.Get().String()),
@@ -109,13 +112,13 @@ func (p *awsSDKProvider) getCrossRequestRetryDelay(regionName string) *CrossRequ
 	return delayer
 }
 
-func (p *awsSDKProvider) Compute(regionName string) (EC2, error) {
+func (p *awsSDKProvider) Compute(regionName string) (iface.EC2, error) {
 	awsConfig := &aws.Config{
 		Region:      &regionName,
 		Credentials: p.creds,
 	}
 	awsConfig = awsConfig.WithCredentialsChainVerboseErrors(true).
-		WithEndpointResolver(p.cfg.getResolver())
+		WithEndpointResolver(p.cfg.GetResolver())
 	sess, err := session.NewSessionWithOptions(session.Options{
 		Config:            *awsConfig,
 		SharedConfigState: session.SharedConfigEnable,
@@ -126,7 +129,7 @@ func (p *awsSDKProvider) Compute(regionName string) (EC2, error) {
 	}
 	service := ec2.New(sess)
 
-	p.addHandlers(regionName, &service.Handlers)
+	p.AddHandlers(regionName, &service.Handlers)
 
 	ec2 := &awsSdkEC2{
 		ec2: service,
@@ -140,7 +143,7 @@ func (p *awsSDKProvider) LoadBalancing(regionName string) (ELB, error) {
 		Credentials: p.creds,
 	}
 	awsConfig = awsConfig.WithCredentialsChainVerboseErrors(true).
-		WithEndpointResolver(p.cfg.getResolver())
+		WithEndpointResolver(p.cfg.GetResolver())
 	sess, err := session.NewSessionWithOptions(session.Options{
 		Config:            *awsConfig,
 		SharedConfigState: session.SharedConfigEnable,
@@ -149,7 +152,7 @@ func (p *awsSDKProvider) LoadBalancing(regionName string) (ELB, error) {
 		return nil, fmt.Errorf("unable to initialize AWS session: %v", err)
 	}
 	elbClient := elb.New(sess)
-	p.addHandlers(regionName, &elbClient.Handlers)
+	p.AddHandlers(regionName, &elbClient.Handlers)
 
 	return elbClient, nil
 }
@@ -160,7 +163,7 @@ func (p *awsSDKProvider) LoadBalancingV2(regionName string) (ELBV2, error) {
 		Credentials: p.creds,
 	}
 	awsConfig = awsConfig.WithCredentialsChainVerboseErrors(true).
-		WithEndpointResolver(p.cfg.getResolver())
+		WithEndpointResolver(p.cfg.GetResolver())
 	sess, err := session.NewSessionWithOptions(session.Options{
 		Config:            *awsConfig,
 		SharedConfigState: session.SharedConfigEnable,
@@ -170,7 +173,7 @@ func (p *awsSDKProvider) LoadBalancingV2(regionName string) (ELBV2, error) {
 	}
 	elbClient := elbv2.New(sess)
 
-	p.addHandlers(regionName, &elbClient.Handlers)
+	p.AddHandlers(regionName, &elbClient.Handlers)
 
 	return elbClient, nil
 }
@@ -181,7 +184,7 @@ func (p *awsSDKProvider) Autoscaling(regionName string) (ASG, error) {
 		Credentials: p.creds,
 	}
 	awsConfig = awsConfig.WithCredentialsChainVerboseErrors(true).
-		WithEndpointResolver(p.cfg.getResolver())
+		WithEndpointResolver(p.cfg.GetResolver())
 	sess, err := session.NewSessionWithOptions(session.Options{
 		Config:            *awsConfig,
 		SharedConfigState: session.SharedConfigEnable,
@@ -191,14 +194,14 @@ func (p *awsSDKProvider) Autoscaling(regionName string) (ASG, error) {
 	}
 	client := autoscaling.New(sess)
 
-	p.addHandlers(regionName, &client.Handlers)
+	p.AddHandlers(regionName, &client.Handlers)
 
 	return client, nil
 }
 
-func (p *awsSDKProvider) Metadata() (EC2Metadata, error) {
+func (p *awsSDKProvider) Metadata() (config.EC2Metadata, error) {
 	sess, err := session.NewSession(&aws.Config{
-		EndpointResolver: p.cfg.getResolver(),
+		EndpointResolver: p.cfg.GetResolver(),
 	})
 	if err != nil {
 		return nil, fmt.Errorf("unable to initialize AWS session: %v", err)
@@ -214,7 +217,7 @@ func (p *awsSDKProvider) KeyManagement(regionName string) (KMS, error) {
 		Credentials: p.creds,
 	}
 	awsConfig = awsConfig.WithCredentialsChainVerboseErrors(true).
-		WithEndpointResolver(p.cfg.getResolver())
+		WithEndpointResolver(p.cfg.GetResolver())
 	sess, err := session.NewSessionWithOptions(session.Options{
 		Config:            *awsConfig,
 		SharedConfigState: session.SharedConfigEnable,
@@ -224,7 +227,7 @@ func (p *awsSDKProvider) KeyManagement(regionName string) (KMS, error) {
 	}
 	kmsClient := kms.New(sess)
 
-	p.addHandlers(regionName, &kmsClient.Handlers)
+	p.AddHandlers(regionName, &kmsClient.Handlers)
 
 	return kmsClient, nil
 }
