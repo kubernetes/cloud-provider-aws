@@ -3794,6 +3794,23 @@ func verifyNodeAddressesForFargate(t *testing.T, ipFamily string, verifyPublicIP
 	assert.Equal(t, v1.NodeInternalIP, nodeAddresses[0].Type)
 }
 
+func TestNodeAddressesOrderedByDeviceIndex(t *testing.T) {
+	awsServices := newMockedFakeAWSServices(TestClusterID)
+	c, _ := newAWSCloud(CloudConfig{}, awsServices)
+
+	nodeAddresses, _ := c.NodeAddressesByProviderID(context.TODO(), "aws:///us-west-2a/i-self")
+	expectedAddresses := []v1.NodeAddress{
+		{Type: v1.NodeInternalIP, Address: "172.20.0.100"},
+		{Type: v1.NodeInternalIP, Address: "172.20.0.101"},
+		{Type: v1.NodeInternalIP, Address: "172.20.1.1"},
+		{Type: v1.NodeInternalIP, Address: "172.20.1.2"},
+		{Type: v1.NodeExternalIP, Address: "1.2.3.4"},
+		{Type: v1.NodeInternalDNS, Address: "ip-172-20-0-100.ec2.internal"},
+		{Type: v1.NodeHostName, Address: "ip-172-20-0-100.ec2.internal"},
+	}
+	assert.Equal(t, expectedAddresses, nodeAddresses)
+}
+
 func TestInstanceExistsByProviderIDForFargate(t *testing.T) {
 	awsServices := newMockedFakeAWSServices(TestClusterID)
 	c, _ := newAWSCloud(CloudConfig{}, awsServices)
