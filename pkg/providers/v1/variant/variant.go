@@ -2,6 +2,8 @@ package variant
 
 import (
 	"fmt"
+	"k8s.io/cloud-provider-aws/pkg/providers/v1/awsnode"
+	"net/url"
 	"sync"
 
 	v1 "k8s.io/api/core/v1"
@@ -20,12 +22,13 @@ var variants = make(map[string]Variant)
 type Variant interface {
 	Initialize(cloudConfig *config.CloudConfig, credentials *credentials.Credentials,
 		provider config.SDKProvider, ec2API iface.EC2, region string) error
-	IsSupportedNode(nodeName string) bool
-	NodeAddresses(instanceID, vpcID string) ([]v1.NodeAddress, error)
-	GetZone(instanceID, vpcID, region string) (cloudprovider.Zone, error)
-	InstanceExists(instanceID, vpcID string) (bool, error)
-	InstanceShutdown(instanceID, vpcID string) (bool, error)
-	InstanceTypeByProviderID(id string) (string, error)
+	IsSupportedNode(nodeID awsnode.NodeID) bool
+	NodeAddresses(nodeID awsnode.NodeID, vpcID string) ([]v1.NodeAddress, error)
+	GetZone(nodeID awsnode.NodeID, vpcID, region string) (cloudprovider.Zone, error)
+	InstanceExists(nodeID awsnode.NodeID, vpcID string) (bool, error)
+	InstanceShutdown(nodeID awsnode.NodeID, vpcID string) (bool, error)
+	InstanceTypeByProviderID(nodeID awsnode.NodeID) (string, error)
+	NodeID(providerID url.URL) awsnode.NodeID
 }
 
 // RegisterVariant is used to register code that needs to be called for a specific variant
@@ -39,11 +42,11 @@ func RegisterVariant(name string, variant Variant) {
 }
 
 // IsVariantNode helps evaluate if a specific variant handles a given instance
-func IsVariantNode(instanceID string) bool {
+func IsVariantNode(nodeID awsnode.NodeID) bool {
 	variantsLock.Lock()
 	defer variantsLock.Unlock()
 	for _, v := range variants {
-		if v.IsSupportedNode(instanceID) {
+		if v.IsSupportedNode(nodeID) {
 			return true
 		}
 	}
@@ -51,11 +54,11 @@ func IsVariantNode(instanceID string) bool {
 }
 
 // NodeType returns the type name example: "fargate"
-func NodeType(instanceID string) string {
+func NodeType(nodeID awsnode.NodeID) string {
 	variantsLock.Lock()
 	defer variantsLock.Unlock()
 	for key, v := range variants {
-		if v.IsSupportedNode(instanceID) {
+		if v.IsSupportedNode(nodeID) {
 			return key
 		}
 	}
@@ -63,15 +66,28 @@ func NodeType(instanceID string) string {
 }
 
 // GetVariant returns the interface that can then be used to handle a specific instance
-func GetVariant(instanceID string) Variant {
+func GetVariant(nodeID awsnode.NodeID) Variant {
 	variantsLock.Lock()
 	defer variantsLock.Unlock()
 	for _, v := range variants {
-		if v.IsSupportedNode(instanceID) {
+		if v.IsSupportedNode(nodeID) {
 			return v
 		}
 	}
 	return nil
+}
+
+// GetNodeID returns the node id of the variant if a variant supports this particular provider id
+// A return value of an empty string denotes no variant supported the node with this providerId.
+func GetNodeID(providerID url.URL) awsnode.NodeID {
+	variantsLock.Lock()
+	defer variantsLock.Unlock()
+	for _, v := range variants {
+		if varID := v.NodeID(providerID); varID != "" {
+			return varID
+		}
+	}
+	return ""
 }
 
 // GetVariants returns the names of all the variants registered

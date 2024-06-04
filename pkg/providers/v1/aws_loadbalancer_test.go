@@ -18,6 +18,7 @@ package aws
 
 import (
 	"fmt"
+	"k8s.io/cloud-provider-aws/pkg/providers/v1/awsnode"
 	"reflect"
 	"testing"
 	"time"
@@ -592,7 +593,7 @@ func TestCloud_findInstancesForELB(t *testing.T) {
 		return
 	}
 
-	want := map[InstanceID]*ec2.Instance{
+	want := map[awsnode.NodeID]*ec2.Instance{
 		"i-self": awsServices.selfInstance,
 	}
 	got, err := c.findInstancesForELB([]*v1.Node{defaultNode}, nil)
@@ -601,9 +602,9 @@ func TestCloud_findInstancesForELB(t *testing.T) {
 
 	// Add a new EC2 instance
 	awsServices.instances = append(awsServices.instances, newInstance)
-	want = map[InstanceID]*ec2.Instance{
+	want = map[awsnode.NodeID]*ec2.Instance{
 		"i-self": awsServices.selfInstance,
-		InstanceID(aws.StringValue(newInstance.InstanceId)): newInstance,
+		awsnode.NodeID(aws.StringValue(newInstance.InstanceId)): newInstance,
 	}
 	got, err = c.findInstancesForELB([]*v1.Node{defaultNode, newNode}, nil)
 	assert.NoError(t, err)

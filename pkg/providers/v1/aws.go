@@ -20,6 +20,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"k8s.io/cloud-provider-aws/pkg/providers/v1/awsnode"
 	"net"
 	"regexp"
 	"sort"
@@ -418,7 +419,7 @@ func InstanceIDIndexFunc(obj interface{}) ([]string, error) {
 		// provider ID hasn't been populated yet
 		return []string{""}, nil
 	}
-	instanceID, err := KubernetesInstanceID(node.Spec.ProviderID).MapToAWSInstanceID()
+	instanceID, err := ParseProviderID(node.Spec.ProviderID)
 	if err != nil {
 		//logging the error as warning as Informer.AddIndexers would panic if there is an error
 		klog.Warningf("error mapping node %q's provider ID %q to instance ID: %v", node.Name, node.Spec.ProviderID, err)
@@ -832,16 +833,16 @@ func extractIPv6NodeAddresses(instance *ec2.Instance) ([]v1.NodeAddress, error) 
 // This method will not be called from the node that is requesting this ID. i.e. metadata service
 // and other local methods cannot be used here
 func (c *Cloud) NodeAddressesByProviderID(ctx context.Context, providerID string) ([]v1.NodeAddress, error) {
-	instanceID, err := KubernetesInstanceID(providerID).MapToAWSInstanceID()
+	instanceID, err := ParseProviderID(providerID)
 	if err != nil {
 		return nil, err
 	}
 
-	if v := variant.GetVariant(string(instanceID)); v != nil {
-		return v.NodeAddresses(string(instanceID), c.vpcID)
+	if v := variant.GetVariant(instanceID); v != nil {
+		return v.NodeAddresses(instanceID, c.vpcID)
 	}
 
-	instance, err := describeInstance(c.ec2, instanceID)
+	instance, err := describeInstance(c.ec2, string(instanceID))
 	if err != nil {
 		return nil, err
 	}
@@ -871,17 +872,17 @@ func (c *Cloud) NodeAddressesByProviderID(ctx context.Context, providerID string
 // InstanceExistsByProviderID returns true if the instance with the given provider id still exists.
 // If false is returned with no error, the instance will be immediately deleted by the cloud controller manager.
 func (c *Cloud) InstanceExistsByProviderID(ctx context.Context, providerID string) (bool, error) {
-	instanceID, err := KubernetesInstanceID(providerID).MapToAWSInstanceID()
+	instanceID, err := ParseProviderID(providerID)
 	if err != nil {
 		return false, err
 	}
 
-	if v := variant.GetVariant(string(instanceID)); v != nil {
-		return v.InstanceExists(string(instanceID), c.vpcID)
+	if v := variant.GetVariant(instanceID); v != nil {
+		return v.InstanceExists(instanceID, c.vpcID)
 	}
 
 	request := &ec2.DescribeInstancesInput{
-		InstanceIds: []*string{instanceID.awsString()},
+		InstanceIds: []*string{instanceID.AwsString()},
 	}
 
 	instances, err := c.ec2.DescribeInstances(request)
@@ -910,17 +911,17 @@ func (c *Cloud) InstanceExistsByProviderID(ctx context.Context, providerID strin
 
 // InstanceShutdownByProviderID returns true if the instance is terminated
 func (c *Cloud) InstanceShutdownByProviderID(ctx context.Context, providerID string) (bool, error) {
-	instanceID, err := KubernetesInstanceID(providerID).MapToAWSInstanceID()
+	instanceID, err := ParseProviderID(providerID)
 	if err != nil {
 		return false, err
 	}
 
-	if v := variant.GetVariant(string(instanceID)); v != nil {
-		return v.InstanceShutdown(string(instanceID), c.vpcID)
+	if v := variant.GetVariant(instanceID); v != nil {
+		return v.InstanceShutdown(instanceID, c.vpcID)
 	}
 
 	request := &ec2.DescribeInstancesInput{
-		InstanceIds: []*string{instanceID.awsString()},
+		InstanceIds: []*string{instanceID.AwsString()},
 	}
 
 	instances, err := c.ec2.DescribeInstances(request)
@@ -969,16 +970,16 @@ func (c *Cloud) InstanceID(ctx context.Context, nodeName types.NodeName) (string
 // This method will not be called from the node that is requesting this ID. i.e. metadata service
 // and other local methods cannot be used here
 func (c *Cloud) InstanceTypeByProviderID(ctx context.Context, providerID string) (string, error) {
-	instanceID, err := KubernetesInstanceID(providerID).MapToAWSInstanceID()
+	instanceID, err := ParseProviderID(providerID)
 	if err != nil {
 		return "", err
 	}
 
-	if v := variant.GetVariant(string(instanceID)); v != nil {
-		return v.InstanceTypeByProviderID(string(instanceID))
+	if v := variant.GetVariant(instanceID); v != nil {
+		return v.InstanceTypeByProviderID(instanceID)
 	}
 
-	instance, err := describeInstance(c.ec2, instanceID)
+	instance, err := describeInstance(c.ec2, string(instanceID))
 	if err != nil {
 		return "", err
 	}
@@ -1010,13 +1011,13 @@ func (c *Cloud) GetZone(ctx context.Context) (cloudprovider.Zone, error) {
 // This is particularly useful in external cloud providers where the kubelet
 // does not initialize node data.
 func (c *Cloud) GetZoneByProviderID(ctx context.Context, providerID string) (cloudprovider.Zone, error) {
-	instanceID, err := KubernetesInstanceID(providerID).MapToAWSInstanceID()
+	instanceID, err := ParseProviderID(providerID)
 	if err != nil {
 		return cloudprovider.Zone{}, err
 	}
 
-	if v := variant.GetVariant(string(instanceID)); v != nil {
-		return v.GetZone(string(instanceID), c.vpcID, c.region)
+	if v := variant.GetVariant(instanceID); v != nil {
+		return v.GetZone(instanceID, c.vpcID, c.region)
 	}
 
 	instance, err := c.getInstanceByID(string(instanceID))
@@ -2651,7 +2652,7 @@ func (c *Cloud) getTaggedSecurityGroups() (map[string]*ec2.SecurityGroup, error)
 
 // Open security group ingress rules on the instances so that the load balancer can talk to them
 // Will also remove any security groups ingress rules for the load balancer that are _not_ needed for allInstances
-func (c *Cloud) updateInstanceSecurityGroupsForLoadBalancer(lb *elb.LoadBalancerDescription, instances map[InstanceID]*ec2.Instance, annotations map[string]string) error {
+func (c *Cloud) updateInstanceSecurityGroupsForLoadBalancer(lb *elb.LoadBalancerDescription, instances map[awsnode.NodeID]*ec2.Instance, annotations map[string]string) error {
 	if c.cfg.Global.DisableSecurityGroupIngress {
 		return nil
 	}
@@ -3228,15 +3229,15 @@ func nodeNameToIPAddress(nodeName string) string {
 	return strings.ReplaceAll(nodeName, "-", ".")
 }
 
-func (c *Cloud) nodeNameToInstanceID(nodeName types.NodeName) (InstanceID, error) {
+func (c *Cloud) nodeNameToInstanceID(nodeName types.NodeName) (awsnode.NodeID, error) {
 	if strings.HasPrefix(string(nodeName), rbnNamePrefix) {
 		// depending on if you use a RHEL (e.g. AL2) or Debian (e.g. standard Ubuntu) based distribution, the
 		// hostname on the machine may be either i-00000000000000001 or i-00000000000000001.region.compute.internal.
 		// This handles both scenarios by returning anything before the first '.' in the node name if it has an RBN prefix.
 		if idx := strings.IndexByte(string(nodeName), '.'); idx != -1 {
-			return InstanceID(nodeName[0:idx]), nil
+			return awsnode.NodeID(nodeName[0:idx]), nil
 		}
-		return InstanceID(nodeName), nil
+		return awsnode.NodeID(nodeName), nil
 	}
 	if len(nodeName) == 0 {
 		return "", fmt.Errorf("no nodeName provided")
@@ -3254,10 +3255,10 @@ func (c *Cloud) nodeNameToInstanceID(nodeName types.NodeName) (InstanceID, error
 		return "", fmt.Errorf("node has no providerID")
 	}
 
-	return KubernetesInstanceID(node.Spec.ProviderID).MapToAWSInstanceID()
+	return ParseProviderID(node.Spec.ProviderID)
 }
 
-func (c *Cloud) instanceIDToNodeName(instanceID InstanceID) (types.NodeName, error) {
+func (c *Cloud) instanceIDToNodeName(instanceID awsnode.NodeID) (types.NodeName, error) {
 	if len(instanceID) == 0 {
 		return "", fmt.Errorf("no instanceID provided")
 	}

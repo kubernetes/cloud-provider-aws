@@ -225,7 +225,7 @@ func (tc *Controller) process() bool {
 		recordWorkItemLatencyMetrics(workItemDequeuingTimeWorkItemMetric, timeTaken)
 		klog.Infof("Dequeuing latency %f seconds", timeTaken)
 
-		instanceID, err := awsv1.KubernetesInstanceID(workItem.node.Spec.ProviderID).MapToAWSInstanceID()
+		instanceID, err := awsv1.ParseProviderID(workItem.node.Spec.ProviderID)
 		if err != nil {
 			err = fmt.Errorf("Error in getting instanceID for node %s, error: %v", workItem.node.GetName(), err)
 			utilruntime.HandleError(err)
@@ -233,9 +233,9 @@ func (tc *Controller) process() bool {
 		}
 		klog.Infof("Instance ID of work item %s is %s", workItem, instanceID)
 
-		if variant.IsVariantNode(string(instanceID)) {
+		if variant.IsVariantNode(instanceID) {
 			klog.Infof("Skip processing the node %s since it is a %s node",
-				instanceID, variant.NodeType(string(instanceID)))
+				instanceID, variant.NodeType(instanceID))
 			tc.workqueue.Forget(obj)
 			return nil
 		}
@@ -297,7 +297,7 @@ func (tc *Controller) tagEc2Instance(node *v1.Node) error {
 		return nil
 	}
 
-	instanceID, _ := awsv1.KubernetesInstanceID(node.Spec.ProviderID).MapToAWSInstanceID()
+	instanceID, _ := awsv1.ParseProviderID(node.Spec.ProviderID)
 
 	err := tc.cloud.TagResource(string(instanceID), tc.tags)
 
@@ -349,7 +349,7 @@ func (tc *Controller) untagNodeResources(node *v1.Node) error {
 // untagEc2Instances deletes the provided tags to each EC2 instances in
 // the cluster.
 func (tc *Controller) untagEc2Instance(node *v1.Node) error {
-	instanceID, _ := awsv1.KubernetesInstanceID(node.Spec.ProviderID).MapToAWSInstanceID()
+	instanceID, _ := awsv1.ParseProviderID(node.Spec.ProviderID)
 
 	err := tc.cloud.UntagResource(string(instanceID), tc.tags)
 
