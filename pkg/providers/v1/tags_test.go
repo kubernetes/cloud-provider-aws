@@ -28,11 +28,13 @@ import (
 	"github.com/aws/aws-sdk-go/service/ec2"
 	"github.com/stretchr/testify/assert"
 	"k8s.io/klog/v2"
+
+	"k8s.io/cloud-provider-aws/pkg/providers/v1/config"
 )
 
 func TestFilterTags(t *testing.T) {
 	awsServices := NewFakeAWSServices(TestClusterID)
-	c, err := newAWSCloud(CloudConfig{}, awsServices)
+	c, err := newAWSCloud(config.CloudConfig{}, awsServices)
 	if err != nil {
 		t.Errorf("Error building aws cloud: %v", err)
 		return
@@ -125,7 +127,7 @@ func TestFindClusterID(t *testing.T) {
 
 func TestHasClusterTag(t *testing.T) {
 	awsServices := NewFakeAWSServices(TestClusterID)
-	c, err := newAWSCloud(CloudConfig{}, awsServices)
+	c, err := newAWSCloud(config.CloudConfig{}, awsServices)
 	if err != nil {
 		t.Errorf("Error building aws cloud: %v", err)
 		return
@@ -190,7 +192,7 @@ func TestHasClusterTag(t *testing.T) {
 
 func TestHasNoClusterPrefixTag(t *testing.T) {
 	awsServices := NewFakeAWSServices(TestClusterID)
-	c, err := newAWSCloud(CloudConfig{}, awsServices)
+	c, err := newAWSCloud(config.CloudConfig{}, awsServices)
 	if err != nil {
 		t.Errorf("Error building aws cloud: %v", err)
 		return
@@ -242,7 +244,7 @@ func TestTagResource(t *testing.T) {
 	klog.InitFlags(testFlags)
 	testFlags.Parse([]string{"--logtostderr=false"})
 	awsServices := NewFakeAWSServices(TestClusterID)
-	c, err := newAWSCloud(CloudConfig{}, awsServices)
+	c, err := newAWSCloud(config.CloudConfig{}, awsServices)
 	if err != nil {
 		t.Errorf("Error building aws cloud: %v", err)
 		return
@@ -294,7 +296,7 @@ func TestUntagResource(t *testing.T) {
 	klog.InitFlags(testFlags)
 	testFlags.Parse([]string{"--logtostderr=false"})
 	awsServices := NewFakeAWSServices(TestClusterID)
-	c, err := newAWSCloud(CloudConfig{}, awsServices)
+	c, err := newAWSCloud(config.CloudConfig{}, awsServices)
 	if err != nil {
 		t.Errorf("Error building aws cloud: %v", err)
 		return
