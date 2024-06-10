@@ -29,7 +29,7 @@ ARG DISTROLESS_IMAGE=registry.k8s.io/build-image/go-runner:v2.3.1-go1.22.4-bookw
 ################################################################################
 # Build the manager as a statically compiled binary so it has no dependencies
 # libc, muscl, etc.
-FROM --platform=linux/amd64 ${GOLANG_IMAGE} as builder
+FROM --platform=${TARGETPLATFORM} ${GOLANG_IMAGE} as builder
 
 ARG GOPROXY=https://goproxy.io,direct
 ARG TARGETOS
