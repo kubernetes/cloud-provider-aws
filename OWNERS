@@ -7,6 +7,7 @@ approvers:
 - cartermckinnon
 - mmerkes
 - wongma7
+- kmala
 reviewers:
 - dims
 - nckturner
@@ -15,6 +16,7 @@ reviewers:
 - kishorj
 - cartermckinnon
 - mmerkes
+- kmala
 emeritus_approvers:
 - zmerlynn
 - gnufied
