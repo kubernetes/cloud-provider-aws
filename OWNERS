@@ -10,6 +10,7 @@ approvers:
 - kishorj
 - cartermckinnon
 - mmerkes
+- kmala
 reviewers:
 - dims
 - justinsb
@@ -22,6 +23,7 @@ reviewers:
 - kishorj
 - cartermckinnon
 - mmerkes
+- kmala
 emeritus_approvers:
 - zmerlynn
 - gnufied
