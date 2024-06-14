@@ -8,6 +8,7 @@ approvers:
 - olemarkus
 - hakman
 - cartermckinnon
+- kmala
 reviewers:
 - justinsb
 - nckturner
@@ -18,6 +19,7 @@ reviewers:
 - olemarkus
 - hakman
 - cartermckinnon
+- kmala
 emeritus_approvers:
 - zmerlynn
 - gnufied
