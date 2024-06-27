@@ -368,6 +368,16 @@ func TestRegistryPatternMatch(t *testing.T) {
 		{"123456789012.dkr.cat.lala-land-1.awsamazon.com", false},
 		// too short
 		{"123456789012.lala-land-1.amazonaws.com", false},
+		// iso
+		{"123456789012.dkr.ecr.us-iso-east-1.c2s.ic.gov", true},
+		// iso-b
+		{"123456789012.dkr.ecr.us-isob-east-1.sc2s.sgov.gov", true},
+		// iso-e
+		{"123456789012.dkr.ecr.eu-isoe-west-1.cloud.adc-e.uk", true},
+		// iso-f
+		{"123456789012.dkr.ecr.us-isof-east-1.csp.hci.ic.gov", true},
+		// invalid gov endpoint
+		{"123456789012.dkr.ecr.us-iso-east-1.amazonaws.gov", false},
 	}
 	for _, g := range grid {
 		actual := ecrPrivateHostPattern.MatchString(g.Registry)
