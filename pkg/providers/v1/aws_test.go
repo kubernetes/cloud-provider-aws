@@ -21,6 +21,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"k8s.io/cloud-provider-aws/pkg/providers/v1/awsnode"
 	"math/rand"
 	"reflect"
 	"sort"
@@ -2399,7 +2400,7 @@ func TestNodeNameToInstanceID(t *testing.T) {
 func TestInstanceIDToNodeName(t *testing.T) {
 	testCases := []struct {
 		name             string
-		instanceID       InstanceID
+		instanceID       awsnode.NodeID
 		node             *v1.Node
 		expectedNodeName types.NodeName
 		expectedErr      error

@@ -20,7 +20,6 @@ import (
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/service/ec2"
 	"k8s.io/apimachinery/pkg/types"
-
 	"k8s.io/cloud-provider-aws/pkg/providers/v1/iface"
 )
 
@@ -67,5 +66,5 @@ func newAWSInstance(ec2Service iface.EC2, instance *ec2.Instance) *awsInstance {
 
 // Gets the full information about this instance from the EC2 API
 func (i *awsInstance) describeInstance() (*ec2.Instance, error) {
-	return describeInstance(i.ec2, InstanceID(i.awsID))
+	return describeInstance(i.ec2, i.awsID)
 }
