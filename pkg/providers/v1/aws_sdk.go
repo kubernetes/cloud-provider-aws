@@ -214,7 +214,7 @@ func (p *awsSDKProvider) Metadata() (config.EC2Metadata, error) {
 	if err != nil {
 		return nil, fmt.Errorf("unable to get instance identity document: %v", err)
 	}
-	klog.Info("instance metadata identity",
+	klog.InfoS("instance metadata identity",
 		"region", identity.Region,
 		"availability-zone", identity.AvailabilityZone,
 		"instance-type", identity.InstanceType,
