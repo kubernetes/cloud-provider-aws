@@ -3054,7 +3054,7 @@ func TestNLBNodeRegistration(t *testing.T) {
 		}
 	}
 
-	fauxService.Annotations[ServiceAnnotationLoadBalancerHealthCheckProtocol] = "http"
+	fauxService.Annotations[ServiceAnnotationLoadBalancerHealthCheckProtocol] = "tcp"
 	tgARN := aws.StringValue(awsServices.elbv2.(*MockedFakeELBV2).Listeners[0].DefaultActions[0].TargetGroupArn)
 	_, err = c.EnsureLoadBalancer(context.TODO(), TestClusterName, fauxService, nodes)
 	if err != nil {
@@ -3207,8 +3207,9 @@ func TestCloud_buildNLBHealthCheckConfiguration(t *testing.T) {
 				},
 			},
 			want: healthCheckConfig{
-				Port:               "traffic-port",
-				Protocol:           elbv2.ProtocolEnumTcp,
+				Port:               "10256",
+				Protocol:           elbv2.ProtocolEnumHttp,
+				Path:               "/healthz",
 				Interval:           30,
 				Timeout:            10,
 				HealthyThreshold:   3,
@@ -3386,8 +3387,9 @@ func TestCloud_buildNLBHealthCheckConfiguration(t *testing.T) {
 				},
 			},
 			want: healthCheckConfig{
-				Port:               "traffic-port",
-				Protocol:           elbv2.ProtocolEnumTcp,
+				Port:               "10256",
+				Protocol:           elbv2.ProtocolEnumHttp,
+				Path:               "/healthz",
 				Interval:           23,
 				Timeout:            10,
 				HealthyThreshold:   3,
@@ -3444,8 +3446,9 @@ func TestCloud_buildNLBHealthCheckConfiguration(t *testing.T) {
 				},
 			},
 			want: healthCheckConfig{
-				Port:               "traffic-port",
-				Protocol:           elbv2.ProtocolEnumTcp,
+				Port:               "10256",
+				Protocol:           elbv2.ProtocolEnumHttp,
+				Path:               "/healthz",
 				Interval:           30,
 				Timeout:            10,
 				HealthyThreshold:   7,
