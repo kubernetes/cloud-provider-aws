@@ -19,9 +19,9 @@ package aws
 import (
 	"context"
 	"fmt"
-
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/service/ec2"
+	"k8s.io/cloud-provider-aws/pkg/providers/v1/awsnode"
 	"k8s.io/klog/v2"
 
 	cloudprovider "k8s.io/cloud-provider"
@@ -114,7 +114,7 @@ func (c *Cloud) ListRoutes(ctx context.Context, clusterName string) ([]*cloudpro
 		if instanceID != "" {
 			_, found := instances[instanceID]
 			if found {
-				node, err := c.instanceIDToNodeName(InstanceID(instanceID))
+				node, err := c.instanceIDToNodeName(awsnode.NodeID(instanceID))
 				if err != nil {
 					return nil, err
 				}
