@@ -14,6 +14,7 @@ limitations under the License.
 package e2e
 
 import (
+	"context"
 	. "github.com/onsi/ginkgo/v2"
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/util/intstr"
@@ -41,8 +42,8 @@ var _ = Describe("[cloud-provider-aws-e2e] loadbalancer", func() {
 		// After each test
 	})
 
-	It("should configure the loadbalancer based on annotations", func() {
-		loadBalancerCreateTimeout := e2eservice.GetServiceLoadBalancerCreationTimeout(cs)
+	It("should configure the loadbalancer based on annotations", func(ctx context.Context) {
+		loadBalancerCreateTimeout := e2eservice.GetServiceLoadBalancerCreationTimeout(ctx, cs)
 		framework.Logf("Running tests against AWS with timeout %s", loadBalancerCreateTimeout)
 
 		serviceName := "lbconfig-test"
@@ -73,11 +74,11 @@ var _ = Describe("[cloud-provider-aws-e2e] loadbalancer", func() {
 			}
 		}
 
-		lbService, err := lbJig.CreateLoadBalancerService(loadBalancerCreateTimeout, serviceUpdateFunc)
+		lbService, err := lbJig.CreateLoadBalancerService(ctx, loadBalancerCreateTimeout, serviceUpdateFunc)
 		framework.ExpectNoError(err)
 
 		By("creating a pod to be part of the TCP service " + serviceName)
-		_, err = lbJig.Run(nil)
+		_, err = lbJig.Run(ctx, nil)
 		framework.ExpectNoError(err)
 
 		By("hitting the TCP service's LB External IP")
@@ -85,17 +86,17 @@ var _ = Describe("[cloud-provider-aws-e2e] loadbalancer", func() {
 		ingressIP := e2eservice.GetIngressPoint(&lbService.Status.LoadBalancer.Ingress[0])
 		framework.Logf("Load balancer's ingress IP: %s", ingressIP)
 
-		e2eservice.TestReachableHTTP(ingressIP, svcPort, e2eservice.LoadBalancerLagTimeoutAWS)
+		e2eservice.TestReachableHTTP(ctx, ingressIP, svcPort, e2eservice.LoadBalancerLagTimeoutAWS)
 
 		// Update the service to cluster IP
 		By("changing TCP service back to type=ClusterIP")
-		_, err = lbJig.UpdateService(func(s *v1.Service) {
+		_, err = lbJig.UpdateService(ctx, func(s *v1.Service) {
 			s.Spec.Type = v1.ServiceTypeClusterIP
 		})
 		framework.ExpectNoError(err)
 
 		// Wait for the load balancer to be destroyed asynchronously
-		_, err = lbJig.WaitForLoadBalancerDestroy(ingressIP, svcPort, loadBalancerCreateTimeout)
+		_, err = lbJig.WaitForLoadBalancerDestroy(ctx, ingressIP, svcPort, loadBalancerCreateTimeout)
 		framework.ExpectNoError(err)
 	})
 })
