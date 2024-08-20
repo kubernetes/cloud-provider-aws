@@ -17,6 +17,7 @@ limitations under the License.
 package aws
 
 import (
+	"k8s.io/cloud-provider-aws/pkg/providers/v1/awsnode"
 	"testing"
 	"time"
 
@@ -28,8 +29,8 @@ import (
 
 func TestMapToAWSInstanceIDs(t *testing.T) {
 	tests := []struct {
-		Kubernetes  KubernetesInstanceID
-		Aws         InstanceID
+		Kubernetes  string
+		Aws         awsnode.NodeID
 		ExpectError bool
 	}{
 		{
@@ -87,7 +88,7 @@ func TestMapToAWSInstanceIDs(t *testing.T) {
 	}
 
 	for _, test := range tests {
-		awsID, err := test.Kubernetes.MapToAWSInstanceID()
+		awsID, err := ParseProviderID(test.Kubernetes)
 		if err != nil {
 			if !test.ExpectError {
 				t.Errorf("unexpected error parsing %s: %v", test.Kubernetes, err)
@@ -146,18 +147,18 @@ func TestSnapshotMeetsCriteria(t *testing.T) {
 		t.Errorf("Snapshot did not honor MaxAge")
 	}
 
-	if snapshot.MeetsCriteria(cacheCriteria{HasInstances: []InstanceID{InstanceID("i-12345678")}}) {
+	if snapshot.MeetsCriteria(cacheCriteria{HasInstances: []awsnode.NodeID{awsnode.NodeID("i-12345678")}}) {
 		t.Errorf("Snapshot did not honor HasInstances with missing instances")
 	}
 
-	snapshot.instances = make(map[InstanceID]*ec2.Instance)
-	snapshot.instances[InstanceID("i-12345678")] = &ec2.Instance{}
+	snapshot.instances = make(map[awsnode.NodeID]*ec2.Instance)
+	snapshot.instances[awsnode.NodeID("i-12345678")] = &ec2.Instance{}
 
-	if !snapshot.MeetsCriteria(cacheCriteria{HasInstances: []InstanceID{InstanceID("i-12345678")}}) {
+	if !snapshot.MeetsCriteria(cacheCriteria{HasInstances: []awsnode.NodeID{awsnode.NodeID("i-12345678")}}) {
 		t.Errorf("Snapshot did not honor HasInstances with matching instances")
 	}
 
-	if snapshot.MeetsCriteria(cacheCriteria{HasInstances: []InstanceID{InstanceID("i-12345678"), InstanceID("i-00000000")}}) {
+	if snapshot.MeetsCriteria(cacheCriteria{HasInstances: []awsnode.NodeID{awsnode.NodeID("i-12345678"), awsnode.NodeID("i-00000000")}}) {
 		t.Errorf("Snapshot did not honor HasInstances with partially matching instances")
 	}
 }
@@ -177,22 +178,22 @@ func TestOlderThan(t *testing.T) {
 func TestSnapshotFindInstances(t *testing.T) {
 	snapshot := &allInstancesSnapshot{}
 
-	snapshot.instances = make(map[InstanceID]*ec2.Instance)
+	snapshot.instances = make(map[awsnode.NodeID]*ec2.Instance)
 	{
-		id := InstanceID("i-12345678")
-		snapshot.instances[id] = &ec2.Instance{InstanceId: id.awsString()}
+		id := awsnode.NodeID("i-12345678")
+		snapshot.instances[id] = &ec2.Instance{InstanceId: id.AwsString()}
 	}
 	{
-		id := InstanceID("i-23456789")
-		snapshot.instances[id] = &ec2.Instance{InstanceId: id.awsString()}
+		id := awsnode.NodeID("i-23456789")
+		snapshot.instances[id] = &ec2.Instance{InstanceId: id.AwsString()}
 	}
 
-	instances := snapshot.FindInstances([]InstanceID{InstanceID("i-12345678"), InstanceID("i-23456789"), InstanceID("i-00000000")})
+	instances := snapshot.FindInstances([]awsnode.NodeID{"i-12345678", "i-23456789", "i-00000000"})
 	if len(instances) != 2 {
 		t.Errorf("findInstances returned %d results, expected 2", len(instances))
 	}
 
-	for _, id := range []InstanceID{InstanceID("i-12345678"), InstanceID("i-23456789")} {
+	for _, id := range []awsnode.NodeID{awsnode.NodeID("i-12345678"), awsnode.NodeID("i-23456789")} {
 		i := instances[id]
 		if i == nil {
 			t.Errorf("findInstances did not return %s", id)
