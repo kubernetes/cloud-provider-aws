@@ -19,7 +19,7 @@ require (
 	k8s.io/controller-manager v0.32.0-alpha.0
 	k8s.io/klog/v2 v2.130.1
 	k8s.io/kubelet v0.32.0-alpha.0
-	k8s.io/utils v0.0.0-20240711033017-18e509b52bc8
+	k8s.io/utils v0.0.0-20240902221715-702e33fdd3c3
 )
 
 require (
