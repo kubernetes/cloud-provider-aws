@@ -390,7 +390,8 @@ type Cloud struct {
 
 	nodeInformer informercorev1.NodeInformer
 	// Extract the function out to make it easier to test
-	nodeInformerHasSynced cache.InformerSynced
+	nodeInformerHasSynced              cache.InformerSynced
+	nodeEventualConsistencyGracePeriod time.Duration
 
 	eventBroadcaster record.EventBroadcaster
 	eventRecorder    record.EventRecorder
@@ -600,13 +601,14 @@ func newAWSCloud2(cfg config.CloudConfig, awsServices Services, provider config.
 	}
 
 	awsCloud := &Cloud{
-		ec2:      ec2,
-		elb:      elb,
-		elbv2:    elbv2,
-		metadata: metadata,
-		kms:      kms,
-		cfg:      &cfg,
-		region:   regionName,
+		ec2:                                ec2,
+		elb:                                elb,
+		elbv2:                              elbv2,
+		metadata:                           metadata,
+		kms:                                kms,
+		cfg:                                &cfg,
+		region:                             regionName,
+		nodeEventualConsistencyGracePeriod: cfg.Global.NodeEventualConsistencyGracePeriod,
 	}
 	awsCloud.instanceCache.cloud = awsCloud
 	awsCloud.zoneCache.cloud = awsCloud
@@ -869,9 +871,26 @@ func (c *Cloud) NodeAddressesByProviderID(ctx context.Context, providerID string
 	return addresses, nil
 }
 
-// InstanceExistsByProviderID returns true if the instance with the given provider id still exists.
+// InstanceExistsByProviderID implements Instances.InstanceExistsByProviderID (v1)
+// returns true if the instance with the given provider id still exists.
 // If false is returned with no error, the instance will be immediately deleted by the cloud controller manager.
 func (c *Cloud) InstanceExistsByProviderID(ctx context.Context, providerID string) (bool, error) {
+	exists, err := c.instanceExistsByProviderID(ctx, providerID)
+	if err != nil {
+		if IsAWSErrorInstanceNotFound(err) {
+			// we have to assume this means the instance was terminated a while ago
+			return false, nil
+		}
+		return false, err
+	}
+	return exists, nil
+}
+
+// instanceExistsByProviderID returns true if the instance with the given provider id still exists.
+// If error InvalidInstanceId.NotFound is returned, the caller should decide how to handle this. It could mean:
+// a. the instance was launched recently and isn't found in the API due to eventual-consistency
+// b. the instance was terminated a while ago, and no longer appears in the API with "terminated" status
+func (c *Cloud) instanceExistsByProviderID(_ context.Context, providerID string) (bool, error) {
 	instanceID, err := KubernetesInstanceID(providerID).MapToAWSInstanceID()
 	if err != nil {
 		return false, err
@@ -887,10 +906,6 @@ func (c *Cloud) InstanceExistsByProviderID(ctx context.Context, providerID strin
 
 	instances, err := c.ec2.DescribeInstances(request)
 	if err != nil {
-		// if err is InstanceNotFound, return false with no error
-		if IsAWSErrorInstanceNotFound(err) {
-			return false, nil
-		}
 		return false, err
 	}
 	if len(instances) == 0 {
