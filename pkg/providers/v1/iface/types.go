@@ -8,6 +8,7 @@ import "github.com/aws/aws-sdk-go/service/ec2"
 type EC2 interface {
 	// Query EC2 for instances matching the filter
 	DescribeInstances(request *ec2.DescribeInstancesInput) ([]*ec2.Instance, error)
+	DescribeInstanceTopology(request *ec2.DescribeInstanceTopologyInput) (*ec2.InstanceTopology, error)
 
 	DescribeSecurityGroups(request *ec2.DescribeSecurityGroupsInput) ([]*ec2.SecurityGroup, error)
 

@@ -240,6 +240,12 @@ func (ec2i *FakeEC2Impl) DescribeInstances(request *ec2.DescribeInstancesInput) 
 	return matches, nil
 }
 
+// DescribeInstances returns fake instance descriptions
+func (ec2i *FakeEC2Impl) DescribeInstanceTopology(request *ec2.DescribeInstanceTopologyInput) (*ec2.InstanceTopology, error) {
+	topology, err := ec2i.DescribeInstanceTopology(request)
+	return topology, err
+}
+
 // AttachVolume is not implemented but is required for interface conformance
 func (ec2i *FakeEC2Impl) AttachVolume(request *ec2.AttachVolumeInput) (resp *ec2.VolumeAttachment, err error) {
 	panic("Not implemented")
