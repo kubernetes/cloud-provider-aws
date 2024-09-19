@@ -30,6 +30,16 @@ type awsSdkEC2 struct {
 	ec2 ec2iface.EC2API
 }
 
+func (s *awsSdkEC2) DescribeInstanceTopology(request *ec2.DescribeInstanceTopologyInput) ([]*ec2.InstanceTopology, error) {
+	resp, err := s.ec2.DescribeInstanceTopology(request)
+	if err != nil {
+		return nil, fmt.Errorf("error describe AWS Instance Topology: %q", err)
+	} else if len(resp.Instances) == 0 {
+		return []*ec2.InstanceTopology{}, nil
+	}
+	return resp.Instances, err
+}
+
 // Implementation of EC2.Instances
 func (s *awsSdkEC2) DescribeInstances(request *ec2.DescribeInstancesInput) ([]*ec2.Instance, error) {
 	// Instances are paged
