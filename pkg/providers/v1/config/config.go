@@ -63,8 +63,8 @@ type CloudConfig struct {
 		// NodeIPFamilies determines which IP addresses are added to node objects and their ordering.
 		NodeIPFamilies []string
 
-		// Topology API Supported Instance Types Name Prefixes
-		TopologySupportedInstancePrefixes []string
+		// Topology API Supported Instance Types
+		TopologySupportedInstanceTypes []string
 
 		// Topology API Supported regions
 		TopologySupportedRegions []string

@@ -241,7 +241,7 @@ func (ec2i *FakeEC2Impl) DescribeInstances(request *ec2.DescribeInstancesInput) 
 }
 
 // DescribeInstances returns fake instance descriptions
-func (ec2i *FakeEC2Impl) DescribeInstanceTopology(request *ec2.DescribeInstanceTopologyInput) (*ec2.InstanceTopology, error) {
+func (ec2i *FakeEC2Impl) DescribeInstanceTopology(request *ec2.DescribeInstanceTopologyInput) ([]*ec2.InstanceTopology, error) {
 	topology, err := ec2i.DescribeInstanceTopology(request)
 	return topology, err
 }

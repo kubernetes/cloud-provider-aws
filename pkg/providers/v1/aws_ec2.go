@@ -30,14 +30,14 @@ type awsSdkEC2 struct {
 	ec2 ec2iface.EC2API
 }
 
-func (s *awsSdkEC2) DescribeInstanceTopology(request *ec2.DescribeInstanceTopologyInput) (*ec2.InstanceTopology, error) {
+func (s *awsSdkEC2) DescribeInstanceTopology(request *ec2.DescribeInstanceTopologyInput) ([]*ec2.InstanceTopology, error) {
 	resp, err := s.ec2.DescribeInstanceTopology(request)
 	if err != nil {
 		return nil, fmt.Errorf("error describe AWS Instance Topology: %q", err)
 	} else if len(resp.Instances) == 0 {
 		return nil, nil
 	}
-	return resp.Instances[0], err
+	return resp.Instances, err
 }
 
 // Implementation of EC2.Instances
