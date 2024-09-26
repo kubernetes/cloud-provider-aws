@@ -63,11 +63,11 @@ func defaultECRProvider(ctx context.Context, region string) (ECR, error) {
 	var cfg aws.Config
 	var err error
 	if region != "" {
-		klog.Warningf("No region found in the image reference, the default region will be used. Please refer to AWS SDK documentation for configuration purpose.")
 		cfg, err = config.LoadDefaultConfig(ctx,
 			config.WithRegion(region),
 		)
 	} else {
+		klog.Warningf("No region found in the image reference, the default region will be used. Please refer to AWS SDK documentation for configuration purpose.")
 		cfg, err = config.LoadDefaultConfig(ctx)
 	}
 
