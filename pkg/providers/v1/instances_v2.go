@@ -22,10 +22,12 @@ package aws
 
 import (
 	"context"
-
+	"github.com/aws/aws-sdk-go/service/ec2"
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/types"
 	cloudprovider "k8s.io/cloud-provider"
+	"k8s.io/utils/strings/slices"
+	"strconv"
 )
 
 func (c *Cloud) getProviderID(ctx context.Context, node *v1.Node) (string, error) {
@@ -63,7 +65,7 @@ func (c *Cloud) InstanceShutdown(ctx context.Context, node *v1.Node) (bool, erro
 	return c.InstanceShutdownByProviderID(ctx, providerID)
 }
 
-func (c *Cloud) getAdditionalLabels(zoneName string) (map[string]string, error) {
+func (c *Cloud) getAdditionalLabels(zoneName string, instanceID string, instanceType string, region string) (map[string]string, error) {
 	additionalLabels := map[string]string{}
 
 	// Add the zone ID to the additional labels
@@ -74,7 +76,26 @@ func (c *Cloud) getAdditionalLabels(zoneName string) (map[string]string, error) 
 
 	additionalLabels[LabelZoneID] = zoneID
 
+	if c.isTopologySupported(instanceType, region) {
+		topologyRequest := &ec2.DescribeInstanceTopologyInput{InstanceIds: []*string{&instanceID}}
+		topology, err := c.ec2.DescribeInstanceTopology(topologyRequest)
+		if err != nil || len(topology) == 0 {
+			return nil, err
+		} else {
+			for index, networkNode := range topology[0].NetworkNodes {
+				layer := index + 1
+				label := LabelNetworkNode + strconv.Itoa(layer)
+				additionalLabels[label] = *networkNode
+			}
+		}
+	}
+
 	return additionalLabels, nil
+}
+
+// TopologySupportedInstancePrefixes is help to filter instance types supported by topology API
+func (c *Cloud) isTopologySupported(instanceType string, region string) bool {
+	return slices.Contains(c.cfg.Global.TopologySupportedInstanceTypes, instanceType) && slices.Contains(c.cfg.Global.TopologySupportedRegions, region)
 }
 
 // InstanceMetadata returns the instance's metadata. The values returned in InstanceMetadata are
@@ -103,7 +124,12 @@ func (c *Cloud) InstanceMetadata(ctx context.Context, node *v1.Node) (*cloudprov
 		return nil, err
 	}
 
-	additionalLabels, err := c.getAdditionalLabels(zone.FailureDomain)
+	instanceID, err := KubernetesInstanceID(providerID).MapToAWSInstanceID()
+	if err != nil {
+		return nil, err
+	}
+
+	additionalLabels, err := c.getAdditionalLabels(zone.FailureDomain, string(instanceID), instanceType, zone.Region)
 	if err != nil {
 		return nil, err
 	}
