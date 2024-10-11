@@ -1,1 +1,1 @@
-defaultBaseImage: registry.k8s.io/build-image/go-runner:v2.3.1-go1.21.11-bookworm.0
+defaultBaseImage: registry.k8s.io/build-image/go-runner:v2.3.1-go1.22.7-bookworm.0
