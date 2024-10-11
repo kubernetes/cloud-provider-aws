@@ -1,6 +1,6 @@
 module k8s.io/cloud-provider-aws/tests/e2e
 
-go 1.18
+go 1.22.7
 
 require (
 	github.com/onsi/ginkgo/v2 v2.4.0
