@@ -211,18 +211,17 @@ func (p *awsSDKProvider) Metadata() (config.EC2Metadata, error) {
 	p.addAPILoggingHandlers(&client.Handlers)
 
 	identity, err := client.GetInstanceIdentityDocument()
-	if err != nil {
-		return nil, fmt.Errorf("unable to get instance identity document: %v", err)
+	if err == nil {
+		klog.InfoS("instance metadata identity",
+			"region", identity.Region,
+			"availability-zone", identity.AvailabilityZone,
+			"instance-type", identity.InstanceType,
+			"architecture", identity.Architecture,
+			"instance-id", identity.InstanceID,
+			"private-ip", identity.PrivateIP,
+			"account-id", identity.AccountID,
+			"image-id", identity.ImageID)
 	}
-	klog.InfoS("instance metadata identity",
-		"region", identity.Region,
-		"availability-zone", identity.AvailabilityZone,
-		"instance-type", identity.InstanceType,
-		"architecture", identity.Architecture,
-		"instance-id", identity.InstanceID,
-		"private-ip", identity.PrivateIP,
-		"account-id", identity.AccountID,
-		"image-id", identity.ImageID)
 	return client, nil
 }
 
