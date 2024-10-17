@@ -17,9 +17,9 @@ limitations under the License.
 package aws
 
 import (
-	"sync"
-	"strings"
 	"slices"
+	"strings"
+	"sync"
 
 	"github.com/aws/aws-sdk-go/service/ec2"
 	"k8s.io/klog/v2"
