@@ -22,11 +22,9 @@ package aws
 
 import (
 	"context"
-	"github.com/aws/aws-sdk-go/service/ec2"
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/types"
 	cloudprovider "k8s.io/cloud-provider"
-	"k8s.io/utils/strings/slices"
 	"strconv"
 )
 
@@ -76,26 +74,18 @@ func (c *Cloud) getAdditionalLabels(zoneName string, instanceID string, instance
 
 	additionalLabels[LabelZoneID] = zoneID
 
-	if c.isTopologySupported(instanceType, region) {
-		topologyRequest := &ec2.DescribeInstanceTopologyInput{InstanceIds: []*string{&instanceID}}
-		topology, err := c.ec2.DescribeInstanceTopology(topologyRequest)
-		if err != nil || len(topology) == 0 {
-			return nil, err
-		} else {
-			for index, networkNode := range topology[0].NetworkNodes {
-				layer := index + 1
-				label := LabelNetworkNode + strconv.Itoa(layer)
-				additionalLabels[label] = *networkNode
-			}
+	nodeTopology, err := c.topologyCache.getNodeTopology(instanceType, region, instanceID)
+	if err != nil {
+		return nil, err
+	} else if nodeTopology != nil {
+		for index, networkNode := range nodeTopology.NetworkNodes {
+			layer := index + 1
+			label := LabelNetworkNode + strconv.Itoa(layer)
+			additionalLabels[label] = *networkNode
 		}
 	}
 
 	return additionalLabels, nil
-}
-
-// TopologySupportedInstancePrefixes is help to filter instance types supported by topology API
-func (c *Cloud) isTopologySupported(instanceType string, region string) bool {
-	return slices.Contains(c.cfg.Global.TopologySupportedInstanceTypes, instanceType) && slices.Contains(c.cfg.Global.TopologySupportedRegions, region)
 }
 
 // InstanceMetadata returns the instance's metadata. The values returned in InstanceMetadata are
