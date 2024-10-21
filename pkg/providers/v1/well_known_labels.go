@@ -19,6 +19,8 @@ package aws
 const (
 	// LabelZoneID is a topology label that can be applied to any resource
 	// but will be initially applied to nodes.
-	LabelZoneID      = "topology.k8s.aws/zone-id"
+	LabelZoneID = "topology.k8s.aws/zone-id"
+	// LabelNetworkNode is a topology label that can be applied to any resource
+	// but will be initially applied to nodes.
 	LabelNetworkNode = "topology.k8s.aws/network-node-layer-"
 )

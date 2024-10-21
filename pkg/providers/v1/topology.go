@@ -33,6 +33,8 @@ type topologyCache struct {
 }
 
 func (t *topologyCache) getNodeTopology(instanceType string, region string, instanceID string) (*ec2.InstanceTopology, error) {
+	t.mutex.RLock()
+	defer t.mutex.RUnlock()
 	if t.mightSupportTopology(instanceType, region) {
 		topologyRequest := &ec2.DescribeInstanceTopologyInput{InstanceIds: []*string{&instanceID}}
 		topology, err := t.cloud.ec2.DescribeInstanceTopology(topologyRequest)
@@ -53,8 +55,6 @@ func (t *topologyCache) getNodeTopology(instanceType string, region string, inst
 }
 
 func (t *topologyCache) mightSupportTopology(instanceType string, region string) bool {
-	t.mutex.RLock()
-	defer t.mutex.RUnlock()
 	// Initialize the map if it's unset
 	if t.unsupportedInstance == nil {
 		t.unsupportedInstance = []string{}

@@ -35,7 +35,7 @@ func (s *awsSdkEC2) DescribeInstanceTopology(request *ec2.DescribeInstanceTopolo
 	if err != nil {
 		return nil, fmt.Errorf("error describe AWS Instance Topology: %q", err)
 	} else if len(resp.Instances) == 0 {
-		return nil, nil
+		return []*ec2.InstanceTopology{}, nil
 	}
 	return resp.Instances, err
 }

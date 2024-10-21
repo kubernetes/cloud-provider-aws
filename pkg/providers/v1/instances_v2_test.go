@@ -27,6 +27,7 @@ import (
 	v1 "k8s.io/api/core/v1"
 	"strconv"
 	"testing"
+	"strconv"
 )
 
 func TestGetAdditionalLabels(t *testing.T) {
@@ -276,6 +277,9 @@ func TestInstanceMetadata(t *testing.T) {
 		assert.Equal(t, "us-west-2", result.Region)
 		assert.Equal(t, map[string]string{
 			LabelZoneID: "az1",
+			LabelNetworkNode+strconv.Itoa(1): "nn-123456789",
+			LabelNetworkNode+strconv.Itoa(2): "nn-234567890",
+			LabelNetworkNode+strconv.Itoa(3): "nn-345678901",
 		}, result.AdditionalLabels)
 	})
 }
