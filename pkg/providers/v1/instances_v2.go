@@ -22,10 +22,10 @@ package aws
 
 import (
 	"context"
-
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/types"
 	cloudprovider "k8s.io/cloud-provider"
+	"strconv"
 )
 
 func (c *Cloud) getProviderID(ctx context.Context, node *v1.Node) (string, error) {
@@ -63,7 +63,7 @@ func (c *Cloud) InstanceShutdown(ctx context.Context, node *v1.Node) (bool, erro
 	return c.InstanceShutdownByProviderID(ctx, providerID)
 }
 
-func (c *Cloud) getAdditionalLabels(zoneName string) (map[string]string, error) {
+func (c *Cloud) getAdditionalLabels(zoneName string, instanceID string, instanceType string, region string) (map[string]string, error) {
 	additionalLabels := map[string]string{}
 
 	// Add the zone ID to the additional labels
@@ -73,6 +73,17 @@ func (c *Cloud) getAdditionalLabels(zoneName string) (map[string]string, error) 
 	}
 
 	additionalLabels[LabelZoneID] = zoneID
+
+	nodeTopology, err := c.topologyCache.getNodeTopology(instanceType, region, instanceID)
+	if err != nil {
+		return nil, err
+	} else if nodeTopology != nil {
+		for index, networkNode := range nodeTopology.NetworkNodes {
+			layer := index + 1
+			label := LabelNetworkNode + strconv.Itoa(layer)
+			additionalLabels[label] = *networkNode
+		}
+	}
 
 	return additionalLabels, nil
 }
@@ -103,7 +114,12 @@ func (c *Cloud) InstanceMetadata(ctx context.Context, node *v1.Node) (*cloudprov
 		return nil, err
 	}
 
-	additionalLabels, err := c.getAdditionalLabels(zone.FailureDomain)
+	instanceID, err := KubernetesInstanceID(providerID).MapToAWSInstanceID()
+	if err != nil {
+		return nil, err
+	}
+
+	additionalLabels, err := c.getAdditionalLabels(zone.FailureDomain, string(instanceID), instanceType, zone.Region)
 	if err != nil {
 		return nil, err
 	}
