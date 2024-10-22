@@ -54,7 +54,7 @@ var _ = Describe("[cloud-provider-aws-e2e] nodes", func() {
 			framework.Failf("Conformance requires at least two nodes")
 		}
 
-		supportedInstanceType := "p3dn.24xlarge"
+		supportedInstanceType := "p4d.24xlarge"
 		topologyNetworkLabel1 := "topology.k8s.aws/network-node-layer-1"
 		topologyNetworkLabel2 := "topology.k8s.aws/network-node-layer-2"
 		topologyNetworkLabel3 := "topology.k8s.aws/network-node-layer-3"
