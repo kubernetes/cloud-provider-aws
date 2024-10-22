@@ -22,6 +22,9 @@ import (
 
 	. "github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
+	authv1 "k8s.io/api/authorization/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/client-go/kubernetes"
 	"k8s.io/kubernetes/test/e2e/framework"
 	e2enode "k8s.io/kubernetes/test/e2e/framework/node"
 )
@@ -53,7 +56,27 @@ var _ = Describe("[cloud-provider-aws-e2e] nodes", func() {
 		if len(nodeList.Items) < 2 {
 			framework.Failf("Conformance requires at least two nodes")
 		}
+		
+		clientConfig, err := framework.LoadConfig()
+    	framework.ExpectNoError(err)
 
+    	client, err := kubernetes.NewForConfig(clientConfig)
+    	framework.ExpectNoError(err)
+
+		ssar := &authv1.SelfSubjectAccessReview{
+			Spec: authv1.SelfSubjectAccessReviewSpec{
+				ResourceAttributes: &authv1.ResourceAttributes{
+					Group:    "ec2.amazonaws.com",
+					Resource: "describeInstanceTopology",
+					Verb:     "get",
+				},
+			},
+		}
+		result, err := client.AuthorizationV1().SelfSubjectAccessReviews().Create(context.TODO(), ssar, metav1.CreateOptions{})
+		if err != nil {
+			framework.Failf("Error checking EC2 describeInstanceTopology access: %v", err)
+		}
+		allowed := result.Status.Allowed
 		supportedInstanceType := "p4d.24xlarge"
 		topologyNetworkLabel1 := "topology.k8s.aws/network-node-layer-1"
 		topologyNetworkLabel2 := "topology.k8s.aws/network-node-layer-2"
@@ -65,7 +88,7 @@ var _ = Describe("[cloud-provider-aws-e2e] nodes", func() {
 				framework.Failf("Node %s does not have instance-type label", node.Name)
 			}
 
-			if instanceType == supportedInstanceType {
+			if instanceType == supportedInstanceType && allowed {
 				gomega.Expect(node.Labels).To(gomega.HaveKey(topologyNetworkLabel1),
 					"Node with instance type %s should have label %s", supportedInstanceType, topologyNetworkLabel1)
 				gomega.Expect(node.Labels).To(gomega.HaveKey(topologyNetworkLabel2),
