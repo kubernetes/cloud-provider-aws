@@ -43,6 +43,10 @@ func (t *topologyCache) getNodeTopology(instanceType string, region string, inst
 			if strings.Contains(err.Error(), "The functionality you requested is not available in this region") {
 				t.unsupportedRegion = append(t.unsupportedRegion, region)
 				return nil, nil
+			} else if strings.Contains(err.Error(), "You are not authorized to perform this operation") {
+				// gracefully handle the DecribeInstanceTopology access missing error
+				klog.Infof("Not authorized to perform: ec2:DescribeInstanceTopology, permission missing")
+				return nil, nil
 			}
 			return nil, err
 		} else if len(topology) == 0 {

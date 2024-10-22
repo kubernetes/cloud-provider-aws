@@ -44,4 +44,42 @@ var _ = Describe("[cloud-provider-aws-e2e] nodes", func() {
 			gomega.Expect(node.Labels).To(gomega.HaveKey("topology.k8s.aws/zone-id"))
 		}
 	})
+
+	It("should correctly label nodes with instance type p3dn.24xlarge", func(ctx context.Context) {
+		framework.ExpectNoError(e2enode.WaitForAllNodesSchedulable(f.ClientSet, 10*time.Minute))
+		nodeList, err := e2enode.GetReadySchedulableNodes(f.ClientSet)
+		framework.ExpectNoError(err)
+
+		if len(nodeList.Items) < 2 {
+			framework.Failf("Conformance requires at least two nodes")
+		}
+
+		supportedInstanceType := "p3dn.24xlarge"
+		topologyNetworkLabel1 := "topology.k8s.aws/network-node-layer-1"
+		topologyNetworkLabel2 := "topology.k8s.aws/network-node-layer-2"
+		topologyNetworkLabel3 := "topology.k8s.aws/network-node-layer-3"
+
+		for _, node := range nodeList.Items {
+			instanceType, hasInstanceType := node.Labels["node.kubernetes.io/instance-type"]
+			if !hasInstanceType {
+				framework.Failf("Node %s does not have instance-type label", node.Name)
+			}
+
+			if instanceType == supportedInstanceType {
+				gomega.Expect(node.Labels).To(gomega.HaveKey(topologyNetworkLabel1),
+					"Node with instance type %s should have label %s", supportedInstanceType, topologyNetworkLabel1)
+				gomega.Expect(node.Labels).To(gomega.HaveKey(topologyNetworkLabel2),
+					"Node with instance type %s should have label %s", supportedInstanceType, topologyNetworkLabel2)
+				gomega.Expect(node.Labels).To(gomega.HaveKey(topologyNetworkLabel3),
+					"Node with instance type %s should have label %s", supportedInstanceType, topologyNetworkLabel3)
+			} else {
+				gomega.Expect(node.Labels).NotTo(gomega.HaveKey(topologyNetworkLabel1),
+					"Node with instance type %s should not have label %s", instanceType, topologyNetworkLabel1)
+				gomega.Expect(node.Labels).NotTo(gomega.HaveKey(topologyNetworkLabel2),
+					"Node with instance type %s should not have label %s", instanceType, topologyNetworkLabel2)
+				gomega.Expect(node.Labels).NotTo(gomega.HaveKey(topologyNetworkLabel3),
+					"Node with instance type %s should not have label %s", instanceType, topologyNetworkLabel3)
+			}
+		}
+	})
 })

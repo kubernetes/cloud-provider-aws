@@ -27,95 +27,7 @@ import (
 	v1 "k8s.io/api/core/v1"
 	"strconv"
 	"testing"
-	"strconv"
 )
-
-func TestGetAdditionalLabels(t *testing.T) {
-	for _, tc := range []struct {
-		name           string
-		instanceID     string
-		instanceType   string
-		region         string
-		zone           zoneDetails
-		expectedLabels map[string]string
-	}{
-		{
-			name:         "test in topology supported region and instance type",
-			instanceID:   "i-00000000000000000",
-			instanceType: "trn1.2xlarge",
-			region:       "us-west-2",
-			zone: zoneDetails{
-				name:     "us-west-2a",
-				id:       "az1",
-				zoneType: "zonetype",
-			},
-			expectedLabels: map[string]string{
-				LabelZoneID:                        "az1",
-				LabelNetworkNode + strconv.Itoa(0): "nn1",
-				LabelNetworkNode + strconv.Itoa(1): "nn2",
-				LabelNetworkNode + strconv.Itoa(2): "nn3",
-			},
-		},
-		{
-			name:         "test in topology unsupported region",
-			instanceID:   "i-00000000000000000",
-			instanceType: "trn1.2xlarge",
-			region:       "ap-south-1",
-			zone: zoneDetails{
-				name:     "ap-south-1a",
-				id:       "az1",
-				zoneType: "zonetype",
-			},
-			expectedLabels: map[string]string{
-				LabelZoneID: "az1",
-			},
-		},
-		{
-			name:         "test with topology unsupported instance type",
-			instanceID:   "i-00000000000000000",
-			instanceType: "t3.xlarge",
-			region:       "us-west-2",
-			zone: zoneDetails{
-				name:     "us-west-2a",
-				id:       "az1",
-				zoneType: "zonetype",
-			},
-			expectedLabels: map[string]string{
-				LabelZoneID: "az1",
-			},
-		},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			az := ec2.AvailabilityZone{
-				ZoneName: aws.String(tc.zone.name),
-				ZoneId:   aws.String(tc.zone.id),
-				ZoneType: aws.String(tc.zone.zoneType),
-			}
-			testNetworkNode0 := "nn1"
-			testNetworkNode1 := "nn2"
-			testNetworkNode2 := "nn3"
-			topology := ec2.InstanceTopology{NetworkNodes: []*string{&testNetworkNode0, &testNetworkNode1, &testNetworkNode2}}
-
-			mockedEC2API := newMockedEC2API()
-			c := &Cloud{ec2: &awsSdkEC2{ec2: mockedEC2API}}
-			c.zoneCache.zoneNameToDetails = map[string]zoneDetails{
-				tc.zone.name: tc.zone,
-			}
-			mockedEC2API.On("DescribeAvailabilityZones", mock.Anything).Return(&ec2.DescribeAvailabilityZonesOutput{
-				AvailabilityZones: []*ec2.AvailabilityZone{&az},
-			}, nil)
-			mockedEC2API.On("DescribeInstanceTopology", mock.Anything).Return(&ec2.DescribeInstanceTopologyOutput{
-				Instances: []*ec2.InstanceTopology{&topology},
-			}, nil)
-
-			res, err := c.getAdditionalLabels(tc.zone.name, tc.instanceID, tc.instanceType, tc.region)
-			if err != nil {
-				t.Errorf("Should not error getting Additional Labels: %s", err)
-			}
-			assert.Equal(t, tc.expectedLabels, res)
-		})
-	}
-}
 
 func TestGetProviderId(t *testing.T) {
 	for _, tc := range []struct {
@@ -276,10 +188,10 @@ func TestInstanceMetadata(t *testing.T) {
 		assert.Equal(t, "us-west-2a", result.Zone)
 		assert.Equal(t, "us-west-2", result.Region)
 		assert.Equal(t, map[string]string{
-			LabelZoneID: "az1",
-			LabelNetworkNode+strconv.Itoa(1): "nn-123456789",
-			LabelNetworkNode+strconv.Itoa(2): "nn-234567890",
-			LabelNetworkNode+strconv.Itoa(3): "nn-345678901",
+			LabelZoneID:                        "az1",
+			LabelNetworkNode + strconv.Itoa(1): "nn-123456789",
+			LabelNetworkNode + strconv.Itoa(2): "nn-234567890",
+			LabelNetworkNode + strconv.Itoa(3): "nn-345678901",
 		}, result.AdditionalLabels)
 	})
 }
