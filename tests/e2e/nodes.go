@@ -48,7 +48,7 @@ var _ = Describe("[cloud-provider-aws-e2e] nodes", func() {
 		}
 	})
 
-	It("should correctly label nodes with instance type p3dn.24xlarge", func(ctx context.Context) {
+	It("should label nodes with topology network info if instance is supported", func(ctx context.Context) {
 		framework.ExpectNoError(e2enode.WaitForAllNodesSchedulable(f.ClientSet, 10*time.Minute))
 		nodeList, err := e2enode.GetReadySchedulableNodes(f.ClientSet)
 		framework.ExpectNoError(err)
@@ -56,12 +56,10 @@ var _ = Describe("[cloud-provider-aws-e2e] nodes", func() {
 		if len(nodeList.Items) < 2 {
 			framework.Failf("Conformance requires at least two nodes")
 		}
-		
 		clientConfig, err := framework.LoadConfig()
-    	framework.ExpectNoError(err)
-
-    	client, err := kubernetes.NewForConfig(clientConfig)
-    	framework.ExpectNoError(err)
+		framework.ExpectNoError(err)
+		client, err := kubernetes.NewForConfig(clientConfig)
+		framework.ExpectNoError(err)
 
 		ssar := &authv1.SelfSubjectAccessReview{
 			Spec: authv1.SelfSubjectAccessReviewSpec{
