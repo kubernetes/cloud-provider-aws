@@ -525,9 +525,9 @@ type Cloud struct {
 	// Note that we cache some state in awsInstance (mountpoints), so we must preserve the instance
 	selfAWSInstance *awsInstance
 
-	instanceCache instanceCache
-	zoneCache     zoneCache
-	topologyCache topologyCache
+	instanceCache           instanceCache
+	zoneCache               zoneCache
+	instanceTopologyManager *instanceTopologyManager
 
 	clientBuilder cloudprovider.ControllerClientBuilder
 	kubeClient    clientset.Interface
@@ -1047,7 +1047,7 @@ func newAWSCloud2(cfg config.CloudConfig, awsServices Services, provider config.
 	}
 	awsCloud.instanceCache.cloud = awsCloud
 	awsCloud.zoneCache.cloud = awsCloud
-	awsCloud.topologyCache.cloud = awsCloud
+	awsCloud.instanceTopologyManager = newInstanceTopologyManager(awsCloud.ec2)
 
 	tagged := cfg.Global.KubernetesClusterTag != "" || cfg.Global.KubernetesClusterID != ""
 	if cfg.Global.VPC != "" && (cfg.Global.SubnetID != "" || cfg.Global.RoleARN != "") && tagged {

@@ -3917,9 +3917,12 @@ func (m *MockedEC2API) DescribeInstances(input *ec2.DescribeInstancesInput) (*ec
 	return args.Get(0).(*ec2.DescribeInstancesOutput), args.Error(1)
 }
 
-func (m *MockedEC2API) DescribeInstanceTopology(input *ec2.DescribeInstanceTopologyInput) (*ec2.DescribeInstanceTopologyOutput, error) {
+func (m *MockedEC2API) DescribeInstanceTopologyPages(input *ec2.DescribeInstanceTopologyInput, fn func(*ec2.DescribeInstanceTopologyOutput, bool) bool) error {
 	args := m.Called(input)
-	return args.Get(0).(*ec2.DescribeInstanceTopologyOutput), args.Error(1)
+	if args.Get(0) != nil {
+		fn(args.Get(0).(*ec2.DescribeInstanceTopologyOutput), true)
+	}
+	return args.Error(1)
 }
 
 func (m *MockedEC2API) DescribeAvailabilityZones(input *ec2.DescribeAvailabilityZonesInput) (*ec2.DescribeAvailabilityZonesOutput, error) {

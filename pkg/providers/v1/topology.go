@@ -17,58 +17,99 @@ limitations under the License.
 package aws
 
 import (
-	"slices"
-	"strings"
-	"sync"
+	"fmt"
+	"time"
 
+	"github.com/aws/aws-sdk-go/aws/awserr"
 	"github.com/aws/aws-sdk-go/service/ec2"
+	"k8s.io/client-go/tools/cache"
+	"k8s.io/cloud-provider-aws/pkg/providers/v1/iface"
 	"k8s.io/klog/v2"
 )
 
-type topologyCache struct {
-	cloud               *Cloud
-	mutex               sync.RWMutex
-	unsupportedInstance []string
-	unsupportedRegion   []string
+const instanceTopologyManagerCacheTimeout = 24 * time.Hour
+
+// stringKeyFunc is a string as cache key function
+func topStringKeyFunc(obj interface{}) (string, error) {
+	// Type should already be a string, so just return as is.
+	s, ok := obj.(string)
+	if !ok {
+		return "", fmt.Errorf("failed to cast to string: %+v", obj)
+	}
+
+	return s, nil
 }
 
-func (t *topologyCache) getNodeTopology(instanceType string, region string, instanceID string) (*ec2.InstanceTopology, error) {
-	t.mutex.RLock()
-	defer t.mutex.RUnlock()
+type instanceTopologyManager struct {
+	ec2                 iface.EC2
+	unsupportedKeyStore cache.Store
+}
+
+func newInstanceTopologyManager(ec2 iface.EC2) *instanceTopologyManager {
+	return &instanceTopologyManager{
+		ec2: ec2,
+		// These should change very infrequently, if ever, so checking once a day sounds fair.
+		unsupportedKeyStore: cache.NewTTLStore(topStringKeyFunc, instanceTopologyManagerCacheTimeout),
+	}
+}
+
+func (t *instanceTopologyManager) getNodeTopology(instanceType string, region string, instanceID string) (*ec2.InstanceTopology, error) {
 	if t.mightSupportTopology(instanceType, region) {
-		topologyRequest := &ec2.DescribeInstanceTopologyInput{InstanceIds: []*string{&instanceID}}
-		topology, err := t.cloud.ec2.DescribeInstanceTopology(topologyRequest)
+		request := &ec2.DescribeInstanceTopologyInput{InstanceIds: []*string{&instanceID}}
+		topologies, err := t.ec2.DescribeInstanceTopology(request)
 		if err != nil {
-			klog.Errorf("Error describing instance topology: %q", err)
-			if strings.Contains(err.Error(), "The functionality you requested is not available in this region") {
-				t.unsupportedRegion = append(t.unsupportedRegion, region)
-				return nil, nil
-			} else if strings.Contains(err.Error(), "You are not authorized to perform this operation") {
-				// gracefully handle the DecribeInstanceTopology access missing error
-				klog.Infof("Not authorized to perform: ec2:DescribeInstanceTopology, permission missing")
-				return nil, nil
+			if aerr, ok := err.(awserr.Error); ok {
+				switch aerr.Code() {
+				case "UnsupportedOperation":
+					klog.Infof("ec2:DescribeInstanceTopology is not available in %s: %q", region, err)
+					// If region is unsupported, track it to avoid making the call in the future.
+					t.addUnsupported(region)
+					return nil, nil
+				case "UnauthorizedOperation":
+					// Gracefully handle the DecribeInstanceTopology access missing error
+					klog.Warningf("Not authorized to perform: ec2:DescribeInstanceTopology, permission missing: %q", err)
+					return nil, nil
+				case "RequestLimitExceeded":
+					// Gracefully handle request throttling
+					klog.Warningf("Exceeded ec2:DescribeInstanceTopology request limits. Try again later: %q", err)
+					return nil, nil
+				}
 			}
+
+			// Unhandled error
+			klog.Errorf("Error describing instance topology: %q", err)
 			return nil, err
-		} else if len(topology) == 0 {
-			// instanceType is not support topology info and the result is empty
-			t.unsupportedInstance = append(t.unsupportedInstance, instanceType)
+		} else if len(topologies) == 0 {
+			// If no topology is returned, track the instance type as unsupported
+			klog.Infof("Instance type %s unsupported for getting instance topology", instanceType)
+			t.addUnsupported(instanceType)
+			return nil, nil
 		}
-		return topology[0], nil
+
+		return topologies[0], nil
 	}
 	return nil, nil
 }
 
-func (t *topologyCache) mightSupportTopology(instanceType string, region string) bool {
-	// Initialize the map if it's unset
-	if t.unsupportedInstance == nil {
-		t.unsupportedInstance = []string{}
+func (t *instanceTopologyManager) addUnsupported(key string) {
+	err := t.unsupportedKeyStore.Add(key)
+	if err != nil {
+		klog.Errorf("Failed to cache unsupported key %s: %q", key, err)
 	}
-	if t.unsupportedRegion == nil {
-		t.unsupportedRegion = []string{}
+}
+
+func (t *instanceTopologyManager) mightSupportTopology(instanceType string, region string) bool {
+	if _, exists, err := t.unsupportedKeyStore.GetByKey(region); exists {
+		return false
+	} else if err != nil {
+		klog.Errorf("Failed to get cached unsupported region: %q:", err)
 	}
-	// if both instanceType and region are not in unsupported cache, the instance type and region might be supported
-	// or we haven't check the supportness and cache it yet. If they are unsupported and not cached, we will run
-	// describeTopology api once for them
-	// Initialize the map if it's unset
-	return !slices.Contains(t.unsupportedInstance, instanceType) && !slices.Contains(t.unsupportedRegion, region)
+
+	if _, exists, err := t.unsupportedKeyStore.GetByKey(instanceType); exists {
+		return false
+	} else if err != nil {
+		klog.Errorf("Failed to get cached unsupported instance type: %q:", err)
+	}
+
+	return true
 }
