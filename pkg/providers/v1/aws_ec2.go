@@ -31,13 +31,16 @@ type awsSdkEC2 struct {
 }
 
 func (s *awsSdkEC2) DescribeInstanceTopology(request *ec2.DescribeInstanceTopologyInput) ([]*ec2.InstanceTopology, error) {
-	resp, err := s.ec2.DescribeInstanceTopology(request)
-	if err != nil {
-		return nil, fmt.Errorf("error describe AWS Instance Topology: %q", err)
-	} else if len(resp.Instances) == 0 {
-		return []*ec2.InstanceTopology{}, nil
-	}
-	return resp.Instances, err
+	var topologies []*ec2.InstanceTopology
+
+	err := s.ec2.DescribeInstanceTopologyPages(request,
+		func(page *ec2.DescribeInstanceTopologyOutput, lastPage bool) bool {
+			topologies = append(topologies, page.Instances...)
+			// Don't short-circuit. Just go through all of the pages
+			return false
+		})
+
+	return topologies, err
 }
 
 // Implementation of EC2.Instances
