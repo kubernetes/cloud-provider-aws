@@ -30,6 +30,19 @@ type awsSdkEC2 struct {
 	ec2 ec2iface.EC2API
 }
 
+func (s *awsSdkEC2) DescribeInstanceTopology(request *ec2.DescribeInstanceTopologyInput) ([]*ec2.InstanceTopology, error) {
+	var topologies []*ec2.InstanceTopology
+
+	err := s.ec2.DescribeInstanceTopologyPages(request,
+		func(page *ec2.DescribeInstanceTopologyOutput, lastPage bool) bool {
+			topologies = append(topologies, page.Instances...)
+			// Don't short-circuit. Just go through all of the pages
+			return false
+		})
+
+	return topologies, err
+}
+
 // Implementation of EC2.Instances
 func (s *awsSdkEC2) DescribeInstances(request *ec2.DescribeInstancesInput) ([]*ec2.Instance, error) {
 	// Instances are paged

@@ -19,13 +19,14 @@ package aws
 import (
 	"context"
 	"fmt"
+	"testing"
+
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/awserr"
 	"github.com/aws/aws-sdk-go/service/ec2"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	v1 "k8s.io/api/core/v1"
-	"testing"
 )
 
 func TestGetProviderId(t *testing.T) {
@@ -187,8 +188,36 @@ func TestInstanceMetadata(t *testing.T) {
 		assert.Equal(t, "us-west-2a", result.Zone)
 		assert.Equal(t, "us-west-2", result.Region)
 		assert.Equal(t, map[string]string{
-			LabelZoneID: "az1",
+			LabelZoneID:                  "az1",
+			LabelNetworkNodePrefix + "1": "nn-123456789",
+			LabelNetworkNodePrefix + "2": "nn-234567890",
+			LabelNetworkNodePrefix + "3": "nn-345678901",
 		}, result.AdditionalLabels)
+	})
+
+	t.Run("Should skip additional labels if already set", func(t *testing.T) {
+		instance := makeInstance("i-00000000000000000", "192.168.0.1", "1.2.3.4", "instance-same.ec2.internal", "instance-same.ec2.external", nil, true)
+		c, _ := mockInstancesResp(&instance, []*ec2.Instance{&instance})
+		node := &v1.Node{
+			Spec: v1.NodeSpec{
+				ProviderID: fmt.Sprintf("aws:///us-west-2c/1abc-2def/%s", *instance.InstanceId),
+			},
+		}
+		// Set labels to skip attempts to update them
+		node.Labels = map[string]string{
+			LabelZoneID:                  "az1",
+			LabelNetworkNodePrefix + "1": "nn-123456789",
+			LabelNetworkNodePrefix + "2": "nn-234567890",
+			LabelNetworkNodePrefix + "3": "nn-345678901",
+		}
+
+		result, err := c.InstanceMetadata(context.TODO(), node)
+		if err != nil {
+			t.Errorf("Should not error getting InstanceMetadata: %s", err)
+		}
+
+		// Validate that labels are unchanged.
+		assert.Equal(t, map[string]string{}, result.AdditionalLabels)
 	})
 }
 
