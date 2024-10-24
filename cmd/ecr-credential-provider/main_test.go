@@ -24,24 +24,50 @@ import (
 	"testing"
 	"time"
 
-	"github.com/aws/aws-sdk-go/aws"
-	"github.com/aws/aws-sdk-go/service/ecr"
-	"github.com/aws/aws-sdk-go/service/ecrpublic"
-	"github.com/golang/mock/gomock"
+	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/service/ecr"
+	"github.com/aws/aws-sdk-go-v2/service/ecr/types"
+	"github.com/aws/aws-sdk-go-v2/service/ecrpublic"
+	publictypes "github.com/aws/aws-sdk-go-v2/service/ecrpublic/types"
+	"github.com/stretchr/testify/mock"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/cloud-provider-aws/pkg/mocks"
 	v1 "k8s.io/kubelet/pkg/apis/credentialprovider/v1"
 )
 
+type MockedECR struct {
+	mock.Mock
+}
+
+func (m *MockedECR) GetAuthorizationToken(ctx context.Context, params *ecr.GetAuthorizationTokenInput, optFns ...func(*ecr.Options)) (*ecr.GetAuthorizationTokenOutput, error) {
+	args := m.Called(ctx, params)
+	if args.Get(1) != nil {
+		return args.Get(0).(*ecr.GetAuthorizationTokenOutput), args.Get(1).(error)
+	}
+	return args.Get(0).(*ecr.GetAuthorizationTokenOutput), nil
+}
+
+// ECRPublic abstracts the calls we make to aws-sdk for testing purposes
+type MockedECRPublic struct {
+	mock.Mock
+}
+
+func (m *MockedECRPublic) GetAuthorizationToken(ctx context.Context, params *ecrpublic.GetAuthorizationTokenInput, optFns ...func(*ecrpublic.Options)) (*ecrpublic.GetAuthorizationTokenOutput, error) {
+	args := m.Called(ctx, params)
+	if args.Get(1) != nil {
+		return args.Get(0).(*ecrpublic.GetAuthorizationTokenOutput), args.Get(1).(error)
+	}
+	return args.Get(0).(*ecrpublic.GetAuthorizationTokenOutput), nil
+}
+
 func generatePrivateGetAuthorizationTokenOutput(user string, password string, proxy string, expiration *time.Time) *ecr.GetAuthorizationTokenOutput {
 	creds := []byte(fmt.Sprintf("%s:%s", user, password))
-	data := &ecr.AuthorizationData{
+	data := types.AuthorizationData{
 		AuthorizationToken: aws.String(base64.StdEncoding.EncodeToString(creds)),
 		ExpiresAt:          expiration,
 		ProxyEndpoint:      aws.String(proxy),
 	}
 	output := &ecr.GetAuthorizationTokenOutput{
-		AuthorizationData: []*ecr.AuthorizationData{data},
+		AuthorizationData: []types.AuthorizationData{data},
 	}
 	return output
 }
@@ -60,11 +86,6 @@ func generateResponse(registry string, username string, password string) *v1.Cre
 }
 
 func Test_GetCredentials_Private(t *testing.T) {
-	ctrl := gomock.NewController(t)
-	defer ctrl.Finish()
-
-	mockECR := mocks.NewMockECR(ctrl)
-
 	testcases := []struct {
 		name                        string
 		image                       string
@@ -109,7 +130,7 @@ func Test_GetCredentials_Private(t *testing.T) {
 		{
 			name:                        "empty authorization token",
 			image:                       "123456789123.dkr.ecr.us-west-2.amazonaws.com",
-			getAuthorizationTokenOutput: &ecr.GetAuthorizationTokenOutput{AuthorizationData: []*ecr.AuthorizationData{{}}},
+			getAuthorizationTokenOutput: &ecr.GetAuthorizationTokenOutput{AuthorizationData: []types.AuthorizationData{{}}},
 			getAuthorizationTokenError:  nil,
 			expectedError:               errors.New("authorization token in response was nil"),
 		},
@@ -124,19 +145,19 @@ func Test_GetCredentials_Private(t *testing.T) {
 			name:  "invalid authorization token",
 			image: "123456789123.dkr.ecr.us-west-2.amazonaws.com",
 			getAuthorizationTokenOutput: &ecr.GetAuthorizationTokenOutput{
-				AuthorizationData: []*ecr.AuthorizationData{
-					{AuthorizationToken: aws.String(base64.StdEncoding.EncodeToString([]byte(fmt.Sprint("foo"))))},
+				AuthorizationData: []types.AuthorizationData{
+					{AuthorizationToken: aws.String(base64.StdEncoding.EncodeToString([]byte("foo")))},
 				},
 			},
 			getAuthorizationTokenError: nil,
 			expectedError:              errors.New("error parsing username and password from authorization token"),
 		},
 	}
-
 	for _, testcase := range testcases {
 		t.Run(testcase.name, func(t *testing.T) {
-			p := &ecrPlugin{ecr: mockECR}
-			mockECR.EXPECT().GetAuthorizationToken(gomock.Any()).Return(testcase.getAuthorizationTokenOutput, testcase.getAuthorizationTokenError)
+			mockECR := MockedECR{}
+			p := &ecrPlugin{ecr: &mockECR}
+			mockECR.On("GetAuthorizationToken", mock.Anything, mock.Anything).Return(testcase.getAuthorizationTokenOutput, testcase.getAuthorizationTokenError)
 
 			creds, err := p.GetCredentials(context.TODO(), testcase.image, testcase.args)
 
@@ -163,7 +184,7 @@ func Test_GetCredentials_Private(t *testing.T) {
 
 func generatePublicGetAuthorizationTokenOutput(user string, password string, proxy string, expiration *time.Time) *ecrpublic.GetAuthorizationTokenOutput {
 	creds := []byte(fmt.Sprintf("%s:%s", user, password))
-	data := &ecrpublic.AuthorizationData{
+	data := &publictypes.AuthorizationData{
 		AuthorizationToken: aws.String(base64.StdEncoding.EncodeToString(creds)),
 		ExpiresAt:          expiration,
 	}
@@ -174,11 +195,6 @@ func generatePublicGetAuthorizationTokenOutput(user string, password string, pro
 }
 
 func Test_GetCredentials_Public(t *testing.T) {
-	ctrl := gomock.NewController(t)
-	defer ctrl.Finish()
-
-	mockECRPublic := mocks.NewMockECRPublic(ctrl)
-
 	testcases := []struct {
 		name                        string
 		image                       string
@@ -211,7 +227,7 @@ func Test_GetCredentials_Public(t *testing.T) {
 		{
 			name:                        "empty authorization token",
 			image:                       "public.ecr.aws",
-			getAuthorizationTokenOutput: &ecrpublic.GetAuthorizationTokenOutput{AuthorizationData: &ecrpublic.AuthorizationData{}},
+			getAuthorizationTokenOutput: &ecrpublic.GetAuthorizationTokenOutput{AuthorizationData: &publictypes.AuthorizationData{}},
 			getAuthorizationTokenError:  nil,
 			expectedError:               errors.New("authorization token in response was nil"),
 		},
@@ -226,8 +242,8 @@ func Test_GetCredentials_Public(t *testing.T) {
 			name:  "invalid authorization token",
 			image: "public.ecr.aws",
 			getAuthorizationTokenOutput: &ecrpublic.GetAuthorizationTokenOutput{
-				AuthorizationData: &ecrpublic.AuthorizationData{
-					AuthorizationToken: aws.String(base64.StdEncoding.EncodeToString([]byte(fmt.Sprint("foo")))),
+				AuthorizationData: &publictypes.AuthorizationData{
+					AuthorizationToken: aws.String(base64.StdEncoding.EncodeToString([]byte("foo"))),
 				},
 			},
 			getAuthorizationTokenError: nil,
@@ -237,8 +253,9 @@ func Test_GetCredentials_Public(t *testing.T) {
 
 	for _, testcase := range testcases {
 		t.Run(testcase.name, func(t *testing.T) {
-			p := &ecrPlugin{ecrPublic: mockECRPublic}
-			mockECRPublic.EXPECT().GetAuthorizationToken(gomock.Any()).Return(testcase.getAuthorizationTokenOutput, testcase.getAuthorizationTokenError)
+			mockECRPublic := MockedECRPublic{}
+			p := &ecrPlugin{ecrPublic: &mockECRPublic}
+			mockECRPublic.On("GetAuthorizationToken", mock.Anything, mock.Anything).Return(testcase.getAuthorizationTokenOutput, testcase.getAuthorizationTokenError)
 
 			creds, err := p.GetCredentials(context.TODO(), testcase.image, testcase.args)
 
