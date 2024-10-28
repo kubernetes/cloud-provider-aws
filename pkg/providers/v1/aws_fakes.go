@@ -240,22 +240,6 @@ func (ec2i *FakeEC2Impl) DescribeInstances(request *ec2.DescribeInstancesInput) 
 	return matches, nil
 }
 
-// DescribeInstanceTopology returns fake instance descriptions
-func (ec2i *FakeEC2Impl) DescribeInstanceTopology(request *ec2.DescribeInstanceTopologyInput) ([]*ec2.InstanceTopology, error) {
-	return []*ec2.InstanceTopology{
-		{
-			AvailabilityZone: aws.String("us-west-2b"),
-			InstanceId:       aws.String("i-123456789"),
-			NetworkNodes: []*string{
-				aws.String("nn-123456789"),
-				aws.String("nn-234567890"),
-				aws.String("nn-345678901"),
-			},
-			ZoneId: aws.String("az2"),
-		},
-	}, nil
-}
-
 // AttachVolume is not implemented but is required for interface conformance
 func (ec2i *FakeEC2Impl) AttachVolume(request *ec2.AttachVolumeInput) (resp *ec2.VolumeAttachment, err error) {
 	panic("Not implemented")
