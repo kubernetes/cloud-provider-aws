@@ -17,16 +17,8 @@ limitations under the License.
 package aws
 
 import (
-	"fmt"
-
 	"github.com/aws/aws-sdk-go/service/ec2"
-	"github.com/aws/aws-sdk-go/service/ec2/ec2iface"
 )
-
-// awsSdkEC2 is an implementation of the EC2 interface, backed by aws-sdk-go
-type awsSdkEC2 struct {
-	ec2 ec2iface.EC2API
-}
 
 func (s *awsSdkEC2) DescribeInstanceTopology(request *ec2.DescribeInstanceTopologyInput) ([]*ec2.InstanceTopology, error) {
 	var topologies []*ec2.InstanceTopology
