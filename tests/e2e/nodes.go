@@ -49,8 +49,8 @@ var _ = Describe("[cloud-provider-aws-e2e] nodes", func() {
 	})
 
 	It("should label nodes with topology network info if instance is supported", func(ctx context.Context) {
-		framework.ExpectNoError(e2enode.WaitForAllNodesSchedulable(f.ClientSet, 10*time.Minute))
-		nodeList, err := e2enode.GetReadySchedulableNodes(f.ClientSet)
+		framework.ExpectNoError(e2enode.WaitForAllNodesSchedulable(ctx, f.ClientSet, 10*time.Minute))
+		nodeList, err := e2enode.GetReadySchedulableNodes(ctx, f.ClientSet)
 		framework.ExpectNoError(err)
 
 		if len(nodeList.Items) < 2 {
