@@ -24,7 +24,6 @@ import (
 	"context"
 	"strconv"
 
-	"github.com/aws/aws-sdk-go/aws"
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/types"
 	cloudprovider "k8s.io/cloud-provider"
@@ -65,7 +64,7 @@ func (c *Cloud) InstanceShutdown(ctx context.Context, node *v1.Node) (bool, erro
 	return c.InstanceShutdownByProviderID(ctx, providerID)
 }
 
-func (c *Cloud) getAdditionalLabels(zoneName string, instanceID string, instanceType string,
+func (c *Cloud) getAdditionalLabels(ctx context.Context, zoneName string, instanceID string, instanceType string,
 	region string, existingLabels map[string]string) (map[string]string, error) {
 	additionalLabels := map[string]string{}
 
@@ -82,14 +81,14 @@ func (c *Cloud) getAdditionalLabels(zoneName string, instanceID string, instance
 
 	// If topology labels are already set, skip.
 	if _, ok := existingLabels[LabelNetworkNodePrefix+"1"]; !ok {
-		nodeTopology, err := c.instanceTopologyManager.getNodeTopology(instanceType, region, instanceID)
+		nodeTopology, err := c.instanceTopologyManager.GetNodeTopology(ctx, instanceType, region, instanceID)
 		if err != nil {
 			return nil, err
 		} else if nodeTopology != nil {
 			for index, networkNode := range nodeTopology.NetworkNodes {
 				layer := index + 1
 				label := LabelNetworkNodePrefix + strconv.Itoa(layer)
-				additionalLabels[label] = aws.StringValue(networkNode)
+				additionalLabels[label] = networkNode
 			}
 		}
 	}
@@ -128,7 +127,7 @@ func (c *Cloud) InstanceMetadata(ctx context.Context, node *v1.Node) (*cloudprov
 		return nil, err
 	}
 
-	additionalLabels, err := c.getAdditionalLabels(zone.FailureDomain, string(instanceID), instanceType, zone.Region, node.Labels)
+	additionalLabels, err := c.getAdditionalLabels(ctx, zone.FailureDomain, string(instanceID), instanceType, zone.Region, node.Labels)
 	if err != nil {
 		return nil, err
 	}
