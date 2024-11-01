@@ -44,6 +44,7 @@ For the `aws-cloud-controller-manager` to be able to communicate to AWS APIs, yo
         "ec2:DetachVolume",
         "ec2:RevokeSecurityGroupIngress",
         "ec2:DescribeVpcs",
+        "ec2:DescribeInstanceTopology",
         "elasticloadbalancing:AddTags",
         "elasticloadbalancing:AttachLoadBalancerToSubnets",
         "elasticloadbalancing:ApplySecurityGroupsToLoadBalancer",

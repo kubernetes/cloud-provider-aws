@@ -72,6 +72,8 @@ import (
 	"k8s.io/cloud-provider-aws/pkg/providers/v1/iface"
 	"k8s.io/cloud-provider-aws/pkg/providers/v1/variant"
 	_ "k8s.io/cloud-provider-aws/pkg/providers/v1/variant/fargate" // ensure the fargate variant gets registered
+	"k8s.io/cloud-provider-aws/pkg/resourcemanagers"
+	"k8s.io/cloud-provider-aws/pkg/services"
 )
 
 // NLBHealthCheckRuleDescription is the comment used on a security group rule to
@@ -525,8 +527,9 @@ type Cloud struct {
 	// Note that we cache some state in awsInstance (mountpoints), so we must preserve the instance
 	selfAWSInstance *awsInstance
 
-	instanceCache instanceCache
-	zoneCache     zoneCache
+	instanceCache           instanceCache
+	zoneCache               zoneCache
+	instanceTopologyManager resourcemanagers.InstanceTopologyManager
 
 	clientBuilder cloudprovider.ControllerClientBuilder
 	kubeClient    clientset.Interface
@@ -1011,6 +1014,11 @@ func newAWSCloud2(cfg config.CloudConfig, awsServices Services, provider config.
 		return nil, fmt.Errorf("error creating AWS EC2 client: %v", err)
 	}
 
+	ec2v2, err := services.NewEc2SdkV2(regionName)
+	if err != nil {
+		return nil, fmt.Errorf("error creating AWS EC2v2 client: %v", err)
+	}
+
 	elb, err := awsServices.LoadBalancing(regionName)
 	if err != nil {
 		return nil, fmt.Errorf("error creating AWS ELB client: %v", err)
@@ -1046,6 +1054,7 @@ func newAWSCloud2(cfg config.CloudConfig, awsServices Services, provider config.
 	}
 	awsCloud.instanceCache.cloud = awsCloud
 	awsCloud.zoneCache.cloud = awsCloud
+	awsCloud.instanceTopologyManager = resourcemanagers.NewInstanceTopologyManager(ec2v2)
 
 	tagged := cfg.Global.KubernetesClusterTag != "" || cfg.Global.KubernetesClusterID != ""
 	if cfg.Global.VPC != "" && (cfg.Global.SubnetID != "" || cfg.Global.RoleARN != "") && tagged {

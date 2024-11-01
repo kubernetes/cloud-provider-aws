@@ -22,6 +22,7 @@ package aws
 
 import (
 	"context"
+	"strconv"
 
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/types"
@@ -63,16 +64,34 @@ func (c *Cloud) InstanceShutdown(ctx context.Context, node *v1.Node) (bool, erro
 	return c.InstanceShutdownByProviderID(ctx, providerID)
 }
 
-func (c *Cloud) getAdditionalLabels(zoneName string) (map[string]string, error) {
+func (c *Cloud) getAdditionalLabels(ctx context.Context, zoneName string, instanceID string, instanceType string,
+	region string, existingLabels map[string]string) (map[string]string, error) {
 	additionalLabels := map[string]string{}
 
-	// Add the zone ID to the additional labels
-	zoneID, err := c.zoneCache.getZoneIDByZoneName(zoneName)
-	if err != nil {
-		return nil, err
+	// If zone ID label is already set, skip.
+	if _, ok := existingLabels[LabelZoneID]; !ok {
+		// Add the zone ID to the additional labels
+		zoneID, err := c.zoneCache.getZoneIDByZoneName(zoneName)
+		if err != nil {
+			return nil, err
+		}
+
+		additionalLabels[LabelZoneID] = zoneID
 	}
 
-	additionalLabels[LabelZoneID] = zoneID
+	// If topology labels are already set, skip.
+	if _, ok := existingLabels[LabelNetworkNodePrefix+"1"]; !ok {
+		nodeTopology, err := c.instanceTopologyManager.GetNodeTopology(ctx, instanceType, region, instanceID)
+		if err != nil {
+			return nil, err
+		} else if nodeTopology != nil {
+			for index, networkNode := range nodeTopology.NetworkNodes {
+				layer := index + 1
+				label := LabelNetworkNodePrefix + strconv.Itoa(layer)
+				additionalLabels[label] = networkNode
+			}
+		}
+	}
 
 	return additionalLabels, nil
 }
@@ -103,7 +122,12 @@ func (c *Cloud) InstanceMetadata(ctx context.Context, node *v1.Node) (*cloudprov
 		return nil, err
 	}
 
-	additionalLabels, err := c.getAdditionalLabels(zone.FailureDomain)
+	instanceID, err := KubernetesInstanceID(providerID).MapToAWSInstanceID()
+	if err != nil {
+		return nil, err
+	}
+
+	additionalLabels, err := c.getAdditionalLabels(ctx, zone.FailureDomain, string(instanceID), instanceType, zone.Region, node.Labels)
 	if err != nil {
 		return nil, err
 	}
