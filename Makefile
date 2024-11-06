@@ -18,7 +18,7 @@ SHELL := /bin/bash
 GOOS ?= $(shell go env GOOS)
 GOARCH ?= $(shell go env GOARCH)
 GOPROXY ?= $(shell go env GOPROXY)
-GIT_VERSION := $(shell git describe --dirty --tags --match='v*')
+GIT_VERSION ?= $(shell git describe --dirty --tags --match='v*')
 VERSION ?= $(GIT_VERSION)
 IMAGE_REPOSITORY ?= provider-aws/cloud-controller-manager
 IMAGE ?= $(IMAGE_REPOSITORY):$(VERSION)
