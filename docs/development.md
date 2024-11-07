@@ -94,7 +94,8 @@ export AWS_ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output tex
 export KOPS_STATE_STORE=s3://e2e-kops-state-$AWS_ACCOUNT_ID
 # Set the version that will be used
 export GIT_VERSION=v1.32.1
-make test-e2
+make test-e2e
 ```
 
-**NOTE: If tests fail and the cluster isn't deleted, you can manually delete with `kops delete cluster --name ENTER_NAME`. The S3 kops state bucket will include all clusters not cleaned up.**
+> [!NOTE]
+> If tests fail and the cluster isn't deleted, you can manually delete with `kops delete cluster --name ENTER_NAME`. The S3 kops state bucket will include all clusters not cleaned up.
