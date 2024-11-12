@@ -34,7 +34,6 @@ import (
 	"github.com/aws/aws-sdk-go/aws/endpoints"
 	"github.com/aws/aws-sdk-go/aws/request"
 	"github.com/aws/aws-sdk-go/aws/session"
-	"github.com/aws/aws-sdk-go/service/autoscaling"
 	"github.com/aws/aws-sdk-go/service/ec2"
 	"github.com/aws/aws-sdk-go/service/elb"
 	"github.com/aws/aws-sdk-go/service/elbv2"
@@ -290,7 +289,6 @@ type Services interface {
 	Compute(region string) (iface.EC2, error)
 	LoadBalancing(region string) (ELB, error)
 	LoadBalancingV2(region string) (ELBV2, error)
-	Autoscaling(region string) (ASG, error)
 	Metadata() (config.EC2Metadata, error)
 	KeyManagement(region string) (KMS, error)
 }
@@ -354,13 +352,6 @@ type ELBV2 interface {
 	WaitUntilLoadBalancersDeleted(*elbv2.DescribeLoadBalancersInput) error
 }
 
-// ASG is a simple pass-through of the Autoscaling client interface, which
-// allows for testing.
-type ASG interface {
-	UpdateAutoScalingGroup(*autoscaling.UpdateAutoScalingGroupInput) (*autoscaling.UpdateAutoScalingGroupOutput, error)
-	DescribeAutoScalingGroups(*autoscaling.DescribeAutoScalingGroupsInput) (*autoscaling.DescribeAutoScalingGroupsOutput, error)
-}
-
 // KMS is a simple pass-through of the Key Management Service client interface,
 // which allows for testing.
 type KMS interface {
@@ -378,7 +369,6 @@ type Cloud struct {
 	ec2      iface.EC2
 	elb      ELB
 	elbv2    ELBV2
-	asg      ASG
 	kms      KMS
 	metadata config.EC2Metadata
 	cfg      *config.CloudConfig
@@ -604,11 +594,6 @@ func newAWSCloud2(cfg config.CloudConfig, awsServices Services, provider config.
 		return nil, fmt.Errorf("error creating AWS ELBV2 client: %v", err)
 	}
 
-	asg, err := awsServices.Autoscaling(regionName)
-	if err != nil {
-		return nil, fmt.Errorf("error creating AWS autoscaling client: %v", err)
-	}
-
 	kms, err := awsServices.KeyManagement(regionName)
 	if err != nil {
 		return nil, fmt.Errorf("error creating AWS key management client: %v", err)
@@ -618,7 +603,6 @@ func newAWSCloud2(cfg config.CloudConfig, awsServices Services, provider config.
 		ec2:      ec2,
 		elb:      elb,
 		elbv2:    elbv2,
-		asg:      asg,
 		metadata: metadata,
 		kms:      kms,
 		cfg:      &cfg,

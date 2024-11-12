@@ -122,6 +122,9 @@ e2e.test:
 .PHONY: check
 check: verify-fmt verify-lint vet
 
+.PHONY: develop
+develop: aws-cloud-controller-manager test update-fmt check
+
 .PHONY: test
 test:
 	go test -count=1 -race -v $(shell go list ./...)
