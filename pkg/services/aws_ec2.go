@@ -19,7 +19,9 @@ package services
 import (
 	"context"
 
+	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/config"
+	"github.com/aws/aws-sdk-go-v2/credentials/stscreds"
 	"github.com/aws/aws-sdk-go-v2/service/ec2"
 	"github.com/aws/aws-sdk-go-v2/service/ec2/types"
 )
@@ -40,10 +42,15 @@ type ec2SdkV2 struct {
 }
 
 // NewEc2SdkV2 is a constructor for Ec2SdkV2 that creates a default EC2 client.
-func NewEc2SdkV2(region string) (Ec2SdkV2, error) {
-	cfg, err := config.LoadDefaultConfig(context.TODO())
+func NewEc2SdkV2(ctx context.Context, region string, assumeRoleProvider *stscreds.AssumeRoleProvider) (Ec2SdkV2, error) {
+	cfg, err := config.LoadDefaultConfig(ctx)
 	if err != nil {
 		return nil, err
+	}
+
+	// Don't override the default creds if the assume role provider isn't set.
+	if assumeRoleProvider != nil {
+		cfg.Credentials = aws.NewCredentialsCache(assumeRoleProvider)
 	}
 
 	client := ec2.NewFromConfig(cfg, func(o *ec2.Options) {

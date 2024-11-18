@@ -85,7 +85,7 @@ func TestGetNodeTopology(t *testing.T) {
 			}
 		}
 
-		mockedEc2SdkV2.AssertNumberOfCalls(t, "DescribeInstanceTopology", 2)
+		mockedEc2SdkV2.AssertNumberOfCalls(t, "DescribeInstanceTopology", 1)
 	})
 
 	t.Run("Should handle exceeding request limits for DescribeInstanceTopology", func(t *testing.T) {
