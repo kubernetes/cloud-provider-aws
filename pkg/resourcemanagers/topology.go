@@ -81,6 +81,8 @@ func (t *instanceTopologyManager) GetNodeTopology(ctx context.Context, instanceT
 				case "UnauthorizedOperation":
 					// Gracefully handle the DecribeInstanceTopology access missing error
 					klog.Warningf("Not authorized to perform: ec2:DescribeInstanceTopology, permission missing: %q", err)
+					// Mark region as unsupported to back off on attempts to get network topology.
+					t.addUnsupported(region)
 					return nil, nil
 				case "RequestLimitExceeded":
 					// Gracefully handle request throttling
