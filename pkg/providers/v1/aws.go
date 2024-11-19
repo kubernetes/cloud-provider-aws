@@ -27,6 +27,7 @@ import (
 	"strings"
 	"time"
 
+	stscredsv2 "github.com/aws/aws-sdk-go-v2/credentials/stscreds"
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/awserr"
 	"github.com/aws/aws-sdk-go/aws/credentials"
@@ -464,6 +465,7 @@ func (c *Cloud) CurrentNodeName(ctx context.Context, hostname string) (types.Nod
 func init() {
 	registerMetrics()
 	cloudprovider.RegisterCloudProvider(ProviderName, func(config io.Reader) (cloudprovider.Interface, error) {
+		ctx := context.Background()
 		cfg, err := readAWSCloudConfig(config)
 		if err != nil {
 			return nil, fmt.Errorf("unable to read AWS cloud provider config file: %v", err)
@@ -492,6 +494,7 @@ func init() {
 		}
 
 		var creds *credentials.Credentials
+		var credsV2 *stscredsv2.AssumeRoleProvider
 		if cfg.Global.RoleARN != "" {
 			stsClient, err := getSTSClient(sess, cfg.Global.RoleARN, cfg.Global.SourceARN)
 			if err != nil {
@@ -505,10 +508,16 @@ func init() {
 						RoleARN: cfg.Global.RoleARN,
 					}),
 				})
+
+			stsClientv2, err := services.NewStsV2Client(ctx, regionName, cfg.Global.RoleARN, cfg.Global.SourceARN)
+			if err != nil {
+				return nil, fmt.Errorf("unable to create sts v2 client: %v", err)
+			}
+			credsV2 = stscredsv2.NewAssumeRoleProvider(stsClientv2, cfg.Global.RoleARN)
 		}
 
 		aws := newAWSSDKProvider(creds, cfg)
-		return newAWSCloud2(*cfg, aws, aws, creds)
+		return newAWSCloud2(*cfg, aws, aws, creds, credsV2)
 	})
 }
 
@@ -564,12 +573,13 @@ func azToRegion(az string) (string, error) {
 }
 
 func newAWSCloud(cfg config.CloudConfig, awsServices Services) (*Cloud, error) {
-	return newAWSCloud2(cfg, awsServices, nil, nil)
+	return newAWSCloud2(cfg, awsServices, nil, nil, nil)
 }
 
 // newAWSCloud creates a new instance of AWSCloud.
 // AWSProvider and instanceId are primarily for tests
-func newAWSCloud2(cfg config.CloudConfig, awsServices Services, provider config.SDKProvider, credentials *credentials.Credentials) (*Cloud, error) {
+func newAWSCloud2(cfg config.CloudConfig, awsServices Services, provider config.SDKProvider, credentials *credentials.Credentials, credentialsV2 *stscredsv2.AssumeRoleProvider) (*Cloud, error) {
+	ctx := context.Background()
 	// We have some state in the Cloud object
 	// Log so that if we are building multiple Cloud objects, it is obvious!
 	klog.Infof("Building AWS cloudprovider")
@@ -589,7 +599,7 @@ func newAWSCloud2(cfg config.CloudConfig, awsServices Services, provider config.
 		return nil, fmt.Errorf("error creating AWS EC2 client: %v", err)
 	}
 
-	ec2v2, err := services.NewEc2SdkV2(regionName)
+	ec2v2, err := services.NewEc2SdkV2(ctx, regionName, credentialsV2)
 	if err != nil {
 		return nil, fmt.Errorf("error creating AWS EC2v2 client: %v", err)
 	}
