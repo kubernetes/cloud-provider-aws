@@ -81,6 +81,8 @@ func (t *instanceTopologyManager) GetNodeTopology(ctx context.Context, instanceT
 				case "UnauthorizedOperation":
 					// Gracefully handle the DecribeInstanceTopology access missing error
 					klog.Warningf("Not authorized to perform: ec2:DescribeInstanceTopology, permission missing: %q", err)
+					// Mark region as unsupported to back off on attempts to get network topology.
+					t.addUnsupported(region)
 					return nil, nil
 				case "RequestLimitExceeded":
 					// Gracefully handle request throttling
@@ -112,6 +114,11 @@ func (t *instanceTopologyManager) addUnsupported(key string) {
 }
 
 func (t *instanceTopologyManager) mightSupportTopology(instanceType string, region string) bool {
+	// In the case of fargate and possibly other variants, the instance type will be empty.
+	if len(instanceType) == 0 {
+		return false
+	}
+
 	if _, exists, err := t.unsupportedKeyStore.GetByKey(region); exists {
 		return false
 	} else if err != nil {
