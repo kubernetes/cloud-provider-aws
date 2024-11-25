@@ -27,6 +27,7 @@ import (
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/types"
 	cloudprovider "k8s.io/cloud-provider"
+	"k8s.io/klog/v2"
 )
 
 func (c *Cloud) getProviderID(ctx context.Context, node *v1.Node) (string, error) {
@@ -82,8 +83,11 @@ func (c *Cloud) getAdditionalLabels(ctx context.Context, zoneName string, instan
 	// If topology labels are already set, skip.
 	if _, ok := existingLabels[LabelNetworkNodePrefix+"1"]; !ok {
 		nodeTopology, err := c.instanceTopologyManager.GetNodeTopology(ctx, instanceType, region, instanceID)
+		// We've seen some edge cases where this functionality is problematic, so swallowing errors and logging
+		// to avoid short-circuiting syncing nodes. If it's an intermittent issue, the labels will be added
+		// on subsequent attempts.
 		if err != nil {
-			return nil, err
+			klog.Warningf("Failed to get node topology. Moving on without setting labels: %q", err)
 		} else if nodeTopology != nil {
 			for index, networkNode := range nodeTopology.NetworkNodes {
 				layer := index + 1

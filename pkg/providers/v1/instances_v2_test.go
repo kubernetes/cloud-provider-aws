@@ -30,6 +30,7 @@ import (
 	"github.com/stretchr/testify/mock"
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/cloud-provider-aws/pkg/resourcemanagers"
+	"k8s.io/cloud-provider-aws/pkg/services"
 )
 
 func TestGetProviderId(t *testing.T) {
@@ -235,6 +236,30 @@ func TestInstanceMetadata(t *testing.T) {
 		mockedTopologyManager.AssertNumberOfCalls(t, "GetNodeTopology", 0)
 		// Validate that labels are unchanged.
 		assert.Equal(t, map[string]string{}, result.AdditionalLabels)
+	})
+
+	t.Run("Should swallow errors if getting node topology fails", func(t *testing.T) {
+		instance := makeInstance("i-00000000000000000", "192.168.0.1", "1.2.3.4", "instance-same.ec2.internal", "instance-same.ec2.external", nil, true)
+		c, _ := mockInstancesResp(&instance, []*ec2.Instance{&instance})
+		var mockedTopologyManager resourcemanagers.MockedInstanceTopologyManager
+		c.instanceTopologyManager = &mockedTopologyManager
+		mockedTopologyManager.On("GetNodeTopology", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil,
+			services.NewMockAPIError("InvalidParameterValue", "Nope."))
+		node := &v1.Node{
+			Spec: v1.NodeSpec{
+				ProviderID: fmt.Sprintf("aws:///us-west-2c/1abc-2def/%s", *instance.InstanceId),
+			},
+		}
+
+		result, err := c.InstanceMetadata(context.TODO(), node)
+		if err != nil {
+			t.Errorf("Should not error getting InstanceMetadata: %s", err)
+		}
+
+		mockedTopologyManager.AssertNumberOfCalls(t, "GetNodeTopology", 1)
+		assert.Equal(t, map[string]string{
+			LabelZoneID: "az1",
+		}, result.AdditionalLabels)
 	})
 }
 
