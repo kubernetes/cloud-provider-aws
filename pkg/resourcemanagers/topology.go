@@ -114,6 +114,11 @@ func (t *instanceTopologyManager) addUnsupported(key string) {
 }
 
 func (t *instanceTopologyManager) mightSupportTopology(instanceType string, region string) bool {
+	// In the case of fargate and possibly other variants, the instance type will be empty.
+	if len(instanceType) == 0 {
+		return false
+	}
+
 	if _, exists, err := t.unsupportedKeyStore.GetByKey(region); exists {
 		return false
 	} else if err != nil {
