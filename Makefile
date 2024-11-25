@@ -110,7 +110,7 @@ ko-build-tar: ko
 
 .PHONY: ko-build-local
 ko-build-local: ko
-	KO_DOCKER_REPO="$(IMAGE_REPOSITORY)" GOFLAGS="-ldflags=-X=k8s.io/component-base/version.gitVersion=$(VERSION)" ko build --tags ${VERSION} --platform=linux/amd64 --bare ./cmd/aws-cloud-controller-manager/ --push=false --local
+	KO_DOCKER_REPO="ko.local" GOFLAGS="-ldflags=-X=k8s.io/component-base/version.gitVersion=$(VERSION)" ko build --tags ${VERSION} --platform=linux/amd64 --bare ./cmd/aws-cloud-controller-manager/ --push=false --local
 	docker tag ko.local:${VERSION} $(IMAGE)
 
 .PHONY: e2e.test
