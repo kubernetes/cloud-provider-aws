@@ -26,6 +26,21 @@ import (
 )
 
 func TestGetNodeTopology(t *testing.T) {
+	t.Run("Should skip nodes that don't have instance type set", func(t *testing.T) {
+		mockedEc2SdkV2 := services.MockedEc2SdkV2{}
+		topologyManager := NewInstanceTopologyManager(&mockedEc2SdkV2)
+		// Loop multiple times to check cache use
+		topology, err := topologyManager.GetNodeTopology(context.TODO(), "" /* empty instance type */, "some-region", "some-id")
+		if err != nil {
+			t.Errorf("Should not error getting node topology: %s", err)
+		}
+		if topology != nil {
+			t.Errorf("Should not be returning a topology: %v", topology)
+		}
+
+		mockedEc2SdkV2.AssertNumberOfCalls(t, "DescribeInstanceTopology", 0)
+	})
+
 	t.Run("Should handle unsupported regions and utilize cache", func(t *testing.T) {
 		mockedEc2SdkV2 := services.MockedEc2SdkV2{}
 		topologyManager := NewInstanceTopologyManager(&mockedEc2SdkV2)
