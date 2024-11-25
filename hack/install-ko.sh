@@ -19,6 +19,5 @@ set -o nounset
 set -o pipefail
 
 if ! command -v ko &> /dev/null; then
-  go install github.com/google/ko@v0.11.2
+  go install github.com/google/ko@v0.17.1
 fi
-
