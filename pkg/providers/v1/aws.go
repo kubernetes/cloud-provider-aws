@@ -2083,6 +2083,7 @@ func (c *Cloud) buildNLBHealthCheckConfiguration(svc *v1.Service) (healthCheckCo
 			UnhealthyThreshold: 2,
 		}
 	}
+
 	if parseStringAnnotation(svc.Annotations, ServiceAnnotationLoadBalancerHealthCheckProtocol, &hc.Protocol) {
 		hc.Protocol = strings.ToUpper(hc.Protocol)
 	}
@@ -2096,6 +2097,31 @@ func (c *Cloud) buildNLBHealthCheckConfiguration(svc *v1.Service) (healthCheckCo
 	}
 
 	parseStringAnnotation(svc.Annotations, ServiceAnnotationLoadBalancerHealthCheckPort, &hc.Port)
+
+	switch c.cfg.Global.ClusterServiceLoadBalancerHealthProbeMode {
+	case config.ClusterServiceLoadBalancerHealthProbeModeShared:
+		// For a non-local service, we override the health check to use the kube-proxy port when no other overrides are provided.
+		// The kube-proxy port should be open on all nodes and allows the health check to check the nodes ability to proxy traffic.
+		// When the node is shutting down, the health check should fail before the node loses the ability to route traffic to the backend pod.
+		// This allows the load balancer to gracefully drain connections from the node.
+		if svc.Spec.ExternalTrafficPolicy != v1.ServiceExternalTrafficPolicyTypeLocal {
+			hc.Path = defaultKubeProxyHealthCheckPath
+			if c.cfg.Global.ClusterServiceSharedLoadBalancerHealthProbePath != "" {
+				hc.Path = c.cfg.Global.ClusterServiceSharedLoadBalancerHealthProbePath
+			}
+
+			hc.Port = strconv.Itoa(int(defaultKubeProxyHealthCheckPort))
+			if c.cfg.Global.ClusterServiceSharedLoadBalancerHealthProbePort != 0 {
+				hc.Port = strconv.Itoa(int(c.cfg.Global.ClusterServiceSharedLoadBalancerHealthProbePort))
+			}
+
+			hc.Protocol = elbv2.ProtocolEnumHttp
+		}
+	case config.ClusterServiceLoadBalancerHealthProbeModeServiceNodePort, "":
+		// Configuration is already up to date as this is the default case.
+	default:
+		return healthCheckConfig{}, fmt.Errorf("Unsupported ClusterServiceLoadBalancerHealthProbeMode %v", c.cfg.Global.ClusterServiceLoadBalancerHealthProbeMode)
+	}
 
 	if _, err := parseInt64Annotation(svc.Annotations, ServiceAnnotationLoadBalancerHCInterval, &hc.Interval); err != nil {
 		return healthCheckConfig{}, err
@@ -2495,6 +2521,9 @@ func (c *Cloud) EnsureLoadBalancer(ctx context.Context, clusterName string, apiS
 		}
 	} else {
 		klog.V(4).Infof("service %v does not need custom health checks", apiService.Name)
+		var hcPath string
+		hcPort := tcpHealthCheckPort
+
 		annotationProtocol := strings.ToLower(annotations[ServiceAnnotationLoadBalancerBEProtocol])
 		var hcProtocol string
 		if annotationProtocol == "https" || annotationProtocol == "ssl" {
@@ -2502,8 +2531,23 @@ func (c *Cloud) EnsureLoadBalancer(ctx context.Context, clusterName string, apiS
 		} else {
 			hcProtocol = "TCP"
 		}
-		// there must be no path on TCP health check
-		err = c.ensureLoadBalancerHealthCheck(loadBalancer, hcProtocol, tcpHealthCheckPort, "", annotations)
+
+		if c.cfg.Global.ClusterServiceLoadBalancerHealthProbeMode == config.ClusterServiceLoadBalancerHealthProbeModeShared {
+			// Use the kube-proxy port as the health check port for non-local services.
+			hcProtocol = "HTTP"
+			hcPath = defaultKubeProxyHealthCheckPath
+			hcPort = int32(defaultKubeProxyHealthCheckPort)
+
+			if c.cfg.Global.ClusterServiceSharedLoadBalancerHealthProbePath != "" {
+				hcPath = c.cfg.Global.ClusterServiceSharedLoadBalancerHealthProbePath
+			}
+
+			if c.cfg.Global.ClusterServiceSharedLoadBalancerHealthProbePort != 0 {
+				hcPort = c.cfg.Global.ClusterServiceSharedLoadBalancerHealthProbePort
+			}
+		}
+
+		err = c.ensureLoadBalancerHealthCheck(loadBalancer, hcProtocol, hcPort, hcPath, annotations)
 		if err != nil {
 			return nil, err
 		}
