@@ -165,6 +165,25 @@ func TestInstanceShutdown(t *testing.T) {
 	}
 }
 
+func Test_InstanceMetadata(t *testing.T) {
+	t.Run("Should not call ec2:DescribeInstances excessively", func(t *testing.T) {
+		instance := makeInstance("i-00000000000001234", "192.168.0.1", "1.2.3.4", "instance-same.ec2.internal", "instance-same.ec2.external", nil, true)
+		c, awsMocks := mockInstancesResp(&instance, []*ec2.Instance{&instance})
+		node := &v1.Node{
+			Spec: v1.NodeSpec{
+				ProviderID: fmt.Sprintf("aws:///us-west-2c/%s", *instance.InstanceId),
+			},
+		}
+
+		_, err := c.InstanceMetadata(context.TODO(), node)
+		if err != nil {
+			t.Errorf("Should not error getting InstanceMetadata: %s", err)
+		}
+
+		assert.LessOrEqual(t, awsMocks.callCounts[fmt.Sprintf("ec2:DescribeInstances:%s", *instance.InstanceId)], 1)
+	})
+}
+
 func TestInstanceMetadata(t *testing.T) {
 	t.Run("Should return populated InstanceMetadata", func(t *testing.T) {
 		instance := makeInstance("i-00000000000000000", "192.168.0.1", "1.2.3.4", "instance-same.ec2.internal", "instance-same.ec2.external", nil, true)
