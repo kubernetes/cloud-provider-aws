@@ -22,7 +22,9 @@ package aws
 
 import (
 	"context"
+	"fmt"
 	"strconv"
+	"time"
 
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/types"
@@ -51,7 +53,20 @@ func (c *Cloud) InstanceExists(ctx context.Context, node *v1.Node) (bool, error)
 		return false, err
 	}
 
-	return c.InstanceExistsByProviderID(ctx, providerID)
+	exists, err := c.instanceExistsByProviderID(ctx, providerID)
+	if err != nil {
+		if IsAWSErrorInstanceNotFound(err) {
+			if time.Since(node.CreationTimestamp.Time) < c.nodeEventualConsistencyGracePeriod {
+				// recently-launched EC2 instances may not appear in `ec2:DescribeInstances`
+				// we return an error if we're within the eventual-consistency grace period
+				// e.g. to cause the cloud-node-lifecycle-controller to ignore this node
+				return false, fmt.Errorf("node is within eventual-consistency grace period (%v): %v", c.nodeEventualConsistencyGracePeriod, err)
+			}
+			return false, nil
+		}
+
+	}
+	return exists, nil
 }
 
 // InstanceShutdown returns true if the instance is shutdown according to the cloud provider.
