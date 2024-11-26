@@ -198,6 +198,11 @@ type FakeEC2Impl struct {
 
 // DescribeInstances returns fake instance descriptions
 func (ec2i *FakeEC2Impl) DescribeInstances(request *ec2.DescribeInstancesInput) ([]*ec2.Instance, error) {
+	var instanceIds []string
+	for _, instanceID := range request.InstanceIds {
+		instanceIds = append(instanceIds, aws.StringValue(instanceID))
+	}
+	_ = ec2i.aws.countCall("ec2", "DescribeInstances", strings.Join(instanceIds, ","))
 	matches := []*ec2.Instance{}
 	for _, instance := range ec2i.aws.instances {
 		if request.InstanceIds != nil {
