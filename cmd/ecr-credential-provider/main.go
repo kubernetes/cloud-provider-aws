@@ -42,7 +42,7 @@ import (
 const ecrPublicRegion string = "us-east-1"
 const ecrPublicHost string = "public.ecr.aws"
 
-var ecrPrivateHostPattern = regexp.MustCompile(`^(\d{12})\.dkr\.ecr(\-fips)?\.([a-zA-Z0-9][a-zA-Z0-9-_]*)\.(amazonaws\.com(\.cn)?|sc2s\.sgov\.gov|c2s\.ic\.gov|cloud\.adc-e\.uk|csp\.hci\.ic\.gov)$`)
+var ecrPrivateHostPattern = regexp.MustCompile(`^(\d{12})\.dkr[\.\-]ecr(\-fips)?\.([a-zA-Z0-9][a-zA-Z0-9-_]*)\.(amazonaws\.com(?:\.cn)?|on\.(?:aws|amazonwebservices\.com\.cn)|sc2s\.sgov\.gov|c2s\.ic\.gov|cloud\.adc-e\.uk|csp\.hci\.ic\.gov)$`)
 
 // ECR abstracts the calls we make to aws-sdk for testing purposes
 type ECR interface {
@@ -229,7 +229,7 @@ func parseHostFromImageReference(image string) (string, error) {
 
 func parseRegionFromECRPrivateHost(host string) (string, error) {
 	splitHost := ecrPrivateHostPattern.FindStringSubmatch(host)
-	if len(splitHost) != 6 {
+	if len(splitHost) != 5 {
 		return "", fmt.Errorf("invalid private ECR host: %s", host)
 	}
 	return splitHost[3], nil
