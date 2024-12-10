@@ -24,6 +24,7 @@ import (
 	"net/url"
 	"os"
 	"regexp"
+	"slices"
 	"strings"
 	"time"
 
@@ -40,7 +41,10 @@ import (
 )
 
 const ecrPublicRegion string = "us-east-1"
-const ecrPublicHost string = "public.ecr.aws"
+
+func getECRPublicHosts() []string {
+	return []string{"public.ecr.aws", "ecr-public.aws.com"}
+}
 
 var ecrPrivateHostPattern = regexp.MustCompile(`^(\d{12})\.dkr[\.\-]ecr(\-fips)?\.([a-zA-Z0-9][a-zA-Z0-9-_]*)\.(amazonaws\.com(?:\.cn)?|on\.(?:aws|amazonwebservices\.com\.cn)|sc2s\.sgov\.gov|c2s\.ic\.gov|cloud\.adc-e\.uk|csp\.hci\.ic\.gov)$`)
 
@@ -162,7 +166,7 @@ func (e *ecrPlugin) GetCredentials(ctx context.Context, image string, args []str
 		return nil, err
 	}
 
-	if imageHost == ecrPublicHost {
+	if slices.Contains(getECRPublicHosts(), imageHost) {
 		creds, err = e.getPublicCredsData(ctx)
 	} else {
 		creds, err = e.getPrivateCredsData(ctx, imageHost, image)
