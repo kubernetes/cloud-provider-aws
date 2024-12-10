@@ -211,6 +211,12 @@ func Test_GetCredentials_Public(t *testing.T) {
 			response:                    generateResponse("public.ecr.aws", "user", "pass"),
 		},
 		{
+			name:                        "success dual stack public endpoint",
+			image:                       "ecr-public.aws.com",
+			getAuthorizationTokenOutput: generatePublicGetAuthorizationTokenOutput("user", "pass", "", nil),
+			response:                    generateResponse("ecr-public.aws.com", "user", "pass"),
+		},
+		{
 			name:                        "empty authorization data",
 			image:                       "public.ecr.aws",
 			getAuthorizationTokenOutput: &ecrpublic.GetAuthorizationTokenOutput{},
