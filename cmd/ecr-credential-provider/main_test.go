@@ -306,12 +306,62 @@ func Test_parseRegionFromECRPrivateHost(t *testing.T) {
 		region string
 		err    error
 	}{
+		// us-west-2
 		{
 			name:   "success",
 			host:   "123456789123.dkr.ecr.us-west-2.amazonaws.com",
 			region: "us-west-2",
 			err:    nil,
 		},
+		// CN region
+		{
+			name:   "success",
+			host:   "123456789123.dkr.ecr.cn-north-1.amazonaws.com.cn",
+			region: "cn-north-1",
+		},
+		// GovCloud
+		{
+			name:   "success",
+			host:   "123456789123.dkr.ecr.us-gov-east-1.amazonaws.com",
+			region: "us-gov-east-1",
+		},
+		// ISO
+		{
+			name:   "success",
+			host:   "123456789123.dkr.ecr.us-iso-east-1.c2s.ic.gov",
+			region: "us-iso-east-1",
+		},
+		// Dual-Stack
+		{
+			name:   "success",
+			host:   "123456789123.dkr-ecr.us-west-2.on.aws",
+			region: "us-west-2",
+		},
+		// Dual-Stack FIPS
+		{
+			name:   "success",
+			host:   "123456789123.dkr-ecr-fips.us-west-2.on.aws",
+			region: "us-west-2",
+		},
+		// IPv6 CN
+		{
+			name:   "success",
+			host:   "123456789123.dkr-ecr.cn-north-1.on.amazonwebservices.com.cn",
+			region: "cn-north-1",
+		},
+		// IPv6 GovCloud
+		{
+			name:   "success",
+			host:   "123456789123.dkr-ecr.us-gov-east-1.on.aws",
+			region: "us-gov-east-1",
+		},
+		// IPv6 GovCloud FIPS
+		{
+			name:   "success",
+			host:   "123456789123.dkr-ecr-fips.us-gov-east-1.on.aws",
+			region: "us-gov-east-1",
+		},
+		// Invalid name
 		{
 			name:   "invalid registry",
 			host:   "foobar",
@@ -385,6 +435,12 @@ func TestRegistryPatternMatch(t *testing.T) {
 		{"123456789012.dkr.ecr.us-isof-east-1.csp.hci.ic.gov", true},
 		// invalid gov endpoint
 		{"123456789012.dkr.ecr.us-iso-east-1.amazonaws.gov", false},
+		//IPv6 dual stack endpoint
+		{"123456789012.dkr-ecr.lala-land-1.on.aws", true},
+		//IPv6 dual stack endpoint fips
+		{"123456789012.dkr-ecr-fips.lala-land-1.on.aws", true},
+		//IPv6 dual stack endpoint .cn
+		{"123456789012.dkr-ecr.lala-land-1.on.amazonwebservices.com.cn", true},
 	}
 	for _, g := range grid {
 		actual := ecrPrivateHostPattern.MatchString(g.Registry)
