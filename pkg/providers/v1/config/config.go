@@ -2,12 +2,21 @@ package config
 
 import (
 	"fmt"
-	"github.com/aws/aws-sdk-go/aws/request"
 	"strings"
+
+	"github.com/aws/aws-sdk-go/aws/request"
 
 	"github.com/aws/aws-sdk-go/aws/endpoints"
 
 	"k8s.io/klog/v2"
+)
+
+const (
+	// ClusterServiceLoadBalancerHealthProbeModeShared is the shared health probe mode for cluster service load balancer.
+	ClusterServiceLoadBalancerHealthProbeModeShared = "Shared"
+
+	// ClusterServiceLoadBalancerHealthProbeModeServiceNodePort is the service node port health probe mode for cluster service load balancer.
+	ClusterServiceLoadBalancerHealthProbeModeServiceNodePort = "ServiceNodePort"
 )
 
 // CloudConfig wraps the settings for the AWS cloud provider.
@@ -62,6 +71,18 @@ type CloudConfig struct {
 
 		// NodeIPFamilies determines which IP addresses are added to node objects and their ordering.
 		NodeIPFamilies []string
+
+		// ClusterServiceLoadBalancerHealthProbeMode determines the health probe mode for cluster service load balancer.
+		// Supported values are `Shared` and `ServiceNodePort`.
+		// `ServiceeNodePort`: the health probe will be created against each port of each service by watching the backend application (default).
+		// `Shared`: all cluster services shares one HTTP probe targeting the kube-proxy on the node (<nodeIP>/healthz:10256).
+		ClusterServiceLoadBalancerHealthProbeMode string `json:"clusterServiceLoadBalancerHealthProbeMode,omitempty" yaml:"clusterServiceLoadBalancerHealthProbeMode,omitempty"`
+
+		// ClusterServiceSharedLoadBalancerHealthProbePort defines the target port of the shared health probe. Default to 10256.
+		ClusterServiceSharedLoadBalancerHealthProbePort int32 `json:"clusterServiceSharedLoadBalancerHealthProbePort,omitempty" yaml:"clusterServiceSharedLoadBalancerHealthProbePort,omitempty"`
+
+		// ClusterServiceSharedLoadBalancerHealthProbePath defines the target path of the shared health probe. Default to `/healthz`.
+		ClusterServiceSharedLoadBalancerHealthProbePath string `json:"clusterServiceSharedLoadBalancerHealthProbePath,omitempty" yaml:"clusterServiceSharedLoadBalancerHealthProbePath,omitempty"`
 	}
 	// [ServiceOverride "1"]
 	//  Service = s3
