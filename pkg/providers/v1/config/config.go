@@ -2,8 +2,10 @@ package config
 
 import (
 	"fmt"
-	"github.com/aws/aws-sdk-go/aws/request"
 	"strings"
+	"time"
+
+	"github.com/aws/aws-sdk-go/aws/request"
 
 	"github.com/aws/aws-sdk-go/aws/endpoints"
 
@@ -62,6 +64,11 @@ type CloudConfig struct {
 
 		// NodeIPFamilies determines which IP addresses are added to node objects and their ordering.
 		NodeIPFamilies []string
+
+		// NodeEventualConsistencyGracePeriod is used to account for propogation delays in the EC2 API.
+		// An instance may not appear in `ec2:DescribeInstances` output for a period of time after launch.
+		// The cloud-node-lifecycle-controller must not delete the Node prematurely in this case.
+		NodeEventualConsistencyGracePeriod time.Duration
 	}
 	// [ServiceOverride "1"]
 	//  Service = s3
