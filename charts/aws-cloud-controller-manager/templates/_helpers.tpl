@@ -2,4 +2,5 @@
 {{- .Values.nameOverride }}
 {{- end -}}
 
-
+{{- define "aws-cloud-config.name" }}
+{{- end }}
