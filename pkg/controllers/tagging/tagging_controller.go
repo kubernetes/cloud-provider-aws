@@ -116,30 +116,32 @@ func NewTaggingController(
 		return nil, err
 	}
 
-	var rateLimiter workqueue.RateLimiter
+	var rateLimiter workqueue.TypedRateLimiter[any]
 	var rateLimitEnabled bool
 	if rateLimit > 0.0 && burstLimit > 0 {
 		klog.Infof("Rate limit enabled on controller with rate %f and burst %d.", rateLimit, burstLimit)
 		// This is the workqueue.DefaultControllerRateLimiter() but in case where throttling is enabled on the controller,
 		// the rate and burst values are set to the provided values.
-		rateLimiter = workqueue.NewMaxOfRateLimiter(
-			workqueue.NewItemExponentialFailureRateLimiter(5*time.Millisecond, 1000*time.Second),
-			&workqueue.BucketRateLimiter{Limiter: rate.NewLimiter(rate.Limit(rateLimit), burstLimit)},
+		rateLimiter = workqueue.NewTypedMaxOfRateLimiter(
+			workqueue.NewTypedItemExponentialFailureRateLimiter[any](5*time.Millisecond, 1000*time.Second),
+			&workqueue.TypedBucketRateLimiter[any]{Limiter: rate.NewLimiter(rate.Limit(rateLimit), burstLimit)},
 		)
 		rateLimitEnabled = true
 	} else {
 		klog.Infof("Rate limit disabled on controller.")
-		rateLimiter = workqueue.DefaultControllerRateLimiter()
+		rateLimiter = workqueue.DefaultTypedControllerRateLimiter[any]()
 		rateLimitEnabled = false
 	}
 
 	tc := &Controller{
-		nodeInformer:      nodeInformer,
-		kubeClient:        kubeClient,
-		cloud:             awsCloud,
-		tags:              tags,
-		resources:         resources,
-		workqueue:         workqueue.NewNamedRateLimitingQueue(rateLimiter, TaggingControllerClientName),
+		nodeInformer: nodeInformer,
+		kubeClient:   kubeClient,
+		cloud:        awsCloud,
+		tags:         tags,
+		resources:    resources,
+		workqueue: workqueue.NewTypedRateLimitingQueueWithConfig[any](rateLimiter, workqueue.TypedRateLimitingQueueConfig[any]{
+			Name: TaggingControllerClientName,
+		}),
 		nodesSynced:       nodeInformer.Informer().HasSynced,
 		nodeMonitorPeriod: nodeMonitorPeriod,
 		rateLimitEnabled:  rateLimitEnabled,
