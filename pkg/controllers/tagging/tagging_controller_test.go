@@ -205,7 +205,7 @@ func Test_NodesJoiningAndLeaving(t *testing.T) {
 				klog.SetOutput(os.Stderr)
 			}()
 
-			clientset := fake.NewSimpleClientset(testcase.currNode)
+			clientset := fake.NewClientset(testcase.currNode)
 			informer := informers.NewSharedInformerFactory(clientset, time.Second)
 			nodeInformer := informer.Core().V1().Nodes()
 
@@ -221,8 +221,11 @@ func Test_NodesJoiningAndLeaving(t *testing.T) {
 				nodeMonitorPeriod: 1 * time.Second,
 				tags:              map[string]string{"key2": "value2", "key1": "value1"},
 				resources:         []string{"instance"},
-				workqueue:         workqueue.NewNamedRateLimitingQueue(workqueue.DefaultControllerRateLimiter(), "Tagging"),
-				rateLimitEnabled:  testcase.rateLimited,
+				workqueue: workqueue.NewTypedRateLimitingQueueWithConfig(
+					workqueue.DefaultTypedControllerRateLimiter[*workItem](),
+					workqueue.TypedRateLimitingQueueConfig[*workItem]{Name: "Tagging"},
+				),
+				rateLimitEnabled: testcase.rateLimited,
 			}
 
 			if testcase.toBeTagged {
