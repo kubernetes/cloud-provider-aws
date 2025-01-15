@@ -22,6 +22,7 @@ import (
 	"testing"
 	"time"
 
+	"golang.org/x/time/rate"
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/informers"
@@ -221,14 +222,18 @@ func Test_NodesJoiningAndLeaving(t *testing.T) {
 				nodeMonitorPeriod: 1 * time.Second,
 				tags:              map[string]string{"key2": "value2", "key1": "value1"},
 				resources:         []string{"instance"},
-				workqueue:         workqueue.NewNamedRateLimitingQueue(workqueue.DefaultControllerRateLimiter(), "Tagging"),
-				rateLimitEnabled:  testcase.rateLimited,
+				workqueue: workqueue.NewNamedRateLimitingQueue(workqueue.NewTypedMaxOfRateLimiter(
+					workqueue.NewTypedItemExponentialFailureRateLimiter[any](1*time.Millisecond, 5*time.Millisecond),
+					// 10 qps, 100 bucket size.  This is only for retry speed and its only the overall factor (not per item)
+					&workqueue.TypedBucketRateLimiter[any]{Limiter: rate.NewLimiter(rate.Limit(10), 100)},
+				), "Tagging"),
+				rateLimitEnabled: testcase.rateLimited,
 			}
 
 			if testcase.toBeTagged {
-				tc.enqueueNode(testcase.currNode, tc.tagNodesResources)
+				tc.enqueueNode(testcase.currNode, addTag)
 			} else {
-				tc.enqueueNode(testcase.currNode, tc.untagNodeResources)
+				tc.enqueueNode(testcase.currNode, deleteTag)
 			}
 
 			if tc.rateLimitEnabled {
@@ -236,12 +241,13 @@ func Test_NodesJoiningAndLeaving(t *testing.T) {
 				time.Sleep(10 * time.Millisecond)
 			}
 
+			cnt := 0
 			for tc.workqueue.Len() > 0 {
 				tc.process()
-
+				cnt++
 				// sleep briefly because of exponential backoff when requeueing failed workitem
 				// resulting in workqueue to be empty if checked immediately
-				time.Sleep(1500 * time.Millisecond)
+				time.Sleep(7 * time.Millisecond)
 			}
 
 			for _, msg := range testcase.expectedMessages {
@@ -256,9 +262,77 @@ func Test_NodesJoiningAndLeaving(t *testing.T) {
 					if !strings.Contains(logBuf.String(), "requeuing count exceeded") {
 						t.Errorf("\nExceeded requeue count but did not stop: \n%v\n", logBuf.String())
 					}
+					if cnt != maxRequeuingCount+1 {
+						t.Errorf("the node got requeued %d, more than the max requeuing count of %d", cnt, maxRequeuingCount)
+					}
 				}
 			}
 		})
+	}
+}
+
+func TestMultipleEnqueues(t *testing.T) {
+	awsServices := awsv1.NewFakeAWSServices(TestClusterID)
+	fakeAws, _ := awsv1.NewAWSCloud(config.CloudConfig{}, awsServices)
+
+	testNode := &v1.Node{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:              "node0",
+			CreationTimestamp: metav1.Date(2012, 1, 1, 0, 0, 0, 0, time.UTC),
+		},
+		Spec: v1.NodeSpec{
+			ProviderID: "i-0001",
+		},
+	}
+	testNode1 := &v1.Node{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:              "node1",
+			CreationTimestamp: metav1.Date(2012, 1, 1, 0, 0, 0, 0, time.UTC),
+		},
+		Spec: v1.NodeSpec{
+			ProviderID: "i-0002",
+		},
+	}
+	clientset := fake.NewSimpleClientset(testNode, testNode1)
+	informer := informers.NewSharedInformerFactory(clientset, time.Second)
+	nodeInformer := informer.Core().V1().Nodes()
+
+	if err := syncNodeStore(nodeInformer, clientset); err != nil {
+		t.Errorf("unexpected error: %v", err)
+	}
+
+	tc, err := NewTaggingController(nodeInformer, clientset, fakeAws, time.Second, nil, []string{}, 0, 0)
+	if err != nil {
+		t.Errorf("unexpected error: %v", err)
+	}
+	tc.enqueueNode(testNode, addTag)
+	if tc.workqueue.Len() != 1 {
+		t.Errorf("invalid work queue length, expected 1, got %d", tc.workqueue.Len())
+	}
+	// adding the same node with similar operation shouldn't add to the workqueue
+	tc.enqueueNode(testNode, addTag)
+	if tc.workqueue.Len() != 1 {
+		t.Errorf("invalid work queue length, expected 1, got %d", tc.workqueue.Len())
+	}
+	// adding the same node with different operation should add to the workqueue
+	tc.enqueueNode(testNode, deleteTag)
+	if tc.workqueue.Len() != 2 {
+		t.Errorf("invalid work queue length, expected 2, got %d", tc.workqueue.Len())
+	}
+	// adding the different node should add to the workqueue
+	tc.enqueueNode(testNode1, addTag)
+	if tc.workqueue.Len() != 3 {
+		t.Errorf("invalid work queue length, expected 3, got %d", tc.workqueue.Len())
+	}
+	// should handle the add tag properly
+	tc.process()
+	if tc.workqueue.Len() != 2 {
+		t.Errorf("invalid work queue length, expected 1, got %d", tc.workqueue.Len())
+	}
+	// should handle the delete tag properly
+	tc.process()
+	if tc.workqueue.Len() != 1 {
+		t.Errorf("invalid work queue length, expected 1, got %d", tc.workqueue.Len())
 	}
 }
 
