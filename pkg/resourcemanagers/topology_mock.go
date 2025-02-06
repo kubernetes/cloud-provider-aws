@@ -37,3 +37,9 @@ func (m *MockedInstanceTopologyManager) GetNodeTopology(ctx context.Context, ins
 	}
 	return args.Get(0).(*types.InstanceTopology), nil
 }
+
+// DoesInstanceTypeRequireResponse mocks InstanceTopologyManager.DoesInstanceTypeRequireResponse.
+func (m *MockedInstanceTopologyManager) DoesInstanceTypeRequireResponse(instanceType string) bool {
+	args := m.Called(instanceType)
+	return args.Get(0).(bool)
+}
