@@ -83,6 +83,14 @@ type CloudConfig struct {
 
 		// ClusterServiceSharedLoadBalancerHealthProbePath defines the target path of the shared health probe. Default to `/healthz`.
 		ClusterServiceSharedLoadBalancerHealthProbePath string `json:"clusterServiceSharedLoadBalancerHealthProbePath,omitempty" yaml:"clusterServiceSharedLoadBalancerHealthProbePath,omitempty"`
+
+		// Override to regex validating whether or not instance types require instance topology
+		// to get a definitive response. This will impact whether or not the node controller will
+		// block on getting instance topology information for nodes.
+		// See pkg/resourcemanagers/topology.go for more details.
+		//
+		// WARNING: Updating the default behavior and corresponding unit tests would be a much safer option.
+		SupportedTopologyInstanceTypePattern string `json:"supportedTopologyInstanceTypePattern,omitempty" yaml:"supportedTopologyInstanceTypePattern,omitempty"`
 	}
 	// [ServiceOverride "1"]
 	//  Service = s3

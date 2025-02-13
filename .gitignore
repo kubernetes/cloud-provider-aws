@@ -10,3 +10,4 @@ site/
 e2e.test
 .idea/
 **/*.swp
+.DS_Store
