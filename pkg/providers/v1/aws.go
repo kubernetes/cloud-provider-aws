@@ -1064,7 +1064,7 @@ func newAWSCloud2(cfg config.CloudConfig, awsServices Services, provider config.
 	}
 	awsCloud.instanceCache.cloud = awsCloud
 	awsCloud.zoneCache.cloud = awsCloud
-	awsCloud.instanceTopologyManager = resourcemanagers.NewInstanceTopologyManager(ec2v2)
+	awsCloud.instanceTopologyManager = resourcemanagers.NewInstanceTopologyManager(ec2v2, &cfg)
 
 	tagged := cfg.Global.KubernetesClusterTag != "" || cfg.Global.KubernetesClusterID != ""
 	if cfg.Global.VPC != "" && (cfg.Global.SubnetID != "" || cfg.Global.RoleARN != "") && tagged {
