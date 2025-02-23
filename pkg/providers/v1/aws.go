@@ -857,6 +857,10 @@ func (c *Cloud) NodeAddressesByProviderID(ctx context.Context, providerID string
 		return nil, err
 	}
 
+	return c.getInstanceNodeAddress(instance)
+}
+
+func (c *Cloud) getInstanceNodeAddress(instance *ec2.Instance) ([]v1.NodeAddress, error) {
 	var addresses []v1.NodeAddress
 
 	for _, family := range c.cfg.Global.NodeIPFamilies {
@@ -993,8 +997,11 @@ func (c *Cloud) InstanceTypeByProviderID(ctx context.Context, providerID string)
 	if err != nil {
 		return "", err
 	}
+	return c.getInstanceType(instance), nil
+}
 
-	return aws.StringValue(instance.InstanceType), nil
+func (c *Cloud) getInstanceType(instance *ec2.Instance) string {
+	return aws.StringValue(instance.InstanceType)
 }
 
 // InstanceType returns the type of the node with the specified nodeName.
@@ -1034,13 +1041,14 @@ func (c *Cloud) GetZoneByProviderID(ctx context.Context, providerID string) (clo
 	if err != nil {
 		return cloudprovider.Zone{}, err
 	}
+	return c.getInstanceZone(instance), nil
+}
 
-	zone := cloudprovider.Zone{
+func (c *Cloud) getInstanceZone(instance *ec2.Instance) cloudprovider.Zone {
+	return cloudprovider.Zone{
 		FailureDomain: *(instance.Placement.AvailabilityZone),
 		Region:        c.region,
 	}
-
-	return zone, nil
 }
 
 // GetZoneByNodeName implements Zones.GetZoneByNodeName
