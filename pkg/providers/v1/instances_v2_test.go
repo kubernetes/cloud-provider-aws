@@ -261,6 +261,45 @@ func TestInstanceMetadata(t *testing.T) {
 			LabelZoneID: "az1",
 		}, result.AdditionalLabels)
 	})
+
+	t.Run("Should not swallow errors if getting node topology fails if instance type is expected to be supported", func(t *testing.T) {
+		instance := makeInstance("i-00000000000000000", "192.168.0.1", "1.2.3.4", "instance-same.ec2.internal", "instance-same.ec2.external", nil, true)
+		c, _ := mockInstancesResp(&instance, []*ec2.Instance{&instance})
+		var mockedTopologyManager resourcemanagers.MockedInstanceTopologyManager
+		c.instanceTopologyManager = &mockedTopologyManager
+		mockedTopologyManager.On("GetNodeTopology", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil,
+			services.NewMockAPIError("InvalidParameterValue", "Nope."))
+		mockedTopologyManager.On("DoesInstanceTypeRequireResponse", mock.Anything).Return(true)
+		node := &v1.Node{
+			Spec: v1.NodeSpec{
+				ProviderID: fmt.Sprintf("aws:///us-west-2c/1abc-2def/%s", *instance.InstanceId),
+			},
+		}
+
+		_, err := c.InstanceMetadata(context.TODO(), node)
+		if err == nil {
+			t.Error("Should error getting InstanceMetadata but succeeded.")
+		}
+
+		mockedTopologyManager.AssertNumberOfCalls(t, "GetNodeTopology", 1)
+	})
+
+	t.Run("Should limit ec2:DescribeInstances calls to a single request per instance", func(t *testing.T) {
+		instance := makeInstance("i-00000000000001234", "192.168.0.1", "1.2.3.4", "instance-same.ec2.internal", "instance-same.ec2.external", nil, true)
+		c, awsServices := mockInstancesResp(&instance, []*ec2.Instance{&instance})
+		node := &v1.Node{
+			Spec: v1.NodeSpec{
+				ProviderID: fmt.Sprintf("aws:///us-west-2c/%s", *instance.InstanceId),
+			},
+		}
+		instanceMetadataDescribeInstances := fmt.Sprintf("%s:%s:%s", "ec2", "DescribeInstances", *instance.InstanceId)
+		delete(awsServices.callCounts, instanceMetadataDescribeInstances)
+		_, err := c.InstanceMetadata(context.TODO(), node)
+		if err != nil {
+			t.Errorf("Should not error getting InstanceMetadata: %s", err)
+		}
+		assert.LessOrEqual(t, awsServices.callCounts[instanceMetadataDescribeInstances], 1)
+	})
 }
 
 func getCloudWithMockedDescribeInstances(instanceExists bool, instanceState string) *Cloud {
