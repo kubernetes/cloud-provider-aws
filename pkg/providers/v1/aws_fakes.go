@@ -199,6 +199,7 @@ type FakeEC2Impl struct {
 // DescribeInstances returns fake instance descriptions
 func (ec2i *FakeEC2Impl) DescribeInstances(request *ec2.DescribeInstancesInput) ([]*ec2.Instance, error) {
 	matches := []*ec2.Instance{}
+	var matchedInstances []string
 	for _, instance := range ec2i.aws.instances {
 		if request.InstanceIds != nil {
 			if instance.InstanceId == nil {
@@ -230,8 +231,10 @@ func (ec2i *FakeEC2Impl) DescribeInstances(request *ec2.DescribeInstancesInput) 
 			}
 		}
 		matches = append(matches, instance)
+		matchedInstances = append(matchedInstances, *instance.InstanceId)
 	}
 
+	ec2i.aws.countCall("ec2", "DescribeInstances", strings.Join(matchedInstances, ","))
 	return matches, nil
 }
 
