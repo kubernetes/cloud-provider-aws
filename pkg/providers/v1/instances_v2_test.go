@@ -298,7 +298,7 @@ func TestInstanceMetadata(t *testing.T) {
 		if err != nil {
 			t.Errorf("Should not error getting InstanceMetadata: %s", err)
 		}
-		assert.LessOrEqual(t, awsServices.callCounts[instanceMetadataDescribeInstances], 1)
+		assert.Equal(t, awsServices.callCounts[instanceMetadataDescribeInstances], 1)
 	})
 }
 
