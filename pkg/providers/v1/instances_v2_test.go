@@ -238,13 +238,14 @@ func TestInstanceMetadata(t *testing.T) {
 		assert.Equal(t, map[string]string{}, result.AdditionalLabels)
 	})
 
-	t.Run("Should swallow errors if getting node topology fails", func(t *testing.T) {
+	t.Run("Should swallow errors if getting node topology fails if instance type not expected to be supported", func(t *testing.T) {
 		instance := makeInstance("i-00000000000000000", "192.168.0.1", "1.2.3.4", "instance-same.ec2.internal", "instance-same.ec2.external", nil, true)
 		c, _ := mockInstancesResp(&instance, []*ec2.Instance{&instance})
 		var mockedTopologyManager resourcemanagers.MockedInstanceTopologyManager
 		c.instanceTopologyManager = &mockedTopologyManager
 		mockedTopologyManager.On("GetNodeTopology", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil,
 			services.NewMockAPIError("InvalidParameterValue", "Nope."))
+		mockedTopologyManager.On("DoesInstanceTypeRequireResponse", mock.Anything).Return(false)
 		node := &v1.Node{
 			Spec: v1.NodeSpec{
 				ProviderID: fmt.Sprintf("aws:///us-west-2c/1abc-2def/%s", *instance.InstanceId),

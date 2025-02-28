@@ -85,17 +85,25 @@ func (c *Cloud) getAdditionalLabels(ctx context.Context, zoneName string, instan
 	// If topology labels are already set, skip.
 	if _, ok := existingLabels[LabelNetworkNodePrefix+"1"]; !ok {
 		nodeTopology, err := c.instanceTopologyManager.GetNodeTopology(ctx, instanceType, region, instanceID)
-		// We've seen some edge cases where this functionality is problematic, so swallowing errors and logging
-		// to avoid short-circuiting syncing nodes. If it's an intermittent issue, the labels will be added
-		// on subsequent attempts.
+
 		if err != nil {
-			klog.Warningf("Failed to get node topology. Moving on without setting labels: %q", err)
+			if c.instanceTopologyManager.DoesInstanceTypeRequireResponse(instanceType) {
+				klog.Errorf("Failed to get node topology for instance type %s and one is expected %v.", instanceType, err)
+				return nil, err
+			}
+
+			// We don't expect that there will be a response for these instance types anyway,
+			// so we're going to move on without setting the labels.
+			klog.Warningf("Failed to get node topology for instance type %s and ID %s. Moving on without setting labels. Ignoring %v",
+				instanceType, instanceID, err)
 		} else if nodeTopology != nil {
 			for index, networkNode := range nodeTopology.NetworkNodes {
 				layer := index + 1
 				label := LabelNetworkNodePrefix + strconv.Itoa(layer)
 				additionalLabels[label] = networkNode
 			}
+		} else {
+			klog.Infof("No instance topolopy for instance type %s available.", instanceType)
 		}
 	}
 
