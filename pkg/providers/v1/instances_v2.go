@@ -22,6 +22,8 @@ package aws
 
 import (
 	"context"
+	"fmt"
+	"k8s.io/cloud-provider-aws/pkg/providers/v1/variant"
 	"strconv"
 
 	v1 "k8s.io/api/core/v1"
@@ -118,25 +120,43 @@ func (c *Cloud) InstanceMetadata(ctx context.Context, node *v1.Node) (*cloudprov
 	if err != nil {
 		return nil, err
 	}
-
-	instanceType, err := c.InstanceTypeByProviderID(ctx, providerID)
-	if err != nil {
-		return nil, err
-	}
-
-	zone, err := c.GetZoneByProviderID(ctx, providerID)
-	if err != nil {
-		return nil, err
-	}
-
-	nodeAddresses, err := c.NodeAddressesByProviderID(ctx, providerID)
-	if err != nil {
-		return nil, err
-	}
-
 	instanceID, err := KubernetesInstanceID(providerID).MapToAWSInstanceID()
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to map provider ID to AWS instance ID for node %s: %w", node.Name, err)
+	}
+
+	var (
+		instanceType  string
+		zone          cloudprovider.Zone
+		nodeAddresses []v1.NodeAddress
+	)
+	if variant.IsVariantNode(string(instanceID)) {
+		instanceType, err = c.InstanceTypeByProviderID(ctx, providerID)
+		if err != nil {
+			return nil, err
+		}
+
+		zone, err = c.GetZoneByProviderID(ctx, providerID)
+		if err != nil {
+			return nil, err
+		}
+
+		nodeAddresses, err = c.NodeAddressesByProviderID(ctx, providerID)
+		if err != nil {
+			return nil, err
+		}
+	} else {
+		instance, err := c.getInstanceByID(string(instanceID))
+		if err != nil {
+			return nil, fmt.Errorf("failed to get instance by ID %s: %w", instanceID, err)
+		}
+
+		instanceType = c.getInstanceType(instance)
+		zone = c.getInstanceZone(instance)
+		nodeAddresses, err = c.getInstanceNodeAddress(instance)
+		if err != nil {
+			return nil, fmt.Errorf("failed to get node addresses for instance %s: %w", instanceID, err)
+		}
 	}
 
 	additionalLabels, err := c.getAdditionalLabels(ctx, zone.FailureDomain, string(instanceID), instanceType, zone.Region, node.Labels)
