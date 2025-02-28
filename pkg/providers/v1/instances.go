@@ -36,6 +36,9 @@ import (
 // awsInstanceRegMatch represents Regex Match for AWS instance.
 var awsInstanceRegMatch = regexp.MustCompile("^i-[^/]*$")
 
+// awsSagemakerInstanceRegMatch represents Regex Match for AWS Sagemaker instance.
+var awsSagemakerInstanceRegMatch = regexp.MustCompile("^hyperpod-[a-z0-9A-Z]+-i-[^/]*$")
+
 // InstanceID represents the ID of the instance in the AWS API, e.g. i-12345678
 // The "traditional" format is "i-12345678"
 // A new longer format is also being introduced: "i-12345678abcdef01"
@@ -81,7 +84,7 @@ func (name KubernetesInstanceID) MapToAWSInstanceID() (InstanceID, error) {
 
 	// We sanity check the resulting instance ID; the two known formats are
 	// i-12345678 and i-12345678abcdef01
-	if awsID == "" || !(awsInstanceRegMatch.MatchString(awsID) || variant.IsVariantNode(awsID)) {
+	if awsID == "" || !(awsInstanceRegMatch.MatchString(awsID) || awsSagemakerInstanceRegMatch.MatchString(awsID)) || variant.IsVariantNode(awsID) {
 		return "", fmt.Errorf("Invalid format for AWS instance (%s)", name)
 	}
 

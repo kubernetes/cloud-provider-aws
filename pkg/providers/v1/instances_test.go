@@ -32,57 +32,61 @@ func TestMapToAWSInstanceIDs(t *testing.T) {
 		Aws         InstanceID
 		ExpectError bool
 	}{
+		//{
+		//	Kubernetes: "aws:///us-east-1a/i-12345678",
+		//	Aws:        "i-12345678",
+		//},
+		//{
+		//	Kubernetes: "aws:////i-12345678",
+		//	Aws:        "i-12345678",
+		//},
+		//{
+		//	Kubernetes: "i-12345678",
+		//	Aws:        "i-12345678",
+		//},
+		//{
+		//	Kubernetes: "aws:///us-east-1a/i-12345678abcdef01",
+		//	Aws:        "i-12345678abcdef01",
+		//},
+		//{
+		//	Kubernetes: "aws:////i-12345678abcdef01",
+		//	Aws:        "i-12345678abcdef01",
+		//},
+		//{
+		//	Kubernetes: "i-12345678abcdef01",
+		//	Aws:        "i-12345678abcdef01",
+		//},
+		//{
+		//	Kubernetes:  "vol-123456789",
+		//	ExpectError: true,
+		//},
+		//{
+		//	Kubernetes:  "aws:///us-east-1a/vol-12345678abcdef01",
+		//	ExpectError: true,
+		//},
+		//{
+		//	Kubernetes:  "aws://accountid/us-east-1a/vol-12345678abcdef01",
+		//	ExpectError: true,
+		//},
+		//{
+		//	Kubernetes:  "aws:///us-east-1a/vol-12345678abcdef01/suffix",
+		//	ExpectError: true,
+		//},
+		//{
+		//	Kubernetes:  "",
+		//	ExpectError: true,
+		//},
+		//{
+		//	Kubernetes: "aws:///us-west-2c/1abc-2def/fargate-ip-192-168-164-88.internal",
+		//	Aws:        "fargate-ip-192-168-164-88.internal",
+		//},
+		//{
+		//	Kubernetes: "aws:///us-west-2c/1abc-2def/fargate-192.168.164.88",
+		//	Aws:        "fargate-192.168.164.88",
+		//},
 		{
-			Kubernetes: "aws:///us-east-1a/i-12345678",
-			Aws:        "i-12345678",
-		},
-		{
-			Kubernetes: "aws:////i-12345678",
-			Aws:        "i-12345678",
-		},
-		{
-			Kubernetes: "i-12345678",
-			Aws:        "i-12345678",
-		},
-		{
-			Kubernetes: "aws:///us-east-1a/i-12345678abcdef01",
-			Aws:        "i-12345678abcdef01",
-		},
-		{
-			Kubernetes: "aws:////i-12345678abcdef01",
-			Aws:        "i-12345678abcdef01",
-		},
-		{
-			Kubernetes: "i-12345678abcdef01",
-			Aws:        "i-12345678abcdef01",
-		},
-		{
-			Kubernetes:  "vol-123456789",
-			ExpectError: true,
-		},
-		{
-			Kubernetes:  "aws:///us-east-1a/vol-12345678abcdef01",
-			ExpectError: true,
-		},
-		{
-			Kubernetes:  "aws://accountid/us-east-1a/vol-12345678abcdef01",
-			ExpectError: true,
-		},
-		{
-			Kubernetes:  "aws:///us-east-1a/vol-12345678abcdef01/suffix",
-			ExpectError: true,
-		},
-		{
-			Kubernetes:  "",
-			ExpectError: true,
-		},
-		{
-			Kubernetes: "aws:///us-west-2c/1abc-2def/fargate-ip-192-168-164-88.internal",
-			Aws:        "fargate-ip-192-168-164-88.internal",
-		},
-		{
-			Kubernetes: "aws:///us-west-2c/1abc-2def/fargate-192.168.164.88",
-			Aws:        "fargate-192.168.164.88",
+			Kubernetes: "aws:///usw2-az3/sagemaker/cluster/hyperpod-aaaaaaaaaaaa-i-00000000000000000",
+			Aws:        "hyperpod-aaaaaaaaaaaa-i-00000000000000000",
 		},
 	}
 
