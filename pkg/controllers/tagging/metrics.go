@@ -20,6 +20,10 @@ import (
 	"k8s.io/component-base/metrics/legacyregistry"
 )
 
+const (
+	metricsSubsystem = "tagging_controller"
+)
+
 var register sync.Once
 
 var (
@@ -30,6 +34,24 @@ var (
 			StabilityLevel: metrics.ALPHA,
 		},
 		[]string{"error_type", "instance_id"})
+
+	nodeTaggingDelay = metrics.NewHistogram(
+		&metrics.HistogramOpts{
+			Subsystem:      metricsSubsystem,
+			Name:           "node_tagging_delay_seconds",
+			Help:           "Number of seconds after node creation when TaggingController successfully tagged or untagged the node resources.",
+			Buckets:        metrics.ExponentialBuckets(1, 4, 6), // 1s -> ~17m
+			StabilityLevel: metrics.ALPHA,
+		},
+	)
+	workQueueSize = metrics.NewGauge(
+		&metrics.GaugeOpts{
+			Subsystem:      metricsSubsystem,
+			Name:           "work_queue_size",
+			Help:           "Current size of the work queue.",
+			StabilityLevel: metrics.ALPHA,
+		},
+	)
 )
 
 // registerMetrics registers tagging-controller metrics.
