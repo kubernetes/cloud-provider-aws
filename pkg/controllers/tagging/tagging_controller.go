@@ -240,10 +240,6 @@ func (tc *Controller) process() bool {
 		}
 		klog.Infof("Instance ID of work item %s is %s", workItem, instanceID)
 
-		if err != nil {
-			return fmt.Errorf("error getting node %s: %v", workItem.name, err)
-		}
-
 		if variant.IsVariantNode(string(instanceID)) {
 			klog.Infof("Skip processing the node %s since it is a %s node",
 				instanceID, variant.NodeType(string(instanceID)))
