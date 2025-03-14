@@ -227,6 +227,11 @@ func (tc *Controller) process() bool {
 			return nil
 		}
 
+		currentNode, err := tc.nodeInformer.Lister().Get(workItem.name)
+		if err != nil {
+			return fmt.Errorf("error getting node %s: %v", workItem.name, err)
+		}
+
 		instanceID, err := awsv1.KubernetesInstanceID(workItem.providerID).MapToAWSInstanceID()
 		if err != nil {
 			err = fmt.Errorf("error in getting instanceID for node %s, error: %v", workItem.name, err)
@@ -269,6 +274,7 @@ func (tc *Controller) process() bool {
 		}
 
 		tc.workqueue.Forget(obj)
+		nodeTaggingDelay.Observe(time.Since(currentNode.CreationTimestamp.Time).Seconds())
 		return nil
 	}(obj)
 
@@ -277,6 +283,7 @@ func (tc *Controller) process() bool {
 		utilruntime.HandleError(err)
 	}
 
+	workQueueSize.Set(float64(tc.workqueue.Len()))
 	return true
 }
 
