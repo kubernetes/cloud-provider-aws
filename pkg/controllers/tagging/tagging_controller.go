@@ -342,6 +342,7 @@ func (tc *Controller) tagEc2Instance(node *v1.Node) error {
 
 	klog.Infof("Successfully labeled node %s with %v.", node.GetName(), labels)
 
+	nodeTaggingDelay.Observe(time.Since(node.CreationTimestamp.Time).Seconds())
 	return nil
 }
 
