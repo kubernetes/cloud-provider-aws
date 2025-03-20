@@ -318,6 +318,7 @@ func (tc *Controller) tagEc2Instance(node *v1.Node) error {
 	}
 
 	instanceID, _ := awsv1.KubernetesInstanceID(node.Spec.ProviderID).MapToAWSInstanceID()
+
 	err := tc.cloud.TagResource(string(instanceID), tc.tags)
 
 	if err != nil {
@@ -343,6 +344,9 @@ func (tc *Controller) tagEc2Instance(node *v1.Node) error {
 		klog.Errorf("Couldn't apply labels %s to node %s.", labels, node.GetName())
 		return fmt.Errorf("couldn't apply labels %s to node %s", labels, node.GetName())
 	}
+
+	klog.Infof("Successfully labeled node %s with %v.", node.GetName(), labels)
+
 	nodeTaggingDelay.Observe(time.Since(node.CreationTimestamp.Time).Seconds())
 	return nil
 }
