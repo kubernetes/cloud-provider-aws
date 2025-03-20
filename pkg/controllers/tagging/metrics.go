@@ -44,20 +44,13 @@ var (
 			StabilityLevel: metrics.ALPHA,
 		},
 	)
-	workQueueSize = metrics.NewGauge(
-		&metrics.GaugeOpts{
-			Subsystem:      metricsSubsystem,
-			Name:           "work_queue_size",
-			Help:           "Current size of the work queue.",
-			StabilityLevel: metrics.ALPHA,
-		},
-	)
 )
 
 // registerMetrics registers tagging-controller metrics.
 func registerMetrics() {
 	register.Do(func() {
 		legacyregistry.MustRegister(workItemError)
+		legacyregistry.MustRegister(nodeTaggingDelay)
 	})
 }
 

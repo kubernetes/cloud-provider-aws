@@ -232,11 +232,6 @@ func (tc *Controller) process() bool {
 			return nil
 		}
 
-		currentNode, err := tc.nodeInformer.Lister().Get(workItem.name)
-		if err != nil {
-			return fmt.Errorf("error getting node %s: %v", workItem.name, err)
-		}
-
 		instanceID, err := awsv1.KubernetesInstanceID(workItem.providerID).MapToAWSInstanceID()
 		if err != nil {
 			err = fmt.Errorf("error in getting instanceID for node %s, error: %v", workItem.name, err)
@@ -279,7 +274,6 @@ func (tc *Controller) process() bool {
 		}
 
 		tc.workqueue.Forget(obj)
-		nodeTaggingDelay.Observe(time.Since(currentNode.CreationTimestamp.Time).Seconds())
 		return nil
 	}(obj)
 
@@ -288,7 +282,6 @@ func (tc *Controller) process() bool {
 		utilruntime.HandleError(err)
 	}
 
-	workQueueSize.Set(float64(tc.workqueue.Len()))
 	return true
 }
 
@@ -325,7 +318,6 @@ func (tc *Controller) tagEc2Instance(node *v1.Node) error {
 	}
 
 	instanceID, _ := awsv1.KubernetesInstanceID(node.Spec.ProviderID).MapToAWSInstanceID()
-
 	err := tc.cloud.TagResource(string(instanceID), tc.tags)
 
 	if err != nil {
@@ -351,9 +343,7 @@ func (tc *Controller) tagEc2Instance(node *v1.Node) error {
 		klog.Errorf("Couldn't apply labels %s to node %s.", labels, node.GetName())
 		return fmt.Errorf("couldn't apply labels %s to node %s", labels, node.GetName())
 	}
-
-	klog.Infof("Successfully labeled node %s with %v.", node.GetName(), labels)
-
+	nodeTaggingDelay.Observe(time.Since(node.CreationTimestamp.Time).Seconds())
 	return nil
 }
 
