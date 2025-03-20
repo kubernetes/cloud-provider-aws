@@ -1016,6 +1016,10 @@ func (c *Cloud) InstanceType(ctx context.Context, nodeName types.NodeName) (stri
 	return aws.StringValue(inst.InstanceType), nil
 }
 
+func (c *Cloud) getImageID(instance *ec2.Instance) string {
+	return aws.StringValue(instance.ImageId)
+}
+
 // GetZone implements Zones.GetZone
 func (c *Cloud) GetZone(ctx context.Context) (cloudprovider.Zone, error) {
 	return cloudprovider.Zone{

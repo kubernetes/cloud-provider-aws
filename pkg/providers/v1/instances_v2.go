@@ -68,7 +68,7 @@ func (c *Cloud) InstanceShutdown(ctx context.Context, node *v1.Node) (bool, erro
 }
 
 func (c *Cloud) getAdditionalLabels(ctx context.Context, zoneName string, instanceID string, instanceType string,
-	region string, existingLabels map[string]string) (map[string]string, error) {
+	region string, imageID string, existingLabels map[string]string) (map[string]string, error) {
 	additionalLabels := map[string]string{}
 
 	// If zone ID label is already set, skip.
@@ -80,6 +80,11 @@ func (c *Cloud) getAdditionalLabels(ctx context.Context, zoneName string, instan
 		}
 
 		additionalLabels[LabelZoneID] = zoneID
+	}
+
+	// If image id label is already set, skip.
+	if _, ok := existingLabels[LabelImageID]; !ok {
+		additionalLabels[LabelImageID] = imageID
 	}
 
 	// If topology labels are already set, skip.
@@ -127,6 +132,7 @@ func (c *Cloud) InstanceMetadata(ctx context.Context, node *v1.Node) (*cloudprov
 
 	var (
 		instanceType  string
+		imageID       string
 		zone          cloudprovider.Zone
 		nodeAddresses []v1.NodeAddress
 	)
@@ -151,6 +157,7 @@ func (c *Cloud) InstanceMetadata(ctx context.Context, node *v1.Node) (*cloudprov
 			return nil, fmt.Errorf("failed to get instance by ID %s: %w", instanceID, err)
 		}
 
+		imageID = c.getImageID(instance)
 		instanceType = c.getInstanceType(instance)
 		zone = c.getInstanceZone(instance)
 		nodeAddresses, err = c.getInstanceNodeAddress(instance)
@@ -159,7 +166,7 @@ func (c *Cloud) InstanceMetadata(ctx context.Context, node *v1.Node) (*cloudprov
 		}
 	}
 
-	additionalLabels, err := c.getAdditionalLabels(ctx, zone.FailureDomain, string(instanceID), instanceType, zone.Region, node.Labels)
+	additionalLabels, err := c.getAdditionalLabels(ctx, zone.FailureDomain, string(instanceID), instanceType, zone.Region, imageID, node.Labels)
 	if err != nil {
 		return nil, err
 	}
