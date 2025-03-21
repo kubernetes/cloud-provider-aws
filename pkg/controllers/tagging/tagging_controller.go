@@ -14,6 +14,7 @@ limitations under the License.
 package tagging
 
 import (
+	"context"
 	"crypto/md5"
 	"fmt"
 	"sort"
@@ -102,6 +103,7 @@ type Controller struct {
 
 	rateLimitEnabled bool
 	workerCount      int
+	enableBatching   bool
 }
 
 // NewTaggingController creates a NewTaggingController object
@@ -114,7 +116,8 @@ func NewTaggingController(
 	resources []string,
 	rateLimit float64,
 	burstLimit int,
-	workerCount int) (*Controller, error) {
+	workerCount int,
+	enableBatching bool) (*Controller, error) {
 
 	awsCloud, ok := cloud.(*awsv1.Cloud)
 	if !ok {
@@ -152,6 +155,7 @@ func NewTaggingController(
 		nodeMonitorPeriod: nodeMonitorPeriod,
 		rateLimitEnabled:  rateLimitEnabled,
 		workerCount:       workerCount,
+		enableBatching:    enableBatching,
 	}
 
 	// Use shared informer to listen to add/update/delete of nodes. Note that any nodes
@@ -318,8 +322,12 @@ func (tc *Controller) tagEc2Instance(node *v1.Node) error {
 	}
 
 	instanceID, _ := awsv1.KubernetesInstanceID(node.Spec.ProviderID).MapToAWSInstanceID()
-
-	err := tc.cloud.TagResource(string(instanceID), tc.tags)
+	var err error
+	if tc.enableBatching {
+		err = tc.cloud.TagResourceBatch(context.TODO(), string(instanceID), tc.tags)
+	} else {
+		err = tc.cloud.TagResource(string(instanceID), tc.tags)
+	}
 
 	if err != nil {
 		if awsv1.IsAWSErrorInstanceNotFound(err) {
@@ -375,7 +383,12 @@ func (tc *Controller) untagNodeResources(node *taggingControllerNode) error {
 func (tc *Controller) untagEc2Instance(node *taggingControllerNode) error {
 	instanceID, _ := awsv1.KubernetesInstanceID(node.providerID).MapToAWSInstanceID()
 
-	err := tc.cloud.UntagResource(string(instanceID), tc.tags)
+	var err error
+	if tc.enableBatching {
+		err = tc.cloud.UntagResourceBatch(context.TODO(), string(instanceID), tc.tags)
+	} else {
+		err = tc.cloud.UntagResource(string(instanceID), tc.tags)
+	}
 
 	if err != nil {
 		klog.Errorf("Error in untagging EC2 instance %s for node %s, error: %v", instanceID, node.name, err)
