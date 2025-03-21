@@ -2,7 +2,6 @@ package tagging
 
 import (
 	"context"
-
 	cloudprovider "k8s.io/cloud-provider"
 	"k8s.io/cloud-provider/app"
 	cloudcontrollerconfig "k8s.io/cloud-provider/app/config"
@@ -48,7 +47,9 @@ func (tc *ControllerWrapper) startTaggingController(ctx context.Context, initCon
 		tc.Options.Tags,
 		tc.Options.Resources,
 		tc.Options.RateLimit,
-		tc.Options.BurstLimit)
+		tc.Options.BurstLimit,
+		tc.Options.WorkerCount,
+		tc.Options.EnableBatching)
 
 	if err != nil {
 		klog.Warningf("failed to start tagging controller: %s", err)
