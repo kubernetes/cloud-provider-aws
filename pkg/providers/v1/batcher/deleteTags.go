@@ -69,11 +69,12 @@ func execDeleteTagsBatch(ec2api iface.EC2) BatchExecutor[ec2.DeleteTagsInput, ec
 		for _, input := range inputs[1:] {
 			firstInput.Resources = append(firstInput.Resources, input.Resources...)
 		}
-		klog.Infof("#####Input #####%v", firstInput.Resources)
-		output, err := ec2api.DeleteTags(&ec2.DeleteTagsInput{
+		batchedInput := &ec2.DeleteTagsInput{
 			Resources: firstInput.Resources,
 			Tags:      firstInput.Tags,
-		})
+		}
+		klog.Infof("Batched delete tags %v", batchedInput)
+		output, err := ec2api.DeleteTags(batchedInput)
 
 		if err != nil {
 			klog.Errorf("Error occurred trying to batch tag resources, trying individually, %v", err)
