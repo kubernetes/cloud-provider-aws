@@ -199,13 +199,13 @@ func Test_NodesJoiningAndLeaving(t *testing.T) {
 	fakeAws, _ := awsv1.NewAWSCloud(config.CloudConfig{}, awsServices)
 	batching := [2]bool{true, false}
 	for _, testcase := range testcases {
+		var logBuf bytes.Buffer
+		klog.SetOutput(&logBuf)
+		defer func() {
+			klog.SetOutput(os.Stderr)
+		}()
 		for _, enableBatching := range batching {
 			t.Run(testcase.name, func(t *testing.T) {
-				var logBuf bytes.Buffer
-				klog.SetOutput(&logBuf)
-				defer func() {
-					klog.SetOutput(os.Stderr)
-				}()
 
 				clientset := fake.NewSimpleClientset(testcase.currNode)
 				informer := informers.NewSharedInformerFactory(clientset, time.Second)
