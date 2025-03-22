@@ -17,6 +17,7 @@ limitations under the License.
 package aws
 
 import (
+	"context"
 	"fmt"
 	"strings"
 
@@ -333,6 +334,24 @@ func (c *Cloud) TagResource(resourceID string, tags map[string]string) error {
 	return nil
 }
 
+func (c *Cloud) TagResourceBatch(ctx context.Context, resourceID string, tags map[string]string) error {
+	request := &ec2.CreateTagsInput{
+		Resources: []*string{aws.String(resourceID)},
+		Tags:      buildAwsTags(tags),
+	}
+
+	output, err := c.createTagsBatcher.CreateTags(ctx, request)
+
+	if err != nil {
+		klog.Errorf("Error occurred trying to tag resources, %v", err)
+		return err
+	}
+
+	klog.Infof("Done calling create-tags to EC2: %v", output)
+
+	return nil
+}
+
 // UntagResource calls EC2 and tag the resource associated to resourceID
 // with the supplied tags
 func (c *Cloud) UntagResource(resourceID string, tags map[string]string) error {
@@ -342,6 +361,32 @@ func (c *Cloud) UntagResource(resourceID string, tags map[string]string) error {
 	}
 
 	output, err := c.ec2.DeleteTags(request)
+
+	if err != nil {
+		// An instance not found should not fail the untagging workflow as it
+		// would for tagging, since the target state is already reached.
+		if IsAWSErrorInstanceNotFound(err) {
+			klog.Infof("Couldn't find resource when trying to untag it hence skipping it, %v", err)
+			return nil
+		}
+		klog.Errorf("Error occurred trying to untag resources, %v", err)
+		return err
+	}
+
+	klog.Infof("Done calling delete-tags to EC2: %v", output)
+
+	return nil
+}
+
+// UntagResource calls EC2 and tag the resource associated to resourceID
+// with the supplied tags
+func (c *Cloud) UntagResourceBatch(ctx context.Context, resourceID string, tags map[string]string) error {
+	request := &ec2.DeleteTagsInput{
+		Resources: []*string{aws.String(resourceID)},
+		Tags:      buildAwsTags(tags),
+	}
+
+	output, err := c.deleteTagsBatcher.DeleteTags(ctx, request)
 
 	if err != nil {
 		// An instance not found should not fail the untagging workflow as it

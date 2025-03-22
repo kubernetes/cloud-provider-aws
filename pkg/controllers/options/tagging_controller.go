@@ -21,10 +21,11 @@ import (
 // TaggingControllerOptions contains the inputs that can
 // be used in the tagging controller
 type TaggingControllerOptions struct {
-	Tags       map[string]string
-	Resources  []string
-	RateLimit  float64
-	BurstLimit int
+	Tags           map[string]string
+	Resources      []string
+	RateLimit      float64
+	BurstLimit     int
+	EnableBatching bool
 }
 
 // AddFlags add the additional flags for the controller
@@ -35,6 +36,8 @@ func (o *TaggingControllerOptions) AddFlags(fs *pflag.FlagSet) {
 		"Steady-state rate limit (per sec) at which the controller processes items in its queue. A value of zero (default) disables rate limiting.")
 	fs.IntVar(&o.BurstLimit, "tagging-controller-burst-limit", o.BurstLimit,
 		"Burst limit at which the controller processes items in its queue. A value of zero (default) disables rate limiting.")
+	fs.BoolVar(&o.EnableBatching, "tagging-controller-enable-batching", false,
+		"Enables batching create and delete tag calls.")
 }
 
 // Validate checks for errors from user input
