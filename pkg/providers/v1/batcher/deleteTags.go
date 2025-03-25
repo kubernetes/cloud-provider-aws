@@ -38,7 +38,7 @@ func NewDeleteTagsBatcher(ctx context.Context, ec2api iface.EC2) *DeleteTagsBatc
 		Name:          "delete_tags",
 		IdleTimeout:   100 * time.Millisecond,
 		MaxTimeout:    1 * time.Second,
-		MaxItems:      500,
+		MaxItems:      50,
 		RequestHasher: DeleteTagsHasher,
 		BatchExecutor: execDeleteTagsBatch(ec2api),
 	}

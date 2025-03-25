@@ -204,7 +204,7 @@ func Test_NodesJoiningAndLeaving(t *testing.T) {
 		defer func() {
 			klog.SetOutput(os.Stderr)
 		}()
-		for _, enableBatching := range batching {
+		for _, batchingEnabled := range batching {
 			t.Run(testcase.name, func(t *testing.T) {
 
 				clientset := fake.NewSimpleClientset(testcase.currNode)
@@ -229,7 +229,7 @@ func Test_NodesJoiningAndLeaving(t *testing.T) {
 						&workqueue.TypedBucketRateLimiter[any]{Limiter: rate.NewLimiter(rate.Limit(10), 100)},
 					), "Tagging"),
 					rateLimitEnabled: testcase.rateLimited,
-					enableBatching:   enableBatching,
+					batchingEnabled:  batchingEnabled,
 				}
 
 				if testcase.toBeTagged {
