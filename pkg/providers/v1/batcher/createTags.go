@@ -38,7 +38,7 @@ func NewCreateTagsBatcher(ctx context.Context, ec2api iface.EC2) *CreateTagsBatc
 		Name:          "create_tags",
 		IdleTimeout:   100 * time.Millisecond,
 		MaxTimeout:    1 * time.Second,
-		MaxItems:      500,
+		MaxItems:      50,
 		RequestHasher: CreateTagsHasher,
 		BatchExecutor: execCreateTagsBatch(ec2api),
 	}

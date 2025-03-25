@@ -103,7 +103,7 @@ type Controller struct {
 
 	rateLimitEnabled bool
 	workerCount      int
-	enableBatching   bool
+	batchingEnabled  bool
 }
 
 // NewTaggingController creates a NewTaggingController object
@@ -117,8 +117,7 @@ func NewTaggingController(
 	rateLimit float64,
 	burstLimit int,
 	workerCount int,
-	enableBatching bool) (*Controller, error) {
-
+	batchingEnabled bool) (*Controller, error) {
 	awsCloud, ok := cloud.(*awsv1.Cloud)
 	if !ok {
 		err := fmt.Errorf("tagging controller does not support %v provider", cloud.ProviderName())
@@ -153,7 +152,7 @@ func NewTaggingController(
 		nodeMonitorPeriod: nodeMonitorPeriod,
 		rateLimitEnabled:  rateLimitEnabled,
 		workerCount:       workerCount,
-		enableBatching:    enableBatching,
+		batchingEnabled:   batchingEnabled,
 	}
 
 	// Use shared informer to listen to add/update/delete of nodes. Note that any nodes
@@ -316,10 +315,9 @@ func (tc *Controller) tagEc2Instance(node *v1.Node) error {
 		klog.Infof("Skip tagging node %s since it was already tagged earlier.", node.GetName())
 		return nil
 	}
-
-	instanceID, _ := awsv1.KubernetesInstanceID(node.Spec.ProviderID).MapToAWSInstanceID()
 	var err error
-	if tc.enableBatching {
+	instanceID, _ := awsv1.KubernetesInstanceID(node.Spec.ProviderID).MapToAWSInstanceID()
+	if tc.batchingEnabled {
 		err = tc.cloud.TagResourceBatch(context.TODO(), string(instanceID), tc.tags)
 	} else {
 		err = tc.cloud.TagResource(string(instanceID), tc.tags)
@@ -380,7 +378,7 @@ func (tc *Controller) untagEc2Instance(node *taggingControllerNode) error {
 	instanceID, _ := awsv1.KubernetesInstanceID(node.providerID).MapToAWSInstanceID()
 
 	var err error
-	if tc.enableBatching {
+	if tc.batchingEnabled {
 		err = tc.cloud.UntagResourceBatch(context.TODO(), string(instanceID), tc.tags)
 	} else {
 		err = tc.cloud.UntagResource(string(instanceID), tc.tags)
