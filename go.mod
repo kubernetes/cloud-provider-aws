@@ -1,8 +1,6 @@
 module k8s.io/cloud-provider-aws
 
-go 1.23.0
-
-toolchain go1.23.3
+go 1.23.6
 
 require (
 	github.com/aws/aws-sdk-go v1.55.5
