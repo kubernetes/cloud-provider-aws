@@ -48,7 +48,8 @@ func (tc *ControllerWrapper) startTaggingController(ctx context.Context, initCon
 		tc.Options.Tags,
 		tc.Options.Resources,
 		tc.Options.RateLimit,
-		tc.Options.BurstLimit)
+		tc.Options.BurstLimit,
+		tc.Options.WorkerCount)
 
 	if err != nil {
 		klog.Warningf("failed to start tagging controller: %s", err)

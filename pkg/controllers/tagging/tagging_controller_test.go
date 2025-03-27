@@ -301,7 +301,7 @@ func TestMultipleEnqueues(t *testing.T) {
 		t.Errorf("unexpected error: %v", err)
 	}
 
-	tc, err := NewTaggingController(nodeInformer, clientset, fakeAws, time.Second, nil, []string{}, 0, 0)
+	tc, err := NewTaggingController(nodeInformer, clientset, fakeAws, time.Second, nil, []string{}, 0, 0, 10)
 	if err != nil {
 		t.Errorf("unexpected error: %v", err)
 	}
