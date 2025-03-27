@@ -198,7 +198,9 @@ func (tc *Controller) Run(stopCh <-chan struct{}) {
 	}
 
 	klog.Infof("Starting the tagging controller")
-	go wait.Until(tc.work, tc.nodeMonitorPeriod, stopCh)
+	for i := 0; i < tc.workerCount; i++ {
+		go wait.Until(tc.work, tc.nodeMonitorPeriod, stopCh)
+	}
 
 	<-stopCh
 }
