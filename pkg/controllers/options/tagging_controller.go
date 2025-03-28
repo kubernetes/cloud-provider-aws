@@ -58,6 +58,10 @@ func (o *TaggingControllerOptions) Validate() error {
 		return fmt.Errorf("--tagging-controller-burst-limit should not be less than zero")
 	}
 
+	if o.WorkerCount <= 0 {
+		return fmt.Errorf("--tagging-controller-concurrent-node-syncs must be a positive number")
+	}
+
 	for _, r := range o.Resources {
 		for _, resource := range SupportedResources {
 			if r != resource {
