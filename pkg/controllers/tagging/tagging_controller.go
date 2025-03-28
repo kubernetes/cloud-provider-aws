@@ -101,6 +101,7 @@ type Controller struct {
 	resources []string
 
 	rateLimitEnabled bool
+	workerCount      int
 }
 
 // NewTaggingController creates a NewTaggingController object
@@ -112,7 +113,8 @@ func NewTaggingController(
 	tags map[string]string,
 	resources []string,
 	rateLimit float64,
-	burstLimit int) (*Controller, error) {
+	burstLimit int,
+	workerCount int) (*Controller, error) {
 
 	awsCloud, ok := cloud.(*awsv1.Cloud)
 	if !ok {
@@ -149,6 +151,7 @@ func NewTaggingController(
 		nodesSynced:       nodeInformer.Informer().HasSynced,
 		nodeMonitorPeriod: nodeMonitorPeriod,
 		rateLimitEnabled:  rateLimitEnabled,
+		workerCount:       workerCount,
 	}
 
 	// Use shared informer to listen to add/update/delete of nodes. Note that any nodes
@@ -194,7 +197,9 @@ func (tc *Controller) Run(stopCh <-chan struct{}) {
 	}
 
 	klog.Infof("Starting the tagging controller")
-	go wait.Until(tc.work, tc.nodeMonitorPeriod, stopCh)
+	for i := 0; i < tc.workerCount; i++ {
+		go wait.Until(tc.work, tc.nodeMonitorPeriod, stopCh)
+	}
 
 	<-stopCh
 }

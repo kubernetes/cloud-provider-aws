@@ -21,10 +21,11 @@ import (
 // TaggingControllerOptions contains the inputs that can
 // be used in the tagging controller
 type TaggingControllerOptions struct {
-	Tags       map[string]string
-	Resources  []string
-	RateLimit  float64
-	BurstLimit int
+	Tags        map[string]string
+	Resources   []string
+	RateLimit   float64
+	BurstLimit  int
+	WorkerCount int
 }
 
 // AddFlags add the additional flags for the controller
@@ -35,6 +36,8 @@ func (o *TaggingControllerOptions) AddFlags(fs *pflag.FlagSet) {
 		"Steady-state rate limit (per sec) at which the controller processes items in its queue. A value of zero (default) disables rate limiting.")
 	fs.IntVar(&o.BurstLimit, "tagging-controller-burst-limit", o.BurstLimit,
 		"Burst limit at which the controller processes items in its queue. A value of zero (default) disables rate limiting.")
+	fs.IntVar(&o.WorkerCount, "tagging-controller-concurrent-node-syncs", 1,
+		"The number of workers concurrently synchronizing nodes")
 }
 
 // Validate checks for errors from user input
@@ -53,6 +56,10 @@ func (o *TaggingControllerOptions) Validate() error {
 
 	if o.BurstLimit < 0 {
 		return fmt.Errorf("--tagging-controller-burst-limit should not be less than zero")
+	}
+
+	if o.WorkerCount <= 0 {
+		return fmt.Errorf("--tagging-controller-concurrent-node-syncs must be a positive number")
 	}
 
 	for _, r := range o.Resources {
