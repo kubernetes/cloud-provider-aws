@@ -554,10 +554,10 @@ func testHasNodeAddress(t *testing.T, addrs []v1.NodeAddress, addressType v1.Nod
 }
 
 func makeMinimalInstance(instanceID string) ec2.Instance {
-	return makeInstance(instanceID, "", "", "", "", nil, false)
+	return makeInstance(instanceID, "", "", "", "", nil, false, "")
 }
 
-func makeInstance(instanceID string, privateIP, publicIP, privateDNSName, publicDNSName string, ipv6s []string, setNetInterface bool) ec2.Instance {
+func makeInstance(instanceID string, privateIP, publicIP, privateDNSName, publicDNSName string, ipv6s []string, setNetInterface bool, imageID string) ec2.Instance {
 	var tag ec2.Tag
 	tag.Key = aws.String(TagNameKubernetesClusterLegacy)
 	tag.Value = aws.String(TestClusterID)
@@ -570,6 +570,7 @@ func makeInstance(instanceID string, privateIP, publicIP, privateDNSName, public
 		PublicDnsName:    aws.String(publicDNSName),
 		PublicIpAddress:  aws.String(publicIP),
 		InstanceType:     aws.String("c3.large"),
+		ImageId:          aws.String(imageID),
 		Tags:             tags,
 		Placement:        &ec2.Placement{AvailabilityZone: aws.String("us-west-2a")},
 		State: &ec2.InstanceState{
@@ -651,7 +652,7 @@ func TestNodeAddressesByProviderID(t *testing.T) {
 		},
 	} {
 		t.Run(tc.Name, func(t *testing.T) {
-			instance := makeInstance(tc.InstanceID, tc.PrivateIP, tc.PublicIP, tc.PrivateDNSName, tc.PublicDNSName, tc.Ipv6s, tc.SetNetInterface)
+			instance := makeInstance(tc.InstanceID, tc.PrivateIP, tc.PublicIP, tc.PrivateDNSName, tc.PublicDNSName, tc.Ipv6s, tc.SetNetInterface, "")
 			aws1, _ := mockInstancesResp(&instance, []*ec2.Instance{&instance})
 			_, err := aws1.NodeAddressesByProviderID(context.TODO(), "i-xxx")
 			if err == nil {
@@ -757,7 +758,7 @@ func TestNodeAddresses(t *testing.T) {
 		},
 	} {
 		t.Run(tc.Name, func(t *testing.T) {
-			instance := makeInstance(tc.InstanceID, tc.PrivateIP, tc.PublicIP, tc.PrivateDNSName, tc.PublicDNSName, tc.Ipv6s, tc.SetNetInterface)
+			instance := makeInstance(tc.InstanceID, tc.PrivateIP, tc.PublicIP, tc.PrivateDNSName, tc.PublicDNSName, tc.Ipv6s, tc.SetNetInterface, "")
 			aws1, _ := mockInstancesResp(&instance, []*ec2.Instance{&instance})
 			_, err := aws1.NodeAddresses(context.TODO(), "instance-mismatch.ec2.internal")
 			if err == nil {
