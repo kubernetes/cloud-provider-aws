@@ -36,7 +36,7 @@ func (o *TaggingControllerOptions) AddFlags(fs *pflag.FlagSet) {
 		"Steady-state rate limit (per sec) at which the controller processes items in its queue. A value of zero (default) disables rate limiting.")
 	fs.IntVar(&o.BurstLimit, "tagging-controller-burst-limit", o.BurstLimit,
 		"Burst limit at which the controller processes items in its queue. A value of zero (default) disables rate limiting.")
-	fs.IntVar(&o.WorkerCount, "tagging-controller-concurrent-node-syncs", 10,
+	fs.IntVar(&o.WorkerCount, "tagging-controller-concurrent-node-syncs", 1,
 		"The number of workers concurrently synchronizing nodes")
 }
 
