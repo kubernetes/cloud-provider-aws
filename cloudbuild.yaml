@@ -17,7 +17,7 @@ steps:
       - --platform=linux/amd64,linux/arm64
       - .
   # Build cloudbuild artifacts (for attestation)
-  - name: 'docker.io/library/golang:1.23.6-bookworm'
+  - name: 'docker.io/library/golang:1.24.0-bookworm'
     id: cloudbuild-artifacts
     entrypoint: make
     env:
