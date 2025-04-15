@@ -401,7 +401,6 @@ func (tc *Controller) enqueueNode(node *v1.Node, action string) {
 }
 
 func (tc *Controller) isInitialTag(node *v1.Node) bool {
-
 	if node.Labels == nil {
 		return true
 	}
@@ -417,7 +416,6 @@ func (tc *Controller) isInitialTag(node *v1.Node) bool {
 }
 
 func (tc *Controller) isTaggingRequired(node *v1.Node) bool {
-
 	if node.Labels == nil {
 		return true
 	}
