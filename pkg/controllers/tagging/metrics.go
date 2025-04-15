@@ -35,11 +35,11 @@ var (
 		},
 		[]string{"error_type", "instance_id"})
 
-	nodeTaggingDelay = metrics.NewHistogram(
+	initialNodeTaggingDelay = metrics.NewHistogram(
 		&metrics.HistogramOpts{
 			Subsystem:      metricsSubsystem,
-			Name:           "node_tagging_delay_seconds",
-			Help:           "Number of seconds after node creation when TaggingController successfully tagged or untagged the node resources.",
+			Name:           "inital_node_tagging_delay_seconds",
+			Help:           "Latency (in seconds) between node creation and its first successful tagging by TaggingController.",
 			Buckets:        metrics.ExponentialBuckets(1, 4, 6), // 1s -> ~17m
 			StabilityLevel: metrics.ALPHA,
 		},
@@ -50,7 +50,7 @@ var (
 func registerMetrics() {
 	register.Do(func() {
 		legacyregistry.MustRegister(workItemError)
-		legacyregistry.MustRegister(nodeTaggingDelay)
+		legacyregistry.MustRegister(initialNodeTaggingDelay)
 	})
 }
 

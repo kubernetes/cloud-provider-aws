@@ -340,7 +340,10 @@ func (tc *Controller) tagEc2Instance(node *v1.Node) error {
 
 	klog.Infof("Successfully labeled node %s with %v.", node.GetName(), labels)
 
-	nodeTaggingDelay.Observe(time.Since(node.CreationTimestamp.Time).Seconds())
+	if tc.isInitialTag(node) {
+		initialNodeTaggingDelay.Observe(time.Since(node.CreationTimestamp.Time).Seconds())
+	}
+
 	return nil
 }
 
@@ -397,7 +400,24 @@ func (tc *Controller) enqueueNode(node *v1.Node, action string) {
 	}
 }
 
+func (tc *Controller) isInitialTag(node *v1.Node) bool {
+
+	if node.Labels == nil {
+		return true
+	}
+
+	if _, ok := node.Labels[taggingControllerLabelKey]; ok {
+		return false
+	}
+
+	// If the code reaches this section then the node has some labels but not tagging controller's labels
+	// This is a first-time tagging scenario
+	return true
+
+}
+
 func (tc *Controller) isTaggingRequired(node *v1.Node) bool {
+
 	if node.Labels == nil {
 		return true
 	}
