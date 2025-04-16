@@ -347,3 +347,69 @@ func syncNodeStore(nodeinformer coreinformers.NodeInformer, f *fake.Clientset) e
 	}
 	return nodeinformer.Informer().GetStore().Replace(newElems, "newRV")
 }
+
+func Test_isInitialTag(t *testing.T) {
+	testcases := []struct {
+		name          string
+		node          *v1.Node
+		expectedValue bool
+	}{
+		{
+			name: "node0 is recently created with no labels and will be tagged for the first time",
+			node: &v1.Node{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "node0",
+				},
+			},
+			expectedValue: true,
+		},
+		{
+			name: "node0 has other labels but no taggingControllerLabelKey and will be tagged for the first time",
+			node: &v1.Node{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "node0",
+					Labels: map[string]string{
+						"some-other-label": "value",
+					},
+				},
+			},
+			expectedValue: true,
+		},
+		{
+			name: "node0 with taggingControllerLabelKey implies that the node was already tagged",
+			node: &v1.Node{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "node0",
+					Labels: map[string]string{
+						taggingControllerLabelKey: "9767c4972ba72e87ab553bad2afde741", // MD5 for key1=value1
+					},
+				},
+			},
+			expectedValue: false,
+		},
+		{
+			name: "node0 with taggingControllerLabelKey and other labels should not be initial tag",
+			node: &v1.Node{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "node0",
+					Labels: map[string]string{
+						taggingControllerLabelKey: "9767c4972ba72e87ab553bad2afde741", // MD5 for key1=value1
+						"some-other-label":        "value",
+					},
+				},
+			},
+			expectedValue: false,
+		},
+	}
+
+	tc := &Controller{}
+
+	for _, testcase := range testcases {
+		t.Run(testcase.name, func(t *testing.T) {
+			result := tc.isInitialTag(testcase.node)
+			if result != testcase.expectedValue {
+				t.Errorf("isInitialTag() = %v, want %v", result, testcase.expectedValue)
+			}
+		})
+	}
+}
