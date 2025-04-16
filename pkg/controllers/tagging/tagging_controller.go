@@ -401,18 +401,8 @@ func (tc *Controller) enqueueNode(node *v1.Node, action string) {
 }
 
 func (tc *Controller) isInitialTag(node *v1.Node) bool {
-	if node.Labels == nil {
-		return true
-	}
-
-	if _, ok := node.Labels[taggingControllerLabelKey]; ok {
-		return false
-	}
-
-	// If the code reaches this section then the node has some labels but not tagging controller's labels
-	// This is a first-time tagging scenario
-	return true
-
+	_, ok := node.Labels[taggingControllerLabelKey]
+	return !ok
 }
 
 func (tc *Controller) isTaggingRequired(node *v1.Node) bool {
