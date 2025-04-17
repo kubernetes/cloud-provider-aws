@@ -347,6 +347,10 @@ func (tc *Controller) tagEc2Instance(node *v1.Node) error {
 
 	klog.Infof("Successfully labeled node %s with %v.", node.GetName(), labels)
 
+	if tc.isInitialTag(node) {
+		initialNodeTaggingDelay.Observe(time.Since(node.CreationTimestamp.Time).Seconds())
+	}
+
 	return nil
 }
 
@@ -401,6 +405,11 @@ func (tc *Controller) enqueueNode(node *v1.Node, action string) {
 		tc.workqueue.Add(item)
 		klog.Infof("Added %s to the workqueue (without any rate-limit)", item)
 	}
+}
+
+func (tc *Controller) isInitialTag(node *v1.Node) bool {
+	_, ok := node.Labels[taggingControllerLabelKey]
+	return !ok
 }
 
 func (tc *Controller) isTaggingRequired(node *v1.Node) bool {

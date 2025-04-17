@@ -20,6 +20,10 @@ import (
 	"k8s.io/component-base/metrics/legacyregistry"
 )
 
+const (
+	metricsSubsystem = "tagging_controller"
+)
+
 var register sync.Once
 
 var (
@@ -30,12 +34,23 @@ var (
 			StabilityLevel: metrics.ALPHA,
 		},
 		[]string{"error_type", "instance_id"})
+
+	initialNodeTaggingDelay = metrics.NewHistogram(
+		&metrics.HistogramOpts{
+			Subsystem:      metricsSubsystem,
+			Name:           "inital_node_tagging_delay_seconds",
+			Help:           "Latency (in seconds) between node creation and its first successful tagging by TaggingController.",
+			Buckets:        metrics.ExponentialBuckets(1, 4, 6), // 1s -> ~17m
+			StabilityLevel: metrics.ALPHA,
+		},
+	)
 )
 
 // registerMetrics registers tagging-controller metrics.
 func registerMetrics() {
 	register.Do(func() {
 		legacyregistry.MustRegister(workItemError)
+		legacyregistry.MustRegister(initialNodeTaggingDelay)
 	})
 }
 
