@@ -5,12 +5,12 @@ go 1.24.0
 toolchain go1.24.2
 
 require (
+	github.com/Pallinder/go-randomdata v1.2.0
 	github.com/aws/aws-sdk-go v1.55.5
 	github.com/aws/aws-sdk-go-v2 v1.32.5
 	github.com/aws/aws-sdk-go-v2/config v1.28.0
 	github.com/aws/aws-sdk-go-v2/service/ecr v1.36.2
 	github.com/aws/aws-sdk-go-v2/service/ecrpublic v1.27.2
-	github.com/awslabs/operatorpkg v0.0.0-20250425180727-b22281cd8057
 	github.com/mitchellh/hashstructure/v2 v2.0.2
 	github.com/onsi/ginkgo/v2 v2.23.4
 	github.com/onsi/gomega v1.37.0
@@ -20,13 +20,13 @@ require (
 	github.com/stretchr/testify v1.10.0
 	golang.org/x/time v0.11.0
 	gopkg.in/gcfg.v1 v1.2.3
-	k8s.io/api v0.33.0-beta.0
-	k8s.io/apimachinery v0.33.0-beta.0
-	k8s.io/client-go v0.33.0-beta.0
-	k8s.io/cloud-provider v0.33.0-beta.0
-	k8s.io/code-generator v0.33.0-beta.0
-	k8s.io/component-base v0.33.0-beta.0
-	k8s.io/controller-manager v0.33.0-beta.0
+	k8s.io/api v0.33.0-rc.0
+	k8s.io/apimachinery v0.33.0-rc.0
+	k8s.io/client-go v0.33.0-rc.0
+	k8s.io/cloud-provider v0.33.0-rc.0
+	k8s.io/code-generator v0.33.0-rc.0
+	k8s.io/component-base v0.33.0-rc.0
+	k8s.io/controller-manager v0.33.0-rc.0
 	k8s.io/klog/v2 v2.130.1
 	k8s.io/kubelet v0.33.0-beta.0
 	k8s.io/utils v0.0.0-20241104100929-3ea5e8cea738
@@ -35,17 +35,17 @@ require (
 
 require (
 	cel.dev/expr v0.19.1 // indirect
-	github.com/Pallinder/go-randomdata v1.2.0 // indirect
-	github.com/evanphx/json-patch/v5 v5.9.11 // indirect
 	github.com/go-task/slim-sprig/v3 v3.0.0 // indirect
 	github.com/google/btree v1.1.3 // indirect
 	github.com/google/pprof v0.0.0-20250403155104-27863c87afa6 // indirect
-	github.com/imdario/mergo v0.3.16 // indirect
 	github.com/kylelemons/godebug v1.1.0 // indirect
 	go.opentelemetry.io/auto/sdk v1.1.0 // indirect
 	go.uber.org/automaxprocs v1.6.0 // indirect
-	gomodules.xyz/jsonpatch/v2 v2.4.0 // indirect
-	k8s.io/apiextensions-apiserver v0.32.1 // indirect
+	gopkg.in/evanphx/json-patch.v4 v4.12.0 // indirect
+	gopkg.in/inf.v0 v0.9.1 // indirect
+	gopkg.in/natefinch/lumberjack.v2 v2.2.1 // indirect
+	gopkg.in/warnings.v0 v0.1.2 // indirect
+	gopkg.in/yaml.v3 v3.0.1 // indirect
 	sigs.k8s.io/randfill v1.0.0 // indirect
 )
 
@@ -107,9 +107,9 @@ require (
 	github.com/stoewer/go-strcase v1.3.0 // indirect
 	github.com/stretchr/objx v0.5.2 // indirect
 	github.com/x448/float16 v0.8.4 // indirect
-	go.etcd.io/etcd/api/v3 v3.5.16 // indirect
-	go.etcd.io/etcd/client/pkg/v3 v3.5.16 // indirect
-	go.etcd.io/etcd/client/v3 v3.5.16 // indirect
+	go.etcd.io/etcd/api/v3 v3.5.21 // indirect
+	go.etcd.io/etcd/client/pkg/v3 v3.5.21 // indirect
+	go.etcd.io/etcd/client/v3 v3.5.21 // indirect
 	go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc v0.58.0 // indirect
 	go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp v0.58.0 // indirect
 	go.opentelemetry.io/otel v1.33.0 // indirect
@@ -135,16 +135,11 @@ require (
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20241209162323-e6fa225c2576 // indirect
 	google.golang.org/grpc v1.68.1 // indirect
 	google.golang.org/protobuf v1.36.6 // indirect
-	gopkg.in/evanphx/json-patch.v4 v4.12.0 // indirect
-	gopkg.in/inf.v0 v0.9.1 // indirect
-	gopkg.in/natefinch/lumberjack.v2 v2.2.1 // indirect
-	gopkg.in/warnings.v0 v0.1.2 // indirect
-	gopkg.in/yaml.v3 v3.0.1 // indirect
-	k8s.io/apiserver v0.33.0-beta.0 // indirect
-	k8s.io/component-helpers v0.33.0-beta.0 // indirect
+	k8s.io/apiserver v0.33.0-rc.0 // indirect
+	k8s.io/component-helpers v0.33.0-rc.0 // indirect
 	k8s.io/gengo/v2 v2.0.0-20250207200755-1244d31929d7 // indirect
-	k8s.io/kms v0.33.0-beta.0 // indirect
-	k8s.io/kube-openapi v0.0.0-20250304201544-e5f78fe3ede9 // indirect
+	k8s.io/kms v0.33.0-rc.0 // indirect
+	k8s.io/kube-openapi v0.0.0-20250318190949-c8a335a9a2ff // indirect
 	sigs.k8s.io/apiserver-network-proxy/konnectivity-client v0.31.2 // indirect
 	sigs.k8s.io/json v0.0.0-20241010143419-9aa6b5e7a4b3 // indirect
 	sigs.k8s.io/structured-merge-diff/v4 v4.6.0 // indirect

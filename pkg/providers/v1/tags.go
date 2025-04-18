@@ -342,7 +342,7 @@ func (c *Cloud) TagResourceBatch(ctx context.Context, resourceID string, tags ma
 		Tags:      buildAwsTags(tags),
 	}
 
-	output, err := c.createTagsBatcher.CreateTags(ctx, request)
+	output, err := c.createTagsBatcher.createTags(ctx, request)
 
 	if err != nil {
 		klog.Errorf("Error occurred trying to tag resources, %v", err)
@@ -388,7 +388,7 @@ func (c *Cloud) UntagResourceBatch(ctx context.Context, resourceID string, tags 
 		Tags:      buildAwsTags(tags),
 	}
 
-	output, err := c.deleteTagsBatcher.DeleteTags(ctx, request)
+	output, err := c.deleteTagsBatcher.deleteTags(ctx, request)
 
 	if err != nil {
 		// An instance not found should not fail the untagging workflow as it
