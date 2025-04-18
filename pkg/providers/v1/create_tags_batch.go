@@ -14,12 +14,13 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package batcher
+package aws
 
 import (
 	"context"
 	"fmt"
 	"github.com/mitchellh/hashstructure/v2"
+	"k8s.io/cloud-provider-aws/pkg/providers/v1/batcher"
 	"k8s.io/cloud-provider-aws/pkg/providers/v1/iface"
 	"k8s.io/klog/v2"
 	"sigs.k8s.io/controller-runtime/pkg/log"
@@ -29,26 +30,26 @@ import (
 	"github.com/aws/aws-sdk-go/service/ec2"
 )
 
-// CreateTagsBatcher contains the batcher details
-type CreateTagsBatcher struct {
-	batcher *Batcher[ec2.CreateTagsInput, ec2.CreateTagsOutput]
+// createTagsBatcher contains the batcher details
+type createTagsBatcher struct {
+	batcher *batcher.Batcher[ec2.CreateTagsInput, ec2.CreateTagsOutput]
 }
 
-// NewCreateTagsBatcher creates a NewCreateTagsBatcher object
-func NewCreateTagsBatcher(ctx context.Context, ec2api iface.EC2) *CreateTagsBatcher {
-	options := Options[ec2.CreateTagsInput, ec2.CreateTagsOutput]{
+// newCreateTagsBatcher creates a newCreateTagsBatcher object
+func newCreateTagsBatcher(ctx context.Context, ec2api iface.EC2) *createTagsBatcher {
+	options := batcher.Options[ec2.CreateTagsInput, ec2.CreateTagsOutput]{
 		Name:          "create_tags",
 		IdleTimeout:   100 * time.Millisecond,
 		MaxTimeout:    1 * time.Second,
 		MaxItems:      50,
-		RequestHasher: CreateTagsHasher,
+		RequestHasher: createTagsHasher,
 		BatchExecutor: execCreateTagsBatch(ec2api),
 	}
-	return &CreateTagsBatcher{batcher: NewBatcher(ctx, options)}
+	return &createTagsBatcher{batcher: batcher.NewBatcher(ctx, options)}
 }
 
 // CreateTags adds create tag input to batcher
-func (b *CreateTagsBatcher) CreateTags(ctx context.Context, CreateTagsInput *ec2.CreateTagsInput) (*ec2.CreateTagsOutput, error) {
+func (b *createTagsBatcher) createTags(ctx context.Context, CreateTagsInput *ec2.CreateTagsInput) (*ec2.CreateTagsOutput, error) {
 	if len(CreateTagsInput.Resources) != 1 {
 		return nil, fmt.Errorf("expected to receive a single instance only, found %d", len(CreateTagsInput.Resources))
 	}
@@ -58,7 +59,7 @@ func (b *CreateTagsBatcher) CreateTags(ctx context.Context, CreateTagsInput *ec2
 
 // CreateTagsHasher generates hash for different create tag inputs
 // Same set of tags have same hash, so they get executed together
-func CreateTagsHasher(ctx context.Context, input *ec2.CreateTagsInput) uint64 {
+func createTagsHasher(ctx context.Context, input *ec2.CreateTagsInput) uint64 {
 	hash, err := hashstructure.Hash(input.Tags, hashstructure.FormatV2, &hashstructure.HashOptions{SlicesAsSets: true})
 	if err != nil {
 		log.FromContext(ctx).Error(err, "failed hashing input tags")
@@ -66,9 +67,9 @@ func CreateTagsHasher(ctx context.Context, input *ec2.CreateTagsInput) uint64 {
 	return hash
 }
 
-func execCreateTagsBatch(ec2api iface.EC2) BatchExecutor[ec2.CreateTagsInput, ec2.CreateTagsOutput] {
-	return func(ctx context.Context, inputs []*ec2.CreateTagsInput) []Result[ec2.CreateTagsOutput] {
-		results := make([]Result[ec2.CreateTagsOutput], len(inputs))
+func execCreateTagsBatch(ec2api iface.EC2) batcher.BatchExecutor[ec2.CreateTagsInput, ec2.CreateTagsOutput] {
+	return func(ctx context.Context, inputs []*ec2.CreateTagsInput) []batcher.Result[ec2.CreateTagsOutput] {
+		results := make([]batcher.Result[ec2.CreateTagsOutput], len(inputs))
 		firstInput := inputs[0]
 		// aggregate instanceIDs into 1 input
 		for _, input := range inputs[1:] {
@@ -89,14 +90,14 @@ func execCreateTagsBatch(ec2api iface.EC2) BatchExecutor[ec2.CreateTagsInput, ec
 				go func(input *ec2.CreateTagsInput) {
 					defer wg.Done()
 					out, err := ec2api.CreateTags(input)
-					results[idx] = Result[ec2.CreateTagsOutput]{Output: out, Err: err}
+					results[idx] = batcher.Result[ec2.CreateTagsOutput]{Output: out, Err: err}
 
 				}(input)
 			}
 			wg.Wait()
 		} else {
 			for idx := range inputs {
-				results[idx] = Result[ec2.CreateTagsOutput]{Output: output}
+				results[idx] = batcher.Result[ec2.CreateTagsOutput]{Output: output}
 			}
 		}
 		return results
