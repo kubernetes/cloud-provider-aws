@@ -33,6 +33,7 @@ type CreateTagsBatcher struct {
 	batcher *Batcher[ec2.CreateTagsInput, ec2.CreateTagsOutput]
 }
 
+// NewCreateTagsBatcher creates a NewCreateTagsBatcher object
 func NewCreateTagsBatcher(ctx context.Context, ec2api iface.EC2) *CreateTagsBatcher {
 	options := Options[ec2.CreateTagsInput, ec2.CreateTagsOutput]{
 		Name:          "create_tags",
@@ -45,6 +46,7 @@ func NewCreateTagsBatcher(ctx context.Context, ec2api iface.EC2) *CreateTagsBatc
 	return &CreateTagsBatcher{batcher: NewBatcher(ctx, options)}
 }
 
+// CreateTags adds create tag input to batcher
 func (b *CreateTagsBatcher) CreateTags(ctx context.Context, CreateTagsInput *ec2.CreateTagsInput) (*ec2.CreateTagsOutput, error) {
 	if len(CreateTagsInput.Resources) != 1 {
 		return nil, fmt.Errorf("expected to receive a single instance only, found %d", len(CreateTagsInput.Resources))
@@ -53,8 +55,9 @@ func (b *CreateTagsBatcher) CreateTags(ctx context.Context, CreateTagsInput *ec2
 	return result.Output, result.Err
 }
 
+// CreateTagsHasher generates hash for different create tag inputs
+// Same set of tags have same hash, so they get executed together
 func CreateTagsHasher(ctx context.Context, input *ec2.CreateTagsInput) uint64 {
-	// Same set of tags will have same hash, will be executed together
 	hash, err := hashstructure.Hash(input.Tags, hashstructure.FormatV2, &hashstructure.HashOptions{SlicesAsSets: true})
 	if err != nil {
 		log.FromContext(ctx).Error(err, "failed hashing input tags")
