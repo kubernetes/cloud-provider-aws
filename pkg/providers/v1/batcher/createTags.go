@@ -29,6 +29,7 @@ import (
 	"github.com/aws/aws-sdk-go/service/ec2"
 )
 
+// CreateTagsBatcher contains the batcher details
 type CreateTagsBatcher struct {
 	batcher *Batcher[ec2.CreateTagsInput, ec2.CreateTagsOutput]
 }

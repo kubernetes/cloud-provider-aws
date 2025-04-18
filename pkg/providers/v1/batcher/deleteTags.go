@@ -29,6 +29,7 @@ import (
 	"github.com/aws/aws-sdk-go/service/ec2"
 )
 
+// DeleteTagsBatcher contains the batcher details
 type DeleteTagsBatcher struct {
 	batcher *Batcher[ec2.DeleteTagsInput, ec2.DeleteTagsOutput]
 }
