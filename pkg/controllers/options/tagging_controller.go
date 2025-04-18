@@ -21,11 +21,12 @@ import (
 // TaggingControllerOptions contains the inputs that can
 // be used in the tagging controller
 type TaggingControllerOptions struct {
-	Tags        map[string]string
-	Resources   []string
-	RateLimit   float64
-	BurstLimit  int
-	WorkerCount int
+	Tags            map[string]string
+	Resources       []string
+	RateLimit       float64
+	BurstLimit      int
+	WorkerCount     int
+	BatchingEnabled bool
 }
 
 // AddFlags add the additional flags for the controller
@@ -38,6 +39,8 @@ func (o *TaggingControllerOptions) AddFlags(fs *pflag.FlagSet) {
 		"Burst limit at which the controller processes items in its queue. A value of zero (default) disables rate limiting.")
 	fs.IntVar(&o.WorkerCount, "tagging-controller-concurrent-node-syncs", 1,
 		"The number of workers concurrently synchronizing nodes")
+	fs.BoolVar(&o.BatchingEnabled, "tagging-controller-enable-batching", o.BatchingEnabled,
+		"Enables batching create and delete tag calls.")
 }
 
 // Validate checks for errors from user input

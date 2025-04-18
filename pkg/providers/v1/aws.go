@@ -395,6 +395,10 @@ type Cloud struct {
 
 	eventBroadcaster record.EventBroadcaster
 	eventRecorder    record.EventRecorder
+
+	// Batching AWS api calls
+	createTagsBatcher *CreateTagsBatcher
+	deleteTagsBatcher *DeleteTagsBatcher
 }
 
 // Interface to make the CloudConfig immutable for awsSDKProvider
@@ -610,13 +614,15 @@ func newAWSCloud2(cfg config.CloudConfig, awsServices Services, provider config.
 	}
 
 	awsCloud := &Cloud{
-		ec2:      ec2,
-		elb:      elb,
-		elbv2:    elbv2,
-		metadata: metadata,
-		kms:      kms,
-		cfg:      &cfg,
-		region:   regionName,
+		ec2:               ec2,
+		elb:               elb,
+		elbv2:             elbv2,
+		metadata:          metadata,
+		kms:               kms,
+		cfg:               &cfg,
+		region:            regionName,
+		createTagsBatcher: NewCreateTagsBatcher(ctx, ec2),
+		deleteTagsBatcher: NewDeleteTagsBatcher(ctx, ec2),
 	}
 	awsCloud.instanceCache.cloud = awsCloud
 	awsCloud.zoneCache.cloud = awsCloud
