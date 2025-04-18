@@ -20,7 +20,6 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"k8s.io/cloud-provider-aws/pkg/providers/v1/batcher"
 	"net"
 	"regexp"
 	"sort"
@@ -398,8 +397,8 @@ type Cloud struct {
 	eventRecorder    record.EventRecorder
 
 	// Batching AWS api calls
-	createTagsBatcher *batcher.CreateTagsBatcher
-	deleteTagsBatcher *batcher.DeleteTagsBatcher
+	createTagsBatcher *createTagsBatcher
+	deleteTagsBatcher *deleteTagsBatcher
 }
 
 // Interface to make the CloudConfig immutable for awsSDKProvider
@@ -622,8 +621,8 @@ func newAWSCloud2(cfg config.CloudConfig, awsServices Services, provider config.
 		kms:               kms,
 		cfg:               &cfg,
 		region:            regionName,
-		createTagsBatcher: batcher.NewCreateTagsBatcher(ctx, ec2),
-		deleteTagsBatcher: batcher.NewDeleteTagsBatcher(ctx, ec2),
+		createTagsBatcher: newCreateTagsBatcher(ctx, ec2),
+		deleteTagsBatcher: newDeleteTagsBatcher(ctx, ec2),
 	}
 	awsCloud.instanceCache.cloud = awsCloud
 	awsCloud.zoneCache.cloud = awsCloud

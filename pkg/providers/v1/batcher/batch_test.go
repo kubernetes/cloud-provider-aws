@@ -18,9 +18,12 @@ package batcher_test
 
 import (
 	"context"
-	"github.com/awslabs/operatorpkg/test"
+	"fmt"
+	"github.com/Pallinder/go-randomdata"
 	aws "k8s.io/cloud-provider-aws/pkg/providers/v1"
 	"k8s.io/cloud-provider-aws/pkg/providers/v1/batcher"
+	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -33,6 +36,8 @@ import (
 
 var fakeEC2API aws.FakeEC2
 var ctx context.Context
+var sequentialNumber = 0
+var sequentialNumberLock = new(sync.Mutex)
 
 func TestAWS(t *testing.T) {
 	ctx = context.TODO()
@@ -64,7 +69,7 @@ var _ = Describe("Batcher", func() {
 			// Generate 300 items that add to the batcher
 			for i := 0; i < 300; i++ {
 				go func() {
-					fakeBatcher.batcher.Add(cancelCtx, lo.ToPtr(test.RandomName()))
+					fakeBatcher.batcher.Add(cancelCtx, lo.ToPtr(randomName()))
 				}()
 			}
 
@@ -79,7 +84,7 @@ var _ = Describe("Batcher", func() {
 			// Generate 300 items that add to the batcher
 			for i := 0; i < 300; i++ {
 				go func() {
-					fakeBatcher.batcher.Add(cancelCtx, lo.ToPtr(test.RandomName()))
+					fakeBatcher.batcher.Add(cancelCtx, lo.ToPtr(randomName()))
 				}()
 			}
 
@@ -132,4 +137,11 @@ func NewFakeBatcher(ctx context.Context, requestLength time.Duration, maxRequest
 		completedBatches: completedBatches,
 		batcher:          batcher.NewBatcher(ctx, options),
 	}
+}
+
+func randomName() string {
+	sequentialNumberLock.Lock()
+	defer sequentialNumberLock.Unlock()
+	sequentialNumber++
+	return strings.ToLower(fmt.Sprintf("%s-%d-%s", randomdata.SillyName(), sequentialNumber, randomdata.Alphanumeric(10)))
 }
