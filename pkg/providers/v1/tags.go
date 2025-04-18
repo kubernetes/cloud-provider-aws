@@ -334,6 +334,8 @@ func (c *Cloud) TagResource(resourceID string, tags map[string]string) error {
 	return nil
 }
 
+// TagResourceBatch calls EC2 and tag the resource associated to resourceID with the supplied tags
+// calls are batched based on batcher configuration.
 func (c *Cloud) TagResourceBatch(ctx context.Context, resourceID string, tags map[string]string) error {
 	request := &ec2.CreateTagsInput{
 		Resources: []*string{aws.String(resourceID)},
@@ -378,8 +380,8 @@ func (c *Cloud) UntagResource(resourceID string, tags map[string]string) error {
 	return nil
 }
 
-// UntagResource calls EC2 and tag the resource associated to resourceID
-// with the supplied tags
+// UntagResourceBatch calls EC2 and tag the resource associated to resourceID with the supplied tags
+// calls are batched based on batcher configuration.
 func (c *Cloud) UntagResourceBatch(ctx context.Context, resourceID string, tags map[string]string) error {
 	request := &ec2.DeleteTagsInput{
 		Resources: []*string{aws.String(resourceID)},

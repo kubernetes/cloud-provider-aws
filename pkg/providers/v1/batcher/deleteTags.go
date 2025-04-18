@@ -33,6 +33,7 @@ type DeleteTagsBatcher struct {
 	batcher *Batcher[ec2.DeleteTagsInput, ec2.DeleteTagsOutput]
 }
 
+// NewDeleteTagsBatcher creates a NewDeleteTagsBatcher object
 func NewDeleteTagsBatcher(ctx context.Context, ec2api iface.EC2) *DeleteTagsBatcher {
 	options := Options[ec2.DeleteTagsInput, ec2.DeleteTagsOutput]{
 		Name:          "delete_tags",
@@ -45,6 +46,7 @@ func NewDeleteTagsBatcher(ctx context.Context, ec2api iface.EC2) *DeleteTagsBatc
 	return &DeleteTagsBatcher{batcher: NewBatcher(ctx, options)}
 }
 
+// DeleteTags adds delete tag input to batcher
 func (b *DeleteTagsBatcher) DeleteTags(ctx context.Context, DeleteTagsInput *ec2.DeleteTagsInput) (*ec2.DeleteTagsOutput, error) {
 	if len(DeleteTagsInput.Resources) != 1 {
 		return nil, fmt.Errorf("expected to receive a single instance only, found %d", len(DeleteTagsInput.Resources))
@@ -53,6 +55,8 @@ func (b *DeleteTagsBatcher) DeleteTags(ctx context.Context, DeleteTagsInput *ec2
 	return result.Output, result.Err
 }
 
+// DeleteTagsHasher generates hash for different delete tag inputs
+// Same set of tags have same hash, so they get executed together
 func DeleteTagsHasher(ctx context.Context, input *ec2.DeleteTagsInput) uint64 {
 	hash, err := hashstructure.Hash(input.Tags, hashstructure.FormatV2, &hashstructure.HashOptions{SlicesAsSets: true})
 	if err != nil {
