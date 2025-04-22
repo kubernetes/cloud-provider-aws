@@ -197,77 +197,80 @@ func Test_NodesJoiningAndLeaving(t *testing.T) {
 
 	awsServices := awsv1.NewFakeAWSServices(TestClusterID)
 	fakeAws, _ := awsv1.NewAWSCloud(config.CloudConfig{}, awsServices)
-
+	batching := [2]bool{true, false}
 	for _, testcase := range testcases {
-		t.Run(testcase.name, func(t *testing.T) {
-			var logBuf bytes.Buffer
-			klog.SetOutput(&logBuf)
-			defer func() {
-				klog.SetOutput(os.Stderr)
-			}()
+		var logBuf bytes.Buffer
+		klog.SetOutput(&logBuf)
+		defer func() {
+			klog.SetOutput(os.Stderr)
+		}()
+		for _, batchingEnabled := range batching {
+			t.Run(testcase.name, func(t *testing.T) {
 
-			clientset := fake.NewSimpleClientset(testcase.currNode)
-			informer := informers.NewSharedInformerFactory(clientset, time.Second)
-			nodeInformer := informer.Core().V1().Nodes()
+				clientset := fake.NewSimpleClientset(testcase.currNode)
+				informer := informers.NewSharedInformerFactory(clientset, time.Second)
+				nodeInformer := informer.Core().V1().Nodes()
 
-			if err := syncNodeStore(nodeInformer, clientset); err != nil {
-				t.Errorf("unexpected error: %v", err)
-			}
-
-			//eventBroadcaster := record.NewBroadcaster()
-			tc := &Controller{
-				nodeInformer:      nodeInformer,
-				kubeClient:        clientset,
-				cloud:             fakeAws,
-				nodeMonitorPeriod: 1 * time.Second,
-				tags:              map[string]string{"key2": "value2", "key1": "value1"},
-				resources:         []string{"instance"},
-				workqueue: workqueue.NewNamedRateLimitingQueue(workqueue.NewTypedMaxOfRateLimiter(
-					workqueue.NewTypedItemExponentialFailureRateLimiter[any](1*time.Millisecond, 5*time.Millisecond),
-					// 10 qps, 100 bucket size.  This is only for retry speed and its only the overall factor (not per item)
-					&workqueue.TypedBucketRateLimiter[any]{Limiter: rate.NewLimiter(rate.Limit(10), 100)},
-				), "Tagging"),
-				rateLimitEnabled: testcase.rateLimited,
-			}
-
-			if testcase.toBeTagged {
-				tc.enqueueNode(testcase.currNode, addTag)
-			} else {
-				tc.enqueueNode(testcase.currNode, deleteTag)
-			}
-
-			if tc.rateLimitEnabled {
-				// If rate limit is enabled, sleep for 10 ms to wait for the item to be added to the queue since the base delay is 5 ms.
-				time.Sleep(10 * time.Millisecond)
-			}
-
-			cnt := 0
-			for tc.workqueue.Len() > 0 {
-				tc.process()
-				cnt++
-				// sleep briefly because of exponential backoff when requeueing failed workitem
-				// resulting in workqueue to be empty if checked immediately
-				time.Sleep(7 * time.Millisecond)
-			}
-
-			for _, msg := range testcase.expectedMessages {
-				if !strings.Contains(logBuf.String(), msg) {
-					t.Errorf("\nMsg %q not found in log: \n%v\n", msg, logBuf.String())
+				if err := syncNodeStore(nodeInformer, clientset); err != nil {
+					t.Errorf("unexpected error: %v", err)
 				}
-				if strings.Contains(logBuf.String(), "Unable to tag") || strings.Contains(logBuf.String(), "Unable to untag") {
-					if !strings.Contains(logBuf.String(), ", requeuing count ") {
-						t.Errorf("\nFailed to tag or untag but logs did not requeue: \n%v\n", logBuf.String())
-					}
 
-					if !strings.Contains(logBuf.String(), "requeuing count exceeded") {
-						t.Errorf("\nExceeded requeue count but did not stop: \n%v\n", logBuf.String())
+				//eventBroadcaster := record.NewBroadcaster()
+				tc := &Controller{
+					nodeInformer:      nodeInformer,
+					kubeClient:        clientset,
+					cloud:             fakeAws,
+					nodeMonitorPeriod: 1 * time.Second,
+					tags:              map[string]string{"key2": "value2", "key1": "value1"},
+					resources:         []string{"instance"},
+					workqueue: workqueue.NewNamedRateLimitingQueue(workqueue.NewTypedMaxOfRateLimiter(
+						workqueue.NewTypedItemExponentialFailureRateLimiter[any](1*time.Millisecond, 5*time.Millisecond),
+						// 10 qps, 100 bucket size.  This is only for retry speed and its only the overall factor (not per item)
+						&workqueue.TypedBucketRateLimiter[any]{Limiter: rate.NewLimiter(rate.Limit(10), 100)},
+					), "Tagging"),
+					rateLimitEnabled: testcase.rateLimited,
+					batchingEnabled:  batchingEnabled,
+				}
+
+				if testcase.toBeTagged {
+					tc.enqueueNode(testcase.currNode, addTag)
+				} else {
+					tc.enqueueNode(testcase.currNode, deleteTag)
+				}
+
+				if tc.rateLimitEnabled {
+					// If rate limit is enabled, sleep for 10 ms to wait for the item to be added to the queue since the base delay is 5 ms.
+					time.Sleep(10 * time.Millisecond)
+				}
+
+				cnt := 0
+				for tc.workqueue.Len() > 0 {
+					tc.process()
+					cnt++
+					// sleep briefly because of exponential backoff when requeueing failed workitem
+					// resulting in workqueue to be empty if checked immediately
+					time.Sleep(7 * time.Millisecond)
+				}
+
+				for _, msg := range testcase.expectedMessages {
+					if !strings.Contains(logBuf.String(), msg) {
+						t.Errorf("\nMsg %q not found in log: \n%v\n", msg, logBuf.String())
 					}
-					if cnt != maxRequeuingCount+1 {
-						t.Errorf("the node got requeued %d, more than the max requeuing count of %d", cnt, maxRequeuingCount)
+					if strings.Contains(logBuf.String(), "Unable to tag") || strings.Contains(logBuf.String(), "Unable to untag") {
+						if !strings.Contains(logBuf.String(), ", requeuing count ") {
+							t.Errorf("\nFailed to tag or untag but logs did not requeue: \n%v\n", logBuf.String())
+						}
+
+						if !strings.Contains(logBuf.String(), "requeuing count exceeded") {
+							t.Errorf("\nExceeded requeue count but did not stop: \n%v\n", logBuf.String())
+						}
+						if cnt != maxRequeuingCount+1 {
+							t.Errorf("the node got requeued %d, more than the max requeuing count of %d", cnt, maxRequeuingCount)
+						}
 					}
 				}
-			}
-		})
+			})
+		}
 	}
 }
 
@@ -301,7 +304,7 @@ func TestMultipleEnqueues(t *testing.T) {
 		t.Errorf("unexpected error: %v", err)
 	}
 
-	tc, err := NewTaggingController(nodeInformer, clientset, fakeAws, time.Second, nil, []string{}, 0, 0, 10)
+	tc, err := NewTaggingController(nodeInformer, clientset, fakeAws, time.Second, nil, []string{}, 0, 0, 10, false)
 	if err != nil {
 		t.Errorf("unexpected error: %v", err)
 	}
