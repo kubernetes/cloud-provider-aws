@@ -14,6 +14,7 @@ limitations under the License.
 package tagging
 
 import (
+	"context"
 	"crypto/md5"
 	"fmt"
 	"sort"
@@ -101,6 +102,8 @@ type Controller struct {
 	resources []string
 
 	rateLimitEnabled bool
+	workerCount      int
+	batchingEnabled  bool
 }
 
 // NewTaggingController creates a NewTaggingController object
@@ -112,8 +115,9 @@ func NewTaggingController(
 	tags map[string]string,
 	resources []string,
 	rateLimit float64,
-	burstLimit int) (*Controller, error) {
-
+	burstLimit int,
+	workerCount int,
+	batchingEnabled bool) (*Controller, error) {
 	awsCloud, ok := cloud.(*awsv1.Cloud)
 	if !ok {
 		err := fmt.Errorf("tagging controller does not support %v provider", cloud.ProviderName())
@@ -147,6 +151,8 @@ func NewTaggingController(
 		nodesSynced:       nodeInformer.Informer().HasSynced,
 		nodeMonitorPeriod: nodeMonitorPeriod,
 		rateLimitEnabled:  rateLimitEnabled,
+		workerCount:       workerCount,
+		batchingEnabled:   batchingEnabled,
 	}
 
 	// Use shared informer to listen to add/update/delete of nodes. Note that any nodes
@@ -192,7 +198,9 @@ func (tc *Controller) Run(stopCh <-chan struct{}) {
 	}
 
 	klog.Infof("Starting the tagging controller")
-	go wait.Until(tc.work, tc.nodeMonitorPeriod, stopCh)
+	for i := 0; i < tc.workerCount; i++ {
+		go wait.Until(tc.work, tc.nodeMonitorPeriod, stopCh)
+	}
 
 	<-stopCh
 }
@@ -309,10 +317,13 @@ func (tc *Controller) tagEc2Instance(node *v1.Node) error {
 		klog.Infof("Skip tagging node %s since it was already tagged earlier.", node.GetName())
 		return nil
 	}
-
+	var err error
 	instanceID, _ := awsv1.KubernetesInstanceID(node.Spec.ProviderID).MapToAWSInstanceID()
-
-	err := tc.cloud.TagResource(string(instanceID), tc.tags)
+	if tc.batchingEnabled {
+		err = tc.cloud.TagResourceBatch(context.TODO(), string(instanceID), tc.tags)
+	} else {
+		err = tc.cloud.TagResource(string(instanceID), tc.tags)
+	}
 
 	if err != nil {
 		if awsv1.IsAWSErrorInstanceNotFound(err) {
@@ -340,6 +351,10 @@ func (tc *Controller) tagEc2Instance(node *v1.Node) error {
 
 	klog.Infof("Successfully labeled node %s with %v.", node.GetName(), labels)
 
+	if tc.isInitialTag(node) {
+		initialNodeTaggingDelay.Observe(time.Since(node.CreationTimestamp.Time).Seconds())
+	}
+
 	return nil
 }
 
@@ -364,7 +379,12 @@ func (tc *Controller) untagNodeResources(node *taggingControllerNode) error {
 func (tc *Controller) untagEc2Instance(node *taggingControllerNode) error {
 	instanceID, _ := awsv1.KubernetesInstanceID(node.providerID).MapToAWSInstanceID()
 
-	err := tc.cloud.UntagResource(string(instanceID), tc.tags)
+	var err error
+	if tc.batchingEnabled {
+		err = tc.cloud.UntagResourceBatch(context.TODO(), string(instanceID), tc.tags)
+	} else {
+		err = tc.cloud.UntagResource(string(instanceID), tc.tags)
+	}
 
 	if err != nil {
 		klog.Errorf("Error in untagging EC2 instance %s for node %s, error: %v", instanceID, node.name, err)
@@ -394,6 +414,11 @@ func (tc *Controller) enqueueNode(node *v1.Node, action string) {
 		tc.workqueue.Add(item)
 		klog.Infof("Added %s to the workqueue (without any rate-limit)", item)
 	}
+}
+
+func (tc *Controller) isInitialTag(node *v1.Node) bool {
+	_, ok := node.Labels[taggingControllerLabelKey]
+	return !ok
 }
 
 func (tc *Controller) isTaggingRequired(node *v1.Node) bool {
