@@ -2,8 +2,6 @@ module k8s.io/cloud-provider-aws
 
 go 1.24.0
 
-toolchain go1.24.2
-
 require (
 	github.com/Pallinder/go-randomdata v1.2.0
 	github.com/aws/aws-sdk-go v1.55.5
@@ -28,7 +26,7 @@ require (
 	k8s.io/component-base v0.33.0-rc.0
 	k8s.io/controller-manager v0.33.0-rc.0
 	k8s.io/klog/v2 v2.130.1
-	k8s.io/kubelet v0.33.0-beta.0
+	k8s.io/kubelet v0.33.0-rc.0
 	k8s.io/utils v0.0.0-20241104100929-3ea5e8cea738
 	sigs.k8s.io/controller-runtime v0.20.4
 )
