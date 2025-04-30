@@ -32,7 +32,10 @@ import (
 	"k8s.io/klog/v2"
 )
 
-const instanceTopologyManagerCacheTimeout = 24 * time.Hour
+const (
+	instanceTopologyManagerCacheTimeout     = 24 * time.Hour
+	instanceTopologyAPIResponseCacheTimeout = 24 * time.Hour
+)
 
 /*
 We need to ensure that instance types that we expect a response will not successfully complete syncing unless
@@ -58,6 +61,14 @@ func topStringKeyFunc(obj interface{}) (string, error) {
 	return s, nil
 }
 
+func topologyCacheKeyFunc(obj interface{}) (string, error) {
+	entry, ok := obj.(*instanceTopologyAPIResponseCacheEntry)
+	if !ok {
+		return "", fmt.Errorf("failed to cast to instanceTopologyCacheEntry: %v", obj)
+	}
+	return entry.instanceID, nil
+}
+
 // InstanceTopologyManager enables mocking the InstanceTopologyManager.
 type InstanceTopologyManager interface {
 	GetNodeTopology(ctx context.Context, instanceType string, region string, instanceID string) (*types.InstanceTopology, error)
@@ -69,6 +80,12 @@ type instanceTopologyManager struct {
 	ec2                                  services.Ec2SdkV2
 	unsupportedKeyStore                  cache.Store
 	supportedTopologyInstanceTypePattern *regexp.Regexp
+	instanceTopologyAPIResponseCache     cache.Store
+}
+
+type instanceTopologyAPIResponseCacheEntry struct {
+	instanceID string
+	topology   *types.InstanceTopology
 }
 
 // NewInstanceTopologyManager generates a new InstanceTopologyManager.
@@ -85,12 +102,20 @@ func NewInstanceTopologyManager(ec2 services.Ec2SdkV2, cfg *config.CloudConfig) 
 		supportedTopologyInstanceTypePattern: supportedTopologyInstanceTypePattern,
 		// These should change very infrequently, if ever, so checking once a day sounds fair.
 		unsupportedKeyStore: cache.NewTTLStore(topStringKeyFunc, instanceTopologyManagerCacheTimeout),
+		// In this cache we store the response made to DescribeInstanceTopology API for an instanceID
+		instanceTopologyAPIResponseCache: cache.NewTTLStore(topologyCacheKeyFunc, instanceTopologyAPIResponseCacheTimeout),
 	}
 }
 
 // GetNodeTopology gets the instance topology for a node.
 func (t *instanceTopologyManager) GetNodeTopology(ctx context.Context, instanceType string, region string, instanceID string) (*types.InstanceTopology, error) {
 	if t.mightSupportTopology(instanceID, instanceType, region) {
+		if cachedEntry, exists, err := t.instanceTopologyAPIResponseCache.GetByKey(instanceID); err == nil && exists {
+			entry := cachedEntry.(*instanceTopologyAPIResponseCacheEntry)
+			klog.V(4).Infof("Using cached response for DescribeInstanceTopology API for instance %s", instanceID)
+			return entry.topology, nil
+		}
+
 		request := &ec2.DescribeInstanceTopologyInput{InstanceIds: []string{instanceID}}
 		topologies, err := t.ec2.DescribeInstanceTopology(ctx, request)
 		if err != nil {
@@ -131,6 +156,15 @@ func (t *instanceTopologyManager) GetNodeTopology(ctx context.Context, instanceT
 				t.addUnsupported(instanceType)
 			}
 			return nil, nil
+		}
+
+		entry := &instanceTopologyAPIResponseCacheEntry{
+			instanceID: instanceID,
+			topology:   &topologies[0],
+		}
+
+		if err := t.instanceTopologyAPIResponseCache.Add(entry); err != nil {
+			klog.Errorf("Failed to cache topology for instance %s: %v", instanceID, err)
 		}
 
 		return &topologies[0], nil
