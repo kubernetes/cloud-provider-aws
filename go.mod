@@ -18,15 +18,15 @@ require (
 	github.com/stretchr/testify v1.10.0
 	golang.org/x/time v0.11.0
 	gopkg.in/gcfg.v1 v1.2.3
-	k8s.io/api v0.33.0-rc.0
-	k8s.io/apimachinery v0.33.0-rc.0
-	k8s.io/client-go v0.33.0-rc.0
-	k8s.io/cloud-provider v0.33.0-rc.0
-	k8s.io/code-generator v0.33.0-rc.0
-	k8s.io/component-base v0.33.0-rc.0
-	k8s.io/controller-manager v0.33.0-rc.0
+	k8s.io/api v0.33.0
+	k8s.io/apimachinery v0.33.0
+	k8s.io/client-go v0.33.0
+	k8s.io/cloud-provider v0.33.0
+	k8s.io/code-generator v0.33.0
+	k8s.io/component-base v0.33.0
+	k8s.io/controller-manager v0.33.0
 	k8s.io/klog/v2 v2.130.1
-	k8s.io/kubelet v0.33.0-rc.0
+	k8s.io/kubelet v0.33.0
 	k8s.io/utils v0.0.0-20241104100929-3ea5e8cea738
 	sigs.k8s.io/controller-runtime v0.20.3
 )
@@ -37,7 +37,7 @@ require (
 	github.com/google/btree v1.1.3 // indirect
 	github.com/google/pprof v0.0.0-20241210010833-40e02aabc2ad // indirect
 	github.com/kylelemons/godebug v1.1.0 // indirect
-	github.com/prometheus/client_golang v1.22.0-rc.0 // indirect
+	github.com/prometheus/client_golang v1.22.0 // indirect
 	go.opentelemetry.io/auto/sdk v1.1.0 // indirect
 	gopkg.in/evanphx/json-patch.v4 v4.12.0 // indirect
 	gopkg.in/inf.v0 v0.9.1 // indirect
@@ -132,10 +132,10 @@ require (
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20241209162323-e6fa225c2576 // indirect
 	google.golang.org/grpc v1.68.1 // indirect
 	google.golang.org/protobuf v1.36.5 // indirect
-	k8s.io/apiserver v0.33.0-rc.0 // indirect
-	k8s.io/component-helpers v0.33.0-rc.0 // indirect
+	k8s.io/apiserver v0.33.0 // indirect
+	k8s.io/component-helpers v0.33.0 // indirect
 	k8s.io/gengo/v2 v2.0.0-20250207200755-1244d31929d7 // indirect
-	k8s.io/kms v0.33.0-rc.0 // indirect
+	k8s.io/kms v0.33.0 // indirect
 	k8s.io/kube-openapi v0.0.0-20250318190949-c8a335a9a2ff // indirect
 	sigs.k8s.io/apiserver-network-proxy/konnectivity-client v0.31.2 // indirect
 	sigs.k8s.io/json v0.0.0-20241010143419-9aa6b5e7a4b3 // indirect
