@@ -322,9 +322,9 @@ func (tc *Controller) tagEc2Instance(ctx context.Context, node *v1.Node) error {
 	var err error
 	instanceID, _ := awsv1.KubernetesInstanceID(node.Spec.ProviderID).MapToAWSInstanceID()
 	if tc.batchingEnabled {
-		err = tc.cloud.TagResourceBatch(context.TODO(), string(instanceID), tc.tags)
+		err = tc.cloud.TagResourceBatch(ctx, string(instanceID), tc.tags)
 	} else {
-		err = tc.cloud.TagResource(string(instanceID), tc.tags)
+		err = tc.cloud.TagResource(ctx, string(instanceID), tc.tags)
 	}
 
 	if err != nil {
@@ -385,7 +385,7 @@ func (tc *Controller) untagEc2Instance(ctx context.Context, node *taggingControl
 	if tc.batchingEnabled {
 		err = tc.cloud.UntagResourceBatch(context.TODO(), string(instanceID), tc.tags)
 	} else {
-		err = tc.cloud.UntagResource(string(instanceID), tc.tags)
+		err = tc.cloud.UntagResource(ctx, string(instanceID), tc.tags)
 	}
 
 	if err != nil {
