@@ -4,7 +4,7 @@ import (
 	"testing"
 
 	"github.com/aws/aws-sdk-go/aws"
-	"github.com/aws/aws-sdk-go/service/ec2"
+	ec2types "github.com/aws/aws-sdk-go-v2/service/ec2/types"
 )
 
 func TestUngroup(t *testing.T) {
@@ -17,67 +17,67 @@ func TestUngroup(t *testing.T) {
 		{
 			"Single IP range in input set",
 			NewIPPermissionSet(
-				&ec2.IpPermission{
-					FromPort:   aws.Int64(1),
+				ec2types.IpPermission{
+					FromPort:   aws.Int32(1),
 					IpProtocol: aws.String("tcp"),
-					IpRanges:   []*ec2.IpRange{{CidrIp: aws.String("10.0.0.0/16")}},
-					ToPort:     aws.Int64(2),
+					IpRanges:   []ec2types.IpRange{{CidrIp: aws.String("10.0.0.0/16")}},
+					ToPort:     aws.Int32(2),
 				},
 			),
 			NewIPPermissionSet(
-				&ec2.IpPermission{
-					FromPort:   aws.Int64(1),
+				ec2types.IpPermission{
+					FromPort:   aws.Int32(1),
 					IpProtocol: aws.String("tcp"),
-					IpRanges:   []*ec2.IpRange{{CidrIp: aws.String("10.0.0.0/16")}},
-					ToPort:     aws.Int64(2),
+					IpRanges:   []ec2types.IpRange{{CidrIp: aws.String("10.0.0.0/16")}},
+					ToPort:     aws.Int32(2),
 				},
 			),
 		},
 		{
 			"Three ip ranges in input set",
 			NewIPPermissionSet(
-				&ec2.IpPermission{
-					FromPort:   aws.Int64(1),
+				ec2types.IpPermission{
+					FromPort:   aws.Int32(1),
 					IpProtocol: aws.String("tcp"),
-					IpRanges: []*ec2.IpRange{
+					IpRanges: []ec2types.IpRange{
 						{CidrIp: aws.String("10.0.0.0/16")},
 						{CidrIp: aws.String("10.1.0.0/16")},
 						{CidrIp: aws.String("10.2.0.0/16")},
 					},
-					ToPort: aws.Int64(2),
+					ToPort: aws.Int32(2),
 				},
 			),
 			NewIPPermissionSet(
-				&ec2.IpPermission{
-					FromPort:   aws.Int64(1),
+				ec2types.IpPermission{
+					FromPort:   aws.Int32(1),
 					IpProtocol: aws.String("tcp"),
-					IpRanges:   []*ec2.IpRange{{CidrIp: aws.String("10.0.0.0/16")}},
-					ToPort:     aws.Int64(2),
+					IpRanges:   []ec2types.IpRange{{CidrIp: aws.String("10.0.0.0/16")}},
+					ToPort:     aws.Int32(2),
 				},
-				&ec2.IpPermission{
-					FromPort:   aws.Int64(1),
+				ec2types.IpPermission{
+					FromPort:   aws.Int32(1),
 					IpProtocol: aws.String("tcp"),
-					IpRanges:   []*ec2.IpRange{{CidrIp: aws.String("10.1.0.0/16")}},
-					ToPort:     aws.Int64(2),
+					IpRanges:   []ec2types.IpRange{{CidrIp: aws.String("10.1.0.0/16")}},
+					ToPort:     aws.Int32(2),
 				},
-				&ec2.IpPermission{
-					FromPort:   aws.Int64(1),
+				ec2types.IpPermission{
+					FromPort:   aws.Int32(1),
 					IpProtocol: aws.String("tcp"),
-					IpRanges:   []*ec2.IpRange{{CidrIp: aws.String("10.2.0.0/16")}},
-					ToPort:     aws.Int64(2),
+					IpRanges:   []ec2types.IpRange{{CidrIp: aws.String("10.2.0.0/16")}},
+					ToPort:     aws.Int32(2),
 				},
 			),
 		},
 		{
 			"Three UserIdGroupPairs in input set",
 			NewIPPermissionSet(
-				&ec2.IpPermission{
-					FromPort:   aws.Int64(1),
+				ec2types.IpPermission{
+					FromPort:   aws.Int32(1),
 					IpProtocol: aws.String("tcp"),
-					IpRanges: []*ec2.IpRange{
+					IpRanges: []ec2types.IpRange{
 						{CidrIp: aws.String("10.0.0.0/16")},
 					},
-					UserIdGroupPairs: []*ec2.UserIdGroupPair{
+					UserIdGroupPairs: []ec2types.UserIdGroupPair{
 						{
 							GroupId:   aws.String("1"),
 							GroupName: aws.String("group-1"),
@@ -97,15 +97,15 @@ func TestUngroup(t *testing.T) {
 							VpcId:     aws.String("123"),
 						},
 					},
-					ToPort: aws.Int64(2),
+					ToPort: aws.Int32(2),
 				},
 			),
 			NewIPPermissionSet(
-				&ec2.IpPermission{
-					FromPort:   aws.Int64(1),
+				ec2types.IpPermission{
+					FromPort:   aws.Int32(1),
 					IpProtocol: aws.String("tcp"),
-					IpRanges:   []*ec2.IpRange{{CidrIp: aws.String("10.0.0.0/16")}},
-					UserIdGroupPairs: []*ec2.UserIdGroupPair{
+					IpRanges:   []ec2types.IpRange{{CidrIp: aws.String("10.0.0.0/16")}},
+					UserIdGroupPairs: []ec2types.UserIdGroupPair{
 						{
 							GroupId:   aws.String("1"),
 							GroupName: aws.String("group-1"),
@@ -113,13 +113,13 @@ func TestUngroup(t *testing.T) {
 							VpcId:     aws.String("123"),
 						},
 					},
-					ToPort: aws.Int64(2),
+					ToPort: aws.Int32(2),
 				},
-				&ec2.IpPermission{
-					FromPort:   aws.Int64(1),
+				ec2types.IpPermission{
+					FromPort:   aws.Int32(1),
 					IpProtocol: aws.String("tcp"),
-					IpRanges:   []*ec2.IpRange{{CidrIp: aws.String("10.0.0.0/16")}},
-					UserIdGroupPairs: []*ec2.UserIdGroupPair{
+					IpRanges:   []ec2types.IpRange{{CidrIp: aws.String("10.0.0.0/16")}},
+					UserIdGroupPairs: []ec2types.UserIdGroupPair{
 						{
 							GroupId:   aws.String("2"),
 							GroupName: aws.String("group-2"),
@@ -127,13 +127,13 @@ func TestUngroup(t *testing.T) {
 							VpcId:     aws.String("123"),
 						},
 					},
-					ToPort: aws.Int64(2),
+					ToPort: aws.Int32(2),
 				},
-				&ec2.IpPermission{
-					FromPort:   aws.Int64(1),
+				ec2types.IpPermission{
+					FromPort:   aws.Int32(1),
 					IpProtocol: aws.String("tcp"),
-					IpRanges:   []*ec2.IpRange{{CidrIp: aws.String("10.0.0.0/16")}},
-					UserIdGroupPairs: []*ec2.UserIdGroupPair{
+					IpRanges:   []ec2types.IpRange{{CidrIp: aws.String("10.0.0.0/16")}},
+					UserIdGroupPairs: []ec2types.UserIdGroupPair{
 						{
 							GroupId:   aws.String("3"),
 							GroupName: aws.String("group-3"),
@@ -141,7 +141,7 @@ func TestUngroup(t *testing.T) {
 							VpcId:     aws.String("123"),
 						},
 					},
-					ToPort: aws.Int64(2),
+					ToPort: aws.Int32(2),
 				},
 			),
 		},
