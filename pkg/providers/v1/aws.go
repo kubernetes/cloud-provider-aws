@@ -288,7 +288,7 @@ const MaxReadThenCreateRetries = 30
 
 // Services is an abstraction over AWS, to allow mocking/other implementations
 type Services interface {
-	Compute(region string) (iface.EC2, error)
+	Compute(ctx context.Context, region string) (iface.EC2, error)
 	LoadBalancing(region string) (ELB, error)
 	LoadBalancingV2(region string) (ELBV2, error)
 	Metadata() (config.EC2Metadata, error)
@@ -470,7 +470,7 @@ func init() {
 			return nil, fmt.Errorf("unable to validate custom endpoint overrides: %v", err)
 		}
 
-		metadata, err := newAWSSDKProvider(nil, cfg).Metadata()
+		metadata, err := newAWSSDKProvider(nil, nil, cfg).Metadata()
 		if err != nil {
 			return nil, fmt.Errorf("error creating AWS metadata client: %q", err)
 		}
@@ -511,7 +511,7 @@ func init() {
 			credsV2 = stscredsv2.NewAssumeRoleProvider(stsClientv2, cfg.Global.RoleARN)
 		}
 
-		aws := newAWSSDKProvider(creds, cfg)
+		aws := newAWSSDKProvider(creds, credsV2, cfg)
 		return newAWSCloud2(*cfg, aws, aws, creds, credsV2)
 	})
 }
@@ -589,7 +589,7 @@ func newAWSCloud2(cfg config.CloudConfig, awsServices Services, provider config.
 		return nil, err
 	}
 
-	ec2, err := awsServices.Compute(regionName)
+	ec2, err := awsServices.Compute(ctx, regionName)
 	if err != nil {
 		return nil, fmt.Errorf("error creating AWS EC2 client: %v", err)
 	}

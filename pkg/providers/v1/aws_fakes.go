@@ -41,8 +41,8 @@ import (
 // FakeAWSServices is an fake AWS session used for testing
 type FakeAWSServices struct {
 	region                      string
-	instances                   []ec2types.Instance
-	selfInstance                ec2types.Instance
+	instances                   []*ec2types.Instance
+	selfInstance                *ec2types.Instance
 	networkInterfacesMacs       []string
 	networkInterfacesPrivateIPs [][]string
 	networkInterfacesVpcIDs     []string
@@ -71,7 +71,7 @@ func NewFakeAWSServices(clusterID string) *FakeAWSServices {
 	s.networkInterfacesMacs = []string{"aa:bb:cc:dd:ee:00", "aa:bb:cc:dd:ee:01"}
 	s.networkInterfacesVpcIDs = []string{"vpc-mac0", "vpc-mac1"}
 
-	selfInstance := ec2types.Instance{}
+	selfInstance := &ec2types.Instance{}
 	selfInstance.InstanceId = aws.String("i-self")
 	selfInstance.Placement = &ec2types.Placement{
 		AvailabilityZone: aws.String("us-west-2a"),
@@ -80,7 +80,7 @@ func NewFakeAWSServices(clusterID string) *FakeAWSServices {
 	selfInstance.PrivateIpAddress = aws.String("192.168.0.1")
 	selfInstance.PublicIpAddress = aws.String("1.2.3.4")
 	s.selfInstance = selfInstance
-	s.instances = []ec2types.Instance{selfInstance}
+	s.instances = []*ec2types.Instance{selfInstance}
 
 	selfInstance.NetworkInterfaces = []ec2types.InstanceNetworkInterface{
 		{
@@ -125,6 +125,8 @@ func NewFakeAWSServices(clusterID string) *FakeAWSServices {
 	tag.Key = aws.String(TagNameKubernetesClusterLegacy)
 	tag.Value = aws.String(clusterID)
 	selfInstance.Tags = []ec2types.Tag{tag}
+	fmt.Println("[newtakeawsservices] tags", s.instances[0].Tags)
+
 
 	s.callCounts = make(map[string]int)
 
@@ -156,7 +158,7 @@ func (s *FakeAWSServices) countCall(service string, api string, resourceID strin
 }
 
 // Compute returns a fake EC2 client
-func (s *FakeAWSServices) Compute(region string) (iface.EC2, error) {
+func (s *FakeAWSServices) Compute(ctx context.Context, region string) (iface.EC2, error) {
 	return s.ec2, nil
 }
 
@@ -232,7 +234,7 @@ func (ec2i *FakeEC2Impl) DescribeInstances(ctx context.Context, request *ec2.Des
 				continue
 			}
 		}
-		matches = append(matches, instance)
+		matches = append(matches, *instance)
 		matchedInstances = append(matchedInstances, *instance.InstanceId)
 	}
 
@@ -774,7 +776,7 @@ func (kms *FakeKMS) DescribeKey(*kms.DescribeKeyInput) (*kms.DescribeKeyOutput, 
 	panic("Not implemented")
 }
 
-func instanceMatchesFilter(instance ec2types.Instance, filter ec2types.Filter) bool {
+func instanceMatchesFilter(instance *ec2types.Instance, filter ec2types.Filter) bool {
 	name := *filter.Name
 	if name == "private-dns-name" {
 		if instance.PrivateDnsName == nil {
