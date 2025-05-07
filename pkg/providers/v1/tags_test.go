@@ -18,6 +18,7 @@ package aws
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"flag"
 	"os"
@@ -25,7 +26,8 @@ import (
 
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/awserr"
-	"github.com/aws/aws-sdk-go/service/ec2"
+	ec2types "github.com/aws/aws-sdk-go-v2/service/ec2/types"
+
 	"github.com/stretchr/testify/assert"
 	"k8s.io/klog/v2"
 
@@ -96,9 +98,9 @@ func TestFindClusterID(t *testing.T) {
 		},
 	}
 	for _, g := range grid {
-		var ec2Tags []*ec2.Tag
+		var ec2Tags []ec2types.Tag
 		for k, v := range g.Tags {
-			ec2Tags = append(ec2Tags, &ec2.Tag{Key: aws.String(k), Value: aws.String(v)})
+			ec2Tags = append(ec2Tags, ec2types.Tag{Key: aws.String(k), Value: aws.String(v)})
 		}
 		actualLegacy, actualNew, err := findClusterIDs(ec2Tags)
 		if g.ExpectError {
@@ -179,9 +181,9 @@ func TestHasClusterTag(t *testing.T) {
 		},
 	}
 	for _, g := range grid {
-		var ec2Tags []*ec2.Tag
+		var ec2Tags []ec2types.Tag
 		for k, v := range g.Tags {
-			ec2Tags = append(ec2Tags, &ec2.Tag{Key: aws.String(k), Value: aws.String(v)})
+			ec2Tags = append(ec2Tags, ec2types.Tag{Key: aws.String(k), Value: aws.String(v)})
 		}
 		result := c.tagging.hasClusterTag(ec2Tags)
 		if result != g.Expected {
@@ -199,7 +201,7 @@ func TestHasNoClusterPrefixTag(t *testing.T) {
 	}
 	tests := []struct {
 		name string
-		tags []*ec2.Tag
+		tags []ec2types.Tag
 		want bool
 	}{
 		{
@@ -208,7 +210,7 @@ func TestHasNoClusterPrefixTag(t *testing.T) {
 		},
 		{
 			name: "no cluster tags",
-			tags: []*ec2.Tag{
+			tags: []ec2types.Tag{
 				{
 					Key:   aws.String("not a cluster tag"),
 					Value: aws.String("true"),
@@ -218,7 +220,7 @@ func TestHasNoClusterPrefixTag(t *testing.T) {
 		},
 		{
 			name: "contains cluster tags",
-			tags: []*ec2.Tag{
+			tags: []ec2types.Tag{
 				{
 					Key:   aws.String("tag1"),
 					Value: aws.String("value1"),
@@ -284,7 +286,7 @@ func TestTagResource(t *testing.T) {
 				klog.SetOutput(os.Stderr)
 			}()
 
-			err := c.TagResource(tt.instanceID, nil)
+			err := c.TagResource(context.TODO(), tt.instanceID, nil)
 			assert.Equal(t, tt.err, err)
 			assert.Contains(t, logBuf.String(), tt.expectedMessage)
 		})
@@ -336,7 +338,7 @@ func TestUntagResource(t *testing.T) {
 				klog.SetOutput(os.Stderr)
 			}()
 
-			err := c.UntagResource(tt.instanceID, nil)
+			err := c.UntagResource(context.TODO(), tt.instanceID, nil)
 			assert.Equal(t, tt.err, err)
 			assert.Contains(t, logBuf.String(), tt.expectedMessage)
 		})

@@ -21,7 +21,7 @@ import (
 	"time"
 
 	"github.com/aws/aws-sdk-go/aws"
-	"github.com/aws/aws-sdk-go/service/ec2"
+	ec2types "github.com/aws/aws-sdk-go-v2/service/ec2/types"
 	"github.com/stretchr/testify/assert"
 	v1 "k8s.io/api/core/v1"
 )
@@ -150,8 +150,8 @@ func TestSnapshotMeetsCriteria(t *testing.T) {
 		t.Errorf("Snapshot did not honor HasInstances with missing instances")
 	}
 
-	snapshot.instances = make(map[InstanceID]*ec2.Instance)
-	snapshot.instances[InstanceID("i-12345678")] = &ec2.Instance{}
+	snapshot.instances = make(map[InstanceID]*ec2types.Instance)
+	snapshot.instances[InstanceID("i-12345678")] = &ec2types.Instance{}
 
 	if !snapshot.MeetsCriteria(cacheCriteria{HasInstances: []InstanceID{InstanceID("i-12345678")}}) {
 		t.Errorf("Snapshot did not honor HasInstances with matching instances")
@@ -177,14 +177,14 @@ func TestOlderThan(t *testing.T) {
 func TestSnapshotFindInstances(t *testing.T) {
 	snapshot := &allInstancesSnapshot{}
 
-	snapshot.instances = make(map[InstanceID]*ec2.Instance)
+	snapshot.instances = make(map[InstanceID]*ec2types.Instance)
 	{
 		id := InstanceID("i-12345678")
-		snapshot.instances[id] = &ec2.Instance{InstanceId: id.awsString()}
+		snapshot.instances[id] = &ec2types.Instance{InstanceId: id.awsString()}
 	}
 	{
 		id := InstanceID("i-23456789")
-		snapshot.instances[id] = &ec2.Instance{InstanceId: id.awsString()}
+		snapshot.instances[id] = &ec2types.Instance{InstanceId: id.awsString()}
 	}
 
 	instances := snapshot.FindInstances([]InstanceID{InstanceID("i-12345678"), InstanceID("i-23456789"), InstanceID("i-00000000")})

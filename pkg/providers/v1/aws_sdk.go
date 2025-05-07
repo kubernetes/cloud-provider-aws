@@ -25,7 +25,8 @@ import (
 	"github.com/aws/aws-sdk-go/aws/ec2metadata"
 	"github.com/aws/aws-sdk-go/aws/request"
 	"github.com/aws/aws-sdk-go/aws/session"
-	"github.com/aws/aws-sdk-go/service/ec2"
+	"github.com/aws/aws-sdk-go-v2/service/ec2"
+	// awsConfig "github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go/service/elb"
 	"github.com/aws/aws-sdk-go/service/elbv2"
 	"github.com/aws/aws-sdk-go/service/kms"
@@ -113,26 +114,9 @@ func (p *awsSDKProvider) getCrossRequestRetryDelay(regionName string) *CrossRequ
 }
 
 func (p *awsSDKProvider) Compute(regionName string) (iface.EC2, error) {
-	awsConfig := &aws.Config{
-		Region:      &regionName,
-		Credentials: p.creds,
-	}
-	awsConfig = awsConfig.WithCredentialsChainVerboseErrors(true).
-		WithEndpointResolver(p.cfg.GetResolver())
-	sess, err := session.NewSessionWithOptions(session.Options{
-		Config:            *awsConfig,
-		SharedConfigState: session.SharedConfigEnable,
-	})
-
-	if err != nil {
-		return nil, fmt.Errorf("unable to initialize AWS session: %v", err)
-	}
-	service := ec2.New(sess)
-
-	p.AddHandlers(regionName, &service.Handlers)
 
 	ec2 := &awsSdkEC2{
-		ec2: service,
+		ec2: ec2.New(ec2.Options{Region: regionName}),
 	}
 	return ec2, nil
 }
