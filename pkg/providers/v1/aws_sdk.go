@@ -99,6 +99,17 @@ func (p *awsSDKProvider) addAPILoggingHandlers(h *request.Handlers) {
 	})
 }
 
+// Adds logging middleware for AWS SDK Go V2 clients
+func (p *awsSDKProvider) addAPILoggingHandlersV2(cfg awsv2.Config) {
+	cfg.ClientLogMode = awsv2.LogRequest
+
+	cfg.APIOptions = append(cfg.APIOptions,
+		func(stack *smithymiddleware.Stack) error {
+			return stack.Deserialize.Add(&awsValidateResponseHandlerLoggerV2{}, smithymiddleware.Before)
+		},
+	)
+}
+
 // Get a CrossRequestRetryDelay, scoped to the region, not to the request.
 // This means that when we hit a limit on a call, we will delay _all_ calls to the API.
 // We do this to protect the AWS account from becoming overloaded and effectively locked.
@@ -256,5 +267,5 @@ func (p *awsSDKProvider) AddHandlersV2(ctx context.Context, regionName string, c
 		)
 	}
 
-	p.addAPILoggingHandlers(cfg)
+	p.addAPILoggingHandlersV2(cfg)
 }
