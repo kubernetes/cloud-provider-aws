@@ -659,8 +659,6 @@ func newAWSCloud2(cfg config.CloudConfig, awsServices Services, provider config.
 		if err != nil {
 			return nil, err
 		}
-		fmt.Println("info.tags:", info.Tags)
-		fmt.Printf("cfg: %+v\n", cfg)
 
 		if err := awsCloud.tagging.initFromTags(info.Tags); err != nil {
 			return nil, err
