@@ -56,7 +56,7 @@ func (tc *ControllerWrapper) startTaggingController(ctx context.Context, initCon
 		return nil, false, nil
 	}
 
-	go taggingcontroller.Run(ctx.Done())
+	go taggingcontroller.Run(ctx, ctx.Done())
 
 	return nil, true, nil
 }
