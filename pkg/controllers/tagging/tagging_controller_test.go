@@ -243,14 +243,14 @@ func Test_NodesJoiningAndLeaving(t *testing.T) {
 					time.Sleep(10 * time.Millisecond)
 				}
 
-			cnt := 0
-			for tc.workqueue.Len() > 0 {
-				tc.process(context.TODO())
-				cnt++
-				// sleep briefly because of exponential backoff when requeueing failed workitem
-				// resulting in workqueue to be empty if checked immediately
-				time.Sleep(7 * time.Millisecond)
-			}
+				cnt := 0
+				for tc.workqueue.Len() > 0 {
+					tc.process(context.TODO())
+					cnt++
+					// sleep briefly because of exponential backoff when requeueing failed workitem
+					// resulting in workqueue to be empty if checked immediately
+					time.Sleep(7 * time.Millisecond)
+				}
 
 				for _, msg := range testcase.expectedMessages {
 					if !strings.Contains(logBuf.String(), msg) {

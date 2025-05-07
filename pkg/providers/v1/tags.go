@@ -336,6 +336,26 @@ func (c *Cloud) TagResource(ctx context.Context, resourceID string, tags map[str
 	return nil
 }
 
+// TagResourceBatch calls EC2 and tag the resource associated to resourceID with the supplied tags
+// calls are batched based on batcher configuration.
+func (c *Cloud) TagResourceBatch(ctx context.Context, resourceID string, tags map[string]string) error {
+	request := &ec2.CreateTagsInput{
+		Resources: []string{resourceID},
+		Tags:      buildAwsTags(tags),
+	}
+
+	output, err := c.createTagsBatcher.createTags(ctx, request)
+
+	if err != nil {
+		klog.Errorf("Error occurred trying to tag resources, %v", err)
+		return err
+	}
+
+	klog.Infof("Done calling create-tags to EC2: %v", output)
+
+	return nil
+}
+
 // UntagResource calls EC2 and tag the resource associated to resourceID
 // with the supplied tags
 func (c *Cloud) UntagResource(ctx context.Context, resourceID string, tags map[string]string) error {
@@ -345,6 +365,32 @@ func (c *Cloud) UntagResource(ctx context.Context, resourceID string, tags map[s
 	}
 
 	output, err := c.ec2.DeleteTags(ctx, request)
+
+	if err != nil {
+		// An instance not found should not fail the untagging workflow as it
+		// would for tagging, since the target state is already reached.
+		if IsAWSErrorInstanceNotFound(err) {
+			klog.Infof("Couldn't find resource when trying to untag it hence skipping it, %v", err)
+			return nil
+		}
+		klog.Errorf("Error occurred trying to untag resources, %v", err)
+		return err
+	}
+
+	klog.Infof("Done calling delete-tags to EC2: %v", output)
+
+	return nil
+}
+
+// UntagResourceBatch calls EC2 and tag the resource associated to resourceID with the supplied tags
+// calls are batched based on batcher configuration.
+func (c *Cloud) UntagResourceBatch(ctx context.Context, resourceID string, tags map[string]string) error {
+	request := &ec2.DeleteTagsInput{
+		Resources: []string{resourceID},
+		Tags:      buildAwsTags(tags),
+	}
+
+	output, err := c.deleteTagsBatcher.deleteTags(ctx, request)
 
 	if err != nil {
 		// An instance not found should not fail the untagging workflow as it
