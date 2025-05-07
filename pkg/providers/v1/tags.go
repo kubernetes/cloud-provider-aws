@@ -90,7 +90,6 @@ func (t *awsTagging) init(legacyClusterID string, clusterID string) error {
 // If no clusterID is found, returns "", nil
 // If multiple (different) clusterIDs are found, returns an error
 func (t *awsTagging) initFromTags(tags []ec2types.Tag) error {
-	fmt.Println("tags:", tags)
 	legacyClusterID, newClusterID, err := findClusterIDs(tags)
 	if err != nil {
 		return err
