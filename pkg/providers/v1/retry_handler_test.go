@@ -17,8 +17,20 @@ limitations under the License.
 package aws
 
 import (
+	"context"
+	"errors"
+	"fmt"
+	"net/http"
+	"net/http/httptest"
+
 	"testing"
 	"time"
+
+	"github.com/aws/aws-sdk-go-v2/aws/retry"
+	"github.com/aws/aws-sdk-go-v2/service/ec2"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/mock"
+	// "k8s.io/cloud-provider-aws/pkg/providers/v1/config"
 )
 
 // There follows a group of tests for the backoff logic.  There's nothing
@@ -132,4 +144,206 @@ func TestBackoffRecovers(t *testing.T) {
 		t.Logf("no-error phase delay @%d %v", i, d)
 		now = now.Add(time.Second)
 	}
+}
+
+// Make sure that nonRetryableErrors, which are thrown by AWS SDK Go V2 clients
+// when the request context is canceled, are not retried with customRetryer is used.
+func TestNonRetryableError(t *testing.T) {
+	mockedEC2API := newMockedEC2API()
+	mockedEC2API.On("DescribeInstances", mock.Anything).Return(&ec2.DescribeInstancesOutput{}, errors.New(nonRetryableError))
+
+	ec2Client := &awsSdkEC2{
+		ec2: mockedEC2API,
+	}
+	_, err := ec2Client.ec2.DescribeInstances(context.Background(), &ec2.DescribeInstancesInput{})
+
+	// Verify that the custom retryer can recognize when a nonRetryableError is thrown
+	retryer := &customRetryer{
+		retry.NewStandard(),
+	}
+	if retryer.IsErrorRetryable(err) {
+		t.Errorf("Expected nonRetryableError error to be non-retryable")
+	}
+}
+
+// Tests delayPresign to ensure that it delays the request
+func TestDelayPresign(t *testing.T) {
+	// This test forces certain results from ComputeDelayForRequest() and sleepWithContext()
+	// to trigger a delay from delayPresign().
+	// Dummy server to make sure the client request doesn't actually hit the API.
+	testServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
+
+	cfgWithServiceOverride := CloudConfig{
+		ServiceOverride: map[string]*struct {
+			Service       string
+			Region        string
+			URL           string
+			SigningRegion string
+			SigningMethod string
+			SigningName   string
+		}{
+			"1": {
+				Service:       "EC2",
+				Region:        "us-west-2",
+				URL:           testServer.URL,
+				SigningRegion: "signingRegion",
+				SigningName:   "signingName",
+			},
+		},
+	}
+	// Create a dummy delayer that sets a delay of 1 second for ComputeDelayForRequest()
+	delayer := NewCrossRequestRetryDelay()
+	delayer.backoff.countRequests = 1
+	delayer.backoff.countErrorsRequestLimit = 20000
+	delayer.backoff.maxDelay = 100000
+	regionDelayersMap := make(map[string]*CrossRequestRetryDelay)
+	regionDelayersMap["us-west-2"] = delayer
+	mockProvider := &awsSDKProvider{
+		cfg:            &cfgWithServiceOverride,
+		regionDelayers: regionDelayersMap,
+	}
+
+	ec2Client, err := mockProvider.Compute(context.Background(), "us-west-2", nil)
+	if err != nil {
+		t.Errorf("error creating client, %v", err)
+	}
+	startTime := time.Now()
+	_, _ = ec2Client.DescribeInstances(context.Background(), &ec2.DescribeInstancesInput{})
+	endTime := time.Now()
+	diff := endTime.Sub(startTime).Seconds()
+	assert.True(t, diff > 1, fmt.Sprintf("expected a delay of at least 1 second, got %f", diff))
+}
+
+// Tests that delayAfterRetry() recognizes RequestLimitExceeded errors and counts them towards the backoff
+func TestDelayAfterRetry(t *testing.T) {
+	testServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/xml")
+		w.WriteHeader(http.StatusBadRequest)
+
+		// Insert the RequestLimitExceeded error message
+		errorXML := fmt.Sprintf(`
+			<Response>
+			<Errors>
+				<Error>
+				<Code>%d</Code>
+				<Message>%s</Message>
+				</Error>
+			</Errors>
+			<RequestID>12345678-1234-1234-1234-123456789012</RequestID>
+			</Response>`, http.StatusBadRequest, "RequestLimitExceeded")
+
+		w.Write([]byte(errorXML))
+	}))
+	defer testServer.Close()
+
+	cfgWithServiceOverride := CloudConfig{
+		ServiceOverride: map[string]*struct {
+			Service       string
+			Region        string
+			URL           string
+			SigningRegion string
+			SigningMethod string
+			SigningName   string
+		}{
+			"1": {
+				Service:       "EC2",
+				Region:        "us-west-2",
+				URL:           testServer.URL,
+				SigningRegion: "signingRegion",
+				SigningName:   "signingName",
+			},
+		},
+	}
+	delayer := NewCrossRequestRetryDelay()
+	regionDelayersMap := make(map[string]*CrossRequestRetryDelay)
+	regionDelayersMap["us-west-2"] = delayer
+	mockProvider := &awsSDKProvider{
+		cfg:            &cfgWithServiceOverride,
+		regionDelayers: regionDelayersMap,
+	}
+
+	ec2Client, err := mockProvider.Compute(context.Background(), "us-west-2", nil)
+	if err != nil {
+		t.Errorf("error creating client, %v", err)
+	}
+	preDelayErrorCount := delayer.backoff.countErrorsRequestLimit
+	_, err = ec2Client.DescribeInstances(context.Background(), &ec2.DescribeInstancesInput{})
+	postDelayErrorCount := delayer.backoff.countErrorsRequestLimit
+
+	// Verify that a RequestLimitExceeded error was thrown
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "RequestLimitExceeded")
+
+	// In the event that delayAfterRetry() catches a RequestLimitExceeded error, it will
+	// update the error count in the delayer. This count is used to verify that this case
+	// was entered.
+	diff := (int)(postDelayErrorCount - preDelayErrorCount)
+	assert.True(t, diff == 1, fmt.Sprintf("expected an update to the backoff count of %d, got %d", 1, diff))
+}
+
+// Tests that delayAfterRetry() does not update the backoff in case of an error other than RequestLimitExceeded
+func TestDelayAfterRetryNoDelay(t *testing.T) {
+	testServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/xml")
+		w.WriteHeader(http.StatusBadRequest)
+
+		// Insert a dummy error message that's not RequestLimitExceeded
+		errorXML := fmt.Sprintf(`
+			<Response>
+			<Errors>
+				<Error>
+				<Code>%d</Code>
+				<Message>%s</Message>
+				</Error>
+			</Errors>
+			<RequestID>12345678-1234-1234-1234-123456789012</RequestID>
+			</Response>`, http.StatusBadRequest, "DummyError")
+
+		w.Write([]byte(errorXML))
+	}))
+	defer testServer.Close()
+
+	cfgWithServiceOverride := CloudConfig{
+		ServiceOverride: map[string]*struct {
+			Service       string
+			Region        string
+			URL           string
+			SigningRegion string
+			SigningMethod string
+			SigningName   string
+		}{
+			"1": {
+				Service:       "EC2",
+				Region:        "us-west-2",
+				URL:           testServer.URL,
+				SigningRegion: "signingRegion",
+				SigningName:   "signingName",
+			},
+		},
+	}
+	delayer := NewCrossRequestRetryDelay()
+	regionDelayersMap := make(map[string]*CrossRequestRetryDelay)
+	regionDelayersMap["us-west-2"] = delayer
+	mockProvider := &awsSDKProvider{
+		cfg:            &cfgWithServiceOverride,
+		regionDelayers: regionDelayersMap,
+	}
+
+	ec2Client, err := mockProvider.Compute(context.Background(), "us-west-2", nil)
+	if err != nil {
+		t.Errorf("error creating client, %v", err)
+	}
+	preDelayErrorCount := delayer.backoff.countErrorsRequestLimit
+	_, err = ec2Client.DescribeInstances(context.Background(), &ec2.DescribeInstancesInput{})
+	postDelayErrorCount := delayer.backoff.countErrorsRequestLimit
+
+	// Verify that a RequestLimitExceeded error wasn't thrown
+	assert.Error(t, err)
+	assert.NotContains(t, err.Error(), "RequestLimitExceeded")
+
+	// In the event that delayAfterRetry() catches a RequestLimitExceeded error, it will
+	// update the error count in the delayer. This count is used to verify that this case
+	// was not entered.
+	diff := (int)(postDelayErrorCount - preDelayErrorCount)
+	assert.True(t, diff == 0, fmt.Sprintf("expected an update to the backoff count of %d, got %d", 0, diff))
 }
