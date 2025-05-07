@@ -1,12 +1,15 @@
 package fargate
 
 import (
+	"context"
 	"fmt"
 	"strings"
 
 	awssdk "github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/credentials"
-	"github.com/aws/aws-sdk-go/service/ec2"
+	"github.com/aws/aws-sdk-go-v2/service/ec2"
+	ec2types "github.com/aws/aws-sdk-go-v2/service/ec2/types"
+	
 
 	v1 "k8s.io/api/core/v1"
 	cloudprovider "k8s.io/cloud-provider"
@@ -41,8 +44,8 @@ func (f *fargateVariant) InstanceTypeByProviderID(instanceID string) (string, er
 	return "", nil
 }
 
-func (f *fargateVariant) GetZone(instanceID, vpcID, region string) (cloudprovider.Zone, error) {
-	eni, err := f.DescribeNetworkInterfaces(f.ec2API, instanceID, vpcID)
+func (f *fargateVariant) GetZone(ctx context.Context, instanceID, vpcID, region string) (cloudprovider.Zone, error) {
+	eni, err := f.DescribeNetworkInterfaces(ctx, f.ec2API, instanceID, vpcID)
 	if eni == nil || err != nil {
 		return cloudprovider.Zone{}, err
 	}
@@ -56,8 +59,8 @@ func (f *fargateVariant) IsSupportedNode(nodeName string) bool {
 	return strings.HasPrefix(nodeName, fargateNodeNamePrefix)
 }
 
-func (f *fargateVariant) NodeAddresses(instanceID, vpcID string) ([]v1.NodeAddress, error) {
-	eni, err := f.DescribeNetworkInterfaces(f.ec2API, instanceID, vpcID)
+func (f *fargateVariant) NodeAddresses(ctx context.Context, instanceID, vpcID string) ([]v1.NodeAddress, error) {
+	eni, err := f.DescribeNetworkInterfaces(ctx, f.ec2API, instanceID, vpcID)
 	if eni == nil || err != nil {
 		return nil, err
 	}
@@ -83,22 +86,22 @@ func (f *fargateVariant) NodeAddresses(instanceID, vpcID string) ([]v1.NodeAddre
 	return addresses, nil
 }
 
-func (f *fargateVariant) InstanceExists(instanceID, vpcID string) (bool, error) {
-	eni, err := f.DescribeNetworkInterfaces(f.ec2API, instanceID, vpcID)
+func (f *fargateVariant) InstanceExists(ctx context.Context, instanceID, vpcID string) (bool, error) {
+	eni, err := f.DescribeNetworkInterfaces(ctx, f.ec2API, instanceID, vpcID)
 	return eni != nil, err
 }
 
-func (f *fargateVariant) InstanceShutdown(instanceID, vpcID string) (bool, error) {
-	eni, err := f.DescribeNetworkInterfaces(f.ec2API, instanceID, vpcID)
+func (f *fargateVariant) InstanceShutdown(ctx context.Context, instanceID, vpcID string) (bool, error) {
+	eni, err := f.DescribeNetworkInterfaces(ctx, f.ec2API, instanceID, vpcID)
 	return eni != nil, err
 }
 
-func newEc2Filter(name string, values ...string) *ec2.Filter {
-	filter := &ec2.Filter{
+func newEc2Filter(name string, values ...string) ec2types.Filter {
+	filter := ec2types.Filter{
 		Name: awssdk.String(name),
 	}
 	for _, value := range values {
-		filter.Values = append(filter.Values, awssdk.String(value))
+		filter.Values = append(filter.Values, value)
 	}
 	return filter
 }
@@ -116,10 +119,10 @@ func nodeNameToIPAddress(nodeName string) string {
 }
 
 // DescribeNetworkInterfaces returns network interface information for the given DNS name.
-func (f *fargateVariant) DescribeNetworkInterfaces(ec2API iface.EC2, instanceID, vpcID string) (*ec2.NetworkInterface, error) {
+func (f *fargateVariant) DescribeNetworkInterfaces(ctx context.Context, ec2API iface.EC2, instanceID, vpcID string) (*ec2types.NetworkInterface, error) {
 	eniEndpoint := strings.TrimPrefix(instanceID, fargateNodeNamePrefix)
 
-	filters := []*ec2.Filter{
+	filters := []ec2types.Filter{
 		newEc2Filter("attachment.status", "attached"),
 		newEc2Filter("vpc-id", vpcID),
 	}
@@ -137,7 +140,7 @@ func (f *fargateVariant) DescribeNetworkInterfaces(ec2API iface.EC2, instanceID,
 		Filters: filters,
 	}
 
-	eni, err := ec2API.DescribeNetworkInterfaces(request)
+	eni, err := ec2API.DescribeNetworkInterfaces(ctx, request)
 	if err != nil {
 		return nil, err
 	}
@@ -146,9 +149,9 @@ func (f *fargateVariant) DescribeNetworkInterfaces(ec2API iface.EC2, instanceID,
 	}
 	if len(eni.NetworkInterfaces) != 1 {
 		// This should not be possible - ids should be unique
-		return nil, fmt.Errorf("multiple interfaces found with same id %q", eni.NetworkInterfaces)
+		return nil, fmt.Errorf("multiple interfaces found with same id %+v", eni.NetworkInterfaces)
 	}
-	return eni.NetworkInterfaces[0], nil
+	return &eni.NetworkInterfaces[0], nil
 }
 
 func init() {

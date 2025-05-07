@@ -17,6 +17,7 @@ limitations under the License.
 package aws
 
 import (
+	"context"
 	"crypto/sha1"
 	"encoding/hex"
 	"fmt"
@@ -28,7 +29,7 @@ import (
 
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/awserr"
-	"github.com/aws/aws-sdk-go/service/ec2"
+	ec2types "github.com/aws/aws-sdk-go-v2/service/ec2/types"
 	"github.com/aws/aws-sdk-go/service/elb"
 	"github.com/aws/aws-sdk-go/service/elbv2"
 	v1 "k8s.io/api/core/v1"
@@ -781,12 +782,12 @@ func (c *Cloud) chunkTargetDescriptions(targets []*elbv2.TargetDescription, chun
 
 // updateInstanceSecurityGroupsForNLB will adjust securityGroup's settings to allow inbound traffic into instances from clientCIDRs and portMappings.
 // TIP: if either instances or clientCIDRs or portMappings are nil, then the securityGroup rules for lbName are cleared.
-func (c *Cloud) updateInstanceSecurityGroupsForNLB(lbName string, instances map[InstanceID]*ec2.Instance, subnetCIDRs []string, clientCIDRs []string, portMappings []nlbPortMapping) error {
+func (c *Cloud) updateInstanceSecurityGroupsForNLB(ctx context.Context, lbName string, instances map[InstanceID]*ec2types.Instance, subnetCIDRs []string, clientCIDRs []string, portMappings []nlbPortMapping) error {
 	if c.cfg.Global.DisableSecurityGroupIngress {
 		return nil
 	}
 
-	clusterSGs, err := c.getTaggedSecurityGroups()
+	clusterSGs, err := c.getTaggedSecurityGroups(ctx)
 	if err != nil {
 		return fmt.Errorf("error querying for tagged security groups: %q", err)
 	}
@@ -808,7 +809,7 @@ func (c *Cloud) updateInstanceSecurityGroupsForNLB(lbName string, instances map[
 	// findSecurityGroupForInstance might return SG that are not tagged.
 	{
 		for sgID := range desiredSGIDs.Difference(sets.StringKeySet(clusterSGs)) {
-			sg, err := c.findSecurityGroup(sgID)
+			sg, err := c.findSecurityGroup(ctx, sgID)
 			if err != nil {
 				return fmt.Errorf("error finding instance group: %q", err)
 			}
@@ -817,9 +818,9 @@ func (c *Cloud) updateInstanceSecurityGroupsForNLB(lbName string, instances map[
 	}
 
 	{
-		clientPorts := sets.Int64{}
+		clientPorts := sets.Set[int64]{}
 		clientProtocol := "tcp"
-		healthCheckPorts := sets.Int64{}
+		healthCheckPorts := sets.Set[int64]{}
 		for _, port := range portMappings {
 			clientPorts.Insert(port.TrafficPort)
 			hcPort := port.TrafficPort
@@ -842,23 +843,23 @@ func (c *Cloud) updateInstanceSecurityGroupsForNLB(lbName string, instances map[
 				// If the client rule is 1) all addresses 2) tcp and 3) has same ports as the healthcheck,
 				// then the health rules are a subset of the client rule and are not needed.
 				if len(clientCIDRs) != 1 || clientCIDRs[0] != "0.0.0.0/0" || clientProtocol != "tcp" || !healthCheckPorts.Equal(clientPorts) {
-					if err := c.updateInstanceSecurityGroupForNLBTraffic(sgID, sgPerms, healthRuleAnnotation, "tcp", healthCheckPorts, subnetCIDRs); err != nil {
+					if err := c.updateInstanceSecurityGroupForNLBTraffic(ctx, sgID, sgPerms, healthRuleAnnotation, "tcp", healthCheckPorts, subnetCIDRs); err != nil {
 						return err
 					}
 				}
-				if err := c.updateInstanceSecurityGroupForNLBTraffic(sgID, sgPerms, clientRuleAnnotation, clientProtocol, clientPorts, clientCIDRs); err != nil {
+				if err := c.updateInstanceSecurityGroupForNLBTraffic(ctx, sgID, sgPerms, clientRuleAnnotation, clientProtocol, clientPorts, clientCIDRs); err != nil {
 					return err
 				}
 			} else {
-				if err := c.updateInstanceSecurityGroupForNLBTraffic(sgID, sgPerms, healthRuleAnnotation, "tcp", nil, nil); err != nil {
+				if err := c.updateInstanceSecurityGroupForNLBTraffic(ctx, sgID, sgPerms, healthRuleAnnotation, "tcp", nil, nil); err != nil {
 					return err
 				}
-				if err := c.updateInstanceSecurityGroupForNLBTraffic(sgID, sgPerms, clientRuleAnnotation, clientProtocol, nil, nil); err != nil {
+				if err := c.updateInstanceSecurityGroupForNLBTraffic(ctx, sgID, sgPerms, clientRuleAnnotation, clientProtocol, nil, nil); err != nil {
 					return err
 				}
 			}
 			if !sgPerms.Equal(NewIPPermissionSet(sg.IpPermissions...).Ungroup()) {
-				if err := c.updateInstanceSecurityGroupForNLBMTU(sgID, sgPerms); err != nil {
+				if err := c.updateInstanceSecurityGroupForNLBMTU(ctx, sgID, sgPerms); err != nil {
 					return err
 				}
 			}
@@ -869,15 +870,15 @@ func (c *Cloud) updateInstanceSecurityGroupsForNLB(lbName string, instances map[
 
 // updateInstanceSecurityGroupForNLBTraffic will manage permissions set(identified by ruleDesc) on securityGroup to match desired set(allow protocol traffic from ports/cidr).
 // Note: sgPerms will be updated to reflect the current permission set on SG after update.
-func (c *Cloud) updateInstanceSecurityGroupForNLBTraffic(sgID string, sgPerms IPPermissionSet, ruleDesc string, protocol string, ports sets.Int64, cidrs []string) error {
+func (c *Cloud) updateInstanceSecurityGroupForNLBTraffic(ctx context.Context, sgID string, sgPerms IPPermissionSet, ruleDesc string, protocol string, ports sets.Set[int64], cidrs []string) error {
 	desiredPerms := NewIPPermissionSet()
 	for port := range ports {
 		for _, cidr := range cidrs {
-			desiredPerms.Insert(&ec2.IpPermission{
+			desiredPerms.Insert(ec2types.IpPermission{
 				IpProtocol: aws.String(protocol),
-				FromPort:   aws.Int64(port),
-				ToPort:     aws.Int64(port),
-				IpRanges: []*ec2.IpRange{
+				FromPort:   aws.Int32(int32(port)),
+				ToPort:     aws.Int32(int32(port)),
+				IpRanges: []ec2types.IpRange{
 					{
 						CidrIp:      aws.String(cidr),
 						Description: aws.String(ruleDesc),
@@ -892,7 +893,7 @@ func (c *Cloud) updateInstanceSecurityGroupForNLBTraffic(sgID string, sgPerms IP
 	permsToRevoke.DeleteIf(IPPermissionNotMatch{IPPermissionMatchDesc{ruleDesc}})
 	if len(permsToRevoke) > 0 {
 		permsToRevokeList := permsToRevoke.List()
-		changed, err := c.removeSecurityGroupIngress(sgID, permsToRevokeList)
+		changed, err := c.removeSecurityGroupIngress(ctx, sgID, permsToRevokeList)
 		if err != nil {
 			klog.Warningf("Error remove traffic permission from security group: %q", err)
 			return err
@@ -904,7 +905,7 @@ func (c *Cloud) updateInstanceSecurityGroupForNLBTraffic(sgID string, sgPerms IP
 	}
 	if len(permsToGrant) > 0 {
 		permsToGrantList := permsToGrant.List()
-		changed, err := c.addSecurityGroupIngress(sgID, permsToGrantList)
+		changed, err := c.addSecurityGroupIngress(ctx, sgID, permsToGrantList)
 		if err != nil {
 			klog.Warningf("Error add traffic permission to security group: %q", err)
 			return err
@@ -918,16 +919,16 @@ func (c *Cloud) updateInstanceSecurityGroupForNLBTraffic(sgID string, sgPerms IP
 }
 
 // Note: sgPerms will be updated to reflect the current permission set on SG after update.
-func (c *Cloud) updateInstanceSecurityGroupForNLBMTU(sgID string, sgPerms IPPermissionSet) error {
+func (c *Cloud) updateInstanceSecurityGroupForNLBMTU(ctx context.Context, sgID string, sgPerms IPPermissionSet) error {
 	desiredPerms := NewIPPermissionSet()
 	for _, perm := range sgPerms {
 		for _, ipRange := range perm.IpRanges {
 			if strings.Contains(aws.StringValue(ipRange.Description), NLBClientRuleDescription) {
-				desiredPerms.Insert(&ec2.IpPermission{
+				desiredPerms.Insert(ec2types.IpPermission{
 					IpProtocol: aws.String("icmp"),
-					FromPort:   aws.Int64(3),
-					ToPort:     aws.Int64(4),
-					IpRanges: []*ec2.IpRange{
+					FromPort:   aws.Int32(3),
+					ToPort:     aws.Int32(4),
+					IpRanges: []ec2types.IpRange{
 						{
 							CidrIp:      ipRange.CidrIp,
 							Description: aws.String(NLBMtuDiscoveryRuleDescription),
@@ -943,7 +944,7 @@ func (c *Cloud) updateInstanceSecurityGroupForNLBMTU(sgID string, sgPerms IPPerm
 	permsToRevoke.DeleteIf(IPPermissionNotMatch{IPPermissionMatchDesc{NLBMtuDiscoveryRuleDescription}})
 	if len(permsToRevoke) > 0 {
 		permsToRevokeList := permsToRevoke.List()
-		changed, err := c.removeSecurityGroupIngress(sgID, permsToRevokeList)
+		changed, err := c.removeSecurityGroupIngress(ctx, sgID, permsToRevokeList)
 		if err != nil {
 			klog.Warningf("Error remove MTU permission from security group: %q", err)
 			return err
@@ -956,7 +957,7 @@ func (c *Cloud) updateInstanceSecurityGroupForNLBMTU(sgID string, sgPerms IPPerm
 	}
 	if len(permsToGrant) > 0 {
 		permsToGrantList := permsToGrant.List()
-		changed, err := c.addSecurityGroupIngress(sgID, permsToGrantList)
+		changed, err := c.addSecurityGroupIngress(ctx, sgID, permsToGrantList)
 		if err != nil {
 			klog.Warningf("Error add MTU permission to security group: %q", err)
 			return err
@@ -1430,7 +1431,7 @@ func (c *Cloud) ensureLoadBalancerHealthCheck(loadBalancer *elb.LoadBalancerDesc
 }
 
 // Makes sure that exactly the specified hosts are registered as instances with the load balancer
-func (c *Cloud) ensureLoadBalancerInstances(loadBalancerName string, lbInstances []*elb.Instance, instanceIDs map[InstanceID]*ec2.Instance) error {
+func (c *Cloud) ensureLoadBalancerInstances(loadBalancerName string, lbInstances []*elb.Instance, instanceIDs map[InstanceID]*ec2types.Instance) error {
 	expected := sets.NewString()
 	for id := range instanceIDs {
 		expected.Insert(string(id))
@@ -1607,7 +1608,7 @@ func proxyProtocolEnabled(backend *elb.BackendServerDescription) bool {
 // findInstancesForELB gets the EC2 instances corresponding to the Nodes, for setting up an ELB
 // We ignore Nodes (with a log message) where the instanceid cannot be determined from the provider,
 // and we ignore instances which are not found
-func (c *Cloud) findInstancesForELB(nodes []*v1.Node, annotations map[string]string) (map[InstanceID]*ec2.Instance, error) {
+func (c *Cloud) findInstancesForELB(ctx context.Context, nodes []*v1.Node, annotations map[string]string) (map[InstanceID]*ec2types.Instance, error) {
 
 	targetNodes := filterTargetNodes(nodes, annotations)
 
@@ -1618,7 +1619,7 @@ func (c *Cloud) findInstancesForELB(nodes []*v1.Node, annotations map[string]str
 		MaxAge:       defaultEC2InstanceCacheMaxAge,
 		HasInstances: instanceIDs, // Refresh if any of the instance ids are missing
 	}
-	snapshot, err := c.instanceCache.describeAllInstancesCached(cacheCriteria)
+	snapshot, err := c.instanceCache.describeAllInstancesCached(ctx, cacheCriteria)
 	if err != nil {
 		return nil, err
 	}

@@ -17,11 +17,15 @@ limitations under the License.
 package aws
 
 import (
+	"context"
+	"testing"
+
 	"github.com/aws/aws-sdk-go/aws"
-	"github.com/aws/aws-sdk-go/service/ec2"
+	"github.com/aws/aws-sdk-go-v2/service/ec2"
+	ec2types "github.com/aws/aws-sdk-go-v2/service/ec2/types"
+
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
-	"testing"
 )
 
 func TestGetZoneIDByZoneName(t *testing.T) {
@@ -47,7 +51,7 @@ func TestGetZoneIDByZoneName(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			c, _ := getCloudWithMockedDescribeAvailabilityZones()
 
-			result, err := c.zoneCache.getZoneIDByZoneName(tc.zoneName)
+			result, err := c.zoneCache.getZoneIDByZoneName(context.TODO(), tc.zoneName)
 			if tc.expectError {
 				if err == nil {
 					t.Error("Expected to see an error")
@@ -107,7 +111,7 @@ func TestGetZoneDetailsByNames(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			c, mockedEC2API := getCloudWithMockedDescribeAvailabilityZones()
 
-			result, err := c.zoneCache.getZoneDetailsByNames(tc.zones)
+			result, err := c.zoneCache.getZoneDetailsByNames(context.TODO(), tc.zones)
 			if err != nil {
 				t.Errorf("Should not error getting zone details: %s", err)
 			}
@@ -115,7 +119,7 @@ func TestGetZoneDetailsByNames(t *testing.T) {
 			assert.Equal(t, tc.expectedResult, result, "Should return the expected zones")
 
 			// Call again to verify expected caching behavior
-			result, err = c.zoneCache.getZoneDetailsByNames(tc.zones)
+			result, err = c.zoneCache.getZoneDetailsByNames(context.TODO(), tc.zones)
 			if err != nil {
 				t.Errorf("Should not error getting zone details: %s", err)
 			}
@@ -130,7 +134,7 @@ func getCloudWithMockedDescribeAvailabilityZones() (*Cloud, *MockedEC2API) {
 	c.zoneCache = zoneCache{cloud: c}
 
 	mockedEC2API.On("DescribeAvailabilityZones", mock.Anything).Return(&ec2.DescribeAvailabilityZonesOutput{
-		AvailabilityZones: []*ec2.AvailabilityZone{
+		AvailabilityZones: []ec2types.AvailabilityZone{
 			{
 				ZoneName: aws.String("az1"),
 				ZoneId:   aws.String("az1-id"),
