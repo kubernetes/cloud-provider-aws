@@ -245,7 +245,7 @@ func Test_NodesJoiningAndLeaving(t *testing.T) {
 
 				cnt := 0
 				for tc.workqueue.Len() > 0 {
-					tc.process()
+					tc.process(context.TODO())
 					cnt++
 					// sleep briefly because of exponential backoff when requeueing failed workitem
 					// resulting in workqueue to be empty if checked immediately
