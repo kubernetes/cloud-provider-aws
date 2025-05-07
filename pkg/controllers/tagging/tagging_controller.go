@@ -188,7 +188,7 @@ func NewTaggingController(
 
 // Run will start the controller to tag resources attached to the cluster
 // and untag resources detached from the cluster.
-func (tc *Controller) Run(stopCh <-chan struct{}) {
+func (tc *Controller) Run(ctx context.Context, stopCh <-chan struct{}) {
 	defer utilruntime.HandleCrash()
 	defer tc.workqueue.ShutDown()
 
@@ -201,7 +201,7 @@ func (tc *Controller) Run(stopCh <-chan struct{}) {
 
 	klog.Infof("Starting the tagging controller")
 	for i := 0; i < tc.workerCount; i++ {
-		go wait.Until(tc.work, tc.nodeMonitorPeriod, stopCh)
+		go wait.Until(func() { tc.work(ctx) }, tc.nodeMonitorPeriod, stopCh)
 	}
 
 	<-stopCh
@@ -209,14 +209,14 @@ func (tc *Controller) Run(stopCh <-chan struct{}) {
 
 // work is a long-running function that continuously
 // call process() for each message on the workqueue
-func (tc *Controller) work() {
-	for tc.process() {
+func (tc *Controller) work(ctx context.Context) {
+	for tc.process(ctx) {
 	}
 }
 
 // process reads each message in the queue and performs either
 // tag or untag function on the Node object
-func (tc *Controller) process() bool {
+func (tc *Controller) process(ctx context.Context) bool {
 	obj, shutdown := tc.workqueue.Get()
 	if shutdown {
 		return false
@@ -250,12 +250,12 @@ func (tc *Controller) process() bool {
 			return nil
 		}
 		if workItem.action == addTag {
-			err = tc.tagNodesResources(&taggingControllerNode{
+			err = tc.tagNodesResources(ctx, &taggingControllerNode{
 				name:       workItem.name,
 				providerID: workItem.providerID,
 			})
 		} else {
-			err = tc.untagNodeResources(&taggingControllerNode{
+			err = tc.untagNodeResources(ctx, &taggingControllerNode{
 				name:       workItem.name,
 				providerID: workItem.providerID,
 			})
@@ -290,7 +290,7 @@ func (tc *Controller) process() bool {
 
 // tagNodesResources tag node resources
 // If we want to tag more resources, modify this function appropriately
-func (tc *Controller) tagNodesResources(node *taggingControllerNode) error {
+func (tc *Controller) tagNodesResources(ctx context.Context, node *taggingControllerNode) error {
 	for _, resource := range tc.resources {
 		switch resource {
 		case opt.Instance:
@@ -302,7 +302,7 @@ func (tc *Controller) tagNodesResources(node *taggingControllerNode) error {
 				}
 				return err
 			}
-			err = tc.tagEc2Instance(v1node)
+			err = tc.tagEc2Instance(ctx, v1node)
 			if err != nil {
 				return err
 			}
@@ -314,7 +314,7 @@ func (tc *Controller) tagNodesResources(node *taggingControllerNode) error {
 
 // tagEc2Instances applies the provided tags to each EC2 instance in
 // the cluster.
-func (tc *Controller) tagEc2Instance(node *v1.Node) error {
+func (tc *Controller) tagEc2Instance(ctx context.Context, node *v1.Node) error {
 	if !tc.isTaggingRequired(node) {
 		klog.Infof("Skip tagging node %s since it was already tagged earlier.", node.GetName())
 		return nil
@@ -362,11 +362,11 @@ func (tc *Controller) tagEc2Instance(node *v1.Node) error {
 
 // untagNodeResources untag node resources
 // If we want to untag more resources, modify this function appropriately
-func (tc *Controller) untagNodeResources(node *taggingControllerNode) error {
+func (tc *Controller) untagNodeResources(ctx context.Context, node *taggingControllerNode) error {
 	for _, resource := range tc.resources {
 		switch resource {
 		case opt.Instance:
-			err := tc.untagEc2Instance(node)
+			err := tc.untagEc2Instance(ctx, node)
 			if err != nil {
 				return err
 			}
@@ -378,7 +378,7 @@ func (tc *Controller) untagNodeResources(node *taggingControllerNode) error {
 
 // untagEc2Instances deletes the provided tags to each EC2 instances in
 // the cluster.
-func (tc *Controller) untagEc2Instance(node *taggingControllerNode) error {
+func (tc *Controller) untagEc2Instance(ctx context.Context, node *taggingControllerNode) error {
 	instanceID, _ := awsv1.KubernetesInstanceID(node.providerID).MapToAWSInstanceID()
 
 	var err error
