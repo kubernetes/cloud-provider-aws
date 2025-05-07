@@ -487,7 +487,6 @@ func TestNewAWSCloud(t *testing.T) {
 	}
 
 	for i, test := range tests {
-		fmt.Println("test", i)
 		t.Logf("Running test case %s", test.name)
 		cfg, err := readAWSCloudConfig(test.reader)
 		var c *Cloud

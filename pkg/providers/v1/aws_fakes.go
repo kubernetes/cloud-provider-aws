@@ -125,9 +125,6 @@ func NewFakeAWSServices(clusterID string) *FakeAWSServices {
 	tag.Key = aws.String(TagNameKubernetesClusterLegacy)
 	tag.Value = aws.String(clusterID)
 	selfInstance.Tags = []ec2types.Tag{tag}
-	fmt.Println("[newtakeawsservices] tags", s.instances[0].Tags)
-
-
 	s.callCounts = make(map[string]int)
 
 	return s
