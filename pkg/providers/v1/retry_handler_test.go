@@ -17,8 +17,15 @@ limitations under the License.
 package aws
 
 import (
+	"context"
+	"errors"
 	"testing"
 	"time"
+
+	"github.com/aws/aws-sdk-go-v2/aws/retry"
+	"github.com/aws/aws-sdk-go-v2/service/ec2"
+	"github.com/stretchr/testify/mock"
+	"github.com/aws/smithy-go"
 )
 
 // There follows a group of tests for the backoff logic.  There's nothing
@@ -131,5 +138,36 @@ func TestBackoffRecovers(t *testing.T) {
 		}
 		t.Logf("no-error phase delay @%d %v", i, d)
 		now = now.Add(time.Second)
+	}
+}
+
+
+// Make sure that NON_RETRYABLE_ERRORs, which are thrown by AWS SDK Go V2 clients
+// when the request context is canceled, are not retried with customRetryer is used.
+func TestNonRetryableError(t *testing.T) {
+	mockedEC2API := newMockedEC2API()
+	mockedEC2API.On("DescribeInstances", mock.Anything).Return(&ec2.DescribeInstancesOutput{}, &smithy.GenericAPIError{
+		Code:    NON_RETRYABLE_ERROR,
+		Message: NON_RETRYABLE_ERROR,
+	})
+
+	ec2Client := &awsSdkEC2{
+		ec2: mockedEC2API,
+	}
+	_, err := ec2Client.ec2.DescribeInstances(context.Background(), &ec2.DescribeInstancesInput{})
+	var apiErr smithy.APIError
+	if !errors.As(err, &apiErr) {
+		t.Errorf("Expected smithy.APIError, got %v", err)
+	}
+	if apiErr.ErrorCode() != NON_RETRYABLE_ERROR {
+		t.Errorf("Expected NON_RETRYABLE_ERROR error, got %s", apiErr.ErrorCode())
+	}
+
+	// Usually, the client would be configured with this retryer.
+	retryer := &customRetryer{
+		retry.NewStandard(),
+	} 
+	if retryer.IsErrorRetryable(err) {
+		t.Errorf("Expected NON_RETRYABLE_ERROR error to be non-retryable")
 	}
 }

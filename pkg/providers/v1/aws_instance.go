@@ -19,8 +19,8 @@ package aws
 import (
 	"context"
 
-	"github.com/aws/aws-sdk-go/aws"
 	ec2types "github.com/aws/aws-sdk-go-v2/service/ec2/types"
+	"github.com/aws/aws-sdk-go/aws"
 
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/cloud-provider-aws/pkg/providers/v1/iface"

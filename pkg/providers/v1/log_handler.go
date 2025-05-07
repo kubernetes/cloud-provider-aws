@@ -22,8 +22,8 @@ import (
 
 	"github.com/aws/aws-sdk-go/aws/request"
 	"github.com/aws/smithy-go"
-	"github.com/aws/smithy-go/transport/http"
 	"github.com/aws/smithy-go/middleware"
+	"github.com/aws/smithy-go/transport/http"
 	"k8s.io/klog/v2"
 )
 
@@ -55,40 +55,42 @@ func awsServiceAndName(req *request.Request) (string, string) {
 
 // Middleware for AWS SDK Go V2 clients
 type awsHandlerLoggerV2 struct{}
+
 func (l *awsHandlerLoggerV2) ID() string {
-    return "k8s/logger"
+	return "k8s/logger"
 }
 func (l *awsHandlerLoggerV2) HandleFinalize(ctx context.Context, in middleware.FinalizeInput, next middleware.FinalizeHandler) (
-    out middleware.FinalizeOutput, metadata middleware.Metadata, err error,
+	out middleware.FinalizeOutput, metadata middleware.Metadata, err error,
 ) {
-    service, name := awsServiceAndNameV2(ctx)
-    klog.V(4).Infof("AWS request: %s %s", service, name)
-    return next.HandleFinalize(ctx, in)
+	service, name := awsServiceAndNameV2(ctx)
+	klog.V(4).Infof("AWS request: %s %s", service, name)
+	return next.HandleFinalize(ctx, in)
 }
 
 type awsValidateResponseHandlerLoggerV2 struct{}
+
 func (l *awsValidateResponseHandlerLoggerV2) ID() string {
-    return "k8s/api-validate-response"
+	return "k8s/api-validate-response"
 }
 func (l *awsValidateResponseHandlerLoggerV2) HandleDeserialize(ctx context.Context, in middleware.DeserializeInput, next middleware.DeserializeHandler) (
-    out middleware.DeserializeOutput, metadata middleware.Metadata, err error,
+	out middleware.DeserializeOutput, metadata middleware.Metadata, err error,
 ) {
-    out, metadata, err = next.HandleDeserialize(ctx, in)
-    response, ok := out.RawResponse.(*http.Response)
+	out, metadata, err = next.HandleDeserialize(ctx, in)
+	response, ok := out.RawResponse.(*http.Response)
 	if !ok {
 		return out, metadata, &smithy.DeserializationError{Err: fmt.Errorf("unknown transport type %T", out.RawResponse)}
 	}
-    service, name := awsServiceAndNameV2(ctx)
+	service, name := awsServiceAndNameV2(ctx)
 	klog.V(4).Infof("AWS API ValidateResponse: %s %s %d", service, name, response.StatusCode)
-    return out, metadata, err
+	return out, metadata, err
 }
 
 func awsServiceAndNameV2(ctx context.Context) (string, string) {
-    service := middleware.GetServiceID(ctx)
+	service := middleware.GetServiceID(ctx)
 
-    name := "?"
-    if opName := middleware.GetOperationName(ctx); opName != "" {
-        name = opName
-    }
-    return service, name
+	name := "?"
+	if opName := middleware.GetOperationName(ctx); opName != "" {
+		name = opName
+	}
+	return service, name
 }

@@ -20,8 +20,8 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"github.com/aws/aws-sdk-go/aws"
 	ec2types "github.com/aws/aws-sdk-go-v2/service/ec2/types"
+	"github.com/aws/aws-sdk-go/aws"
 )
 
 // IPPermissionSet maps IP strings of strings to EC2 IpPermissions

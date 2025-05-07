@@ -3,8 +3,8 @@ package aws
 import (
 	"testing"
 
-	"github.com/aws/aws-sdk-go/aws"
 	ec2types "github.com/aws/aws-sdk-go-v2/service/ec2/types"
+	"github.com/aws/aws-sdk-go/aws"
 )
 
 func TestUngroup(t *testing.T) {

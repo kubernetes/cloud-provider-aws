@@ -20,8 +20,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/aws/aws-sdk-go/aws"
 	ec2types "github.com/aws/aws-sdk-go-v2/service/ec2/types"
+	"github.com/aws/aws-sdk-go/aws"
 	"github.com/stretchr/testify/assert"
 	v1 "k8s.io/api/core/v1"
 )

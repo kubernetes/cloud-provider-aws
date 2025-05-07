@@ -24,8 +24,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/aws/aws-sdk-go/aws"
 	awsv2 "github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/awserr"
 	"github.com/aws/aws-sdk-go/aws/request"
 	"github.com/aws/smithy-go"
@@ -186,25 +186,29 @@ func (b *Backoff) ReportError() {
 // This works in tandem with CrossRequestRetryDelay, which reports these errors before
 // the middleware exits upon seeing this error
 type customRetryer struct {
-    awsv2.Retryer
+	awsv2.Retryer
 }
 func (r customRetryer) IsErrorRetryable(err error) bool {
 	var ae smithy.APIError
-    if errors.As(err, &ae) && strings.Contains(ae.Error(), NON_RETRYABLE_ERROR) {
-        return false
-    }
-    return r.IsErrorRetryable(err)
+	if errors.As(err, &ae) && strings.Contains(ae.Error(), NON_RETRYABLE_ERROR) {
+		return false
+	}
+	return r.Retryer.IsErrorRetryable(err)
 }
 
 // Middleware for AWS SDK Go V2 clients
-type delayPrerequest struct{
+type delayPrerequest struct {
 	delayer *CrossRequestRetryDelay
 }
+
 func (l *delayPrerequest) ID() string {
-    return "k8s/delay-presign"
+	return "k8s/delay-presign"
 }
+// Throws NON_RETRYABLE_ERROR if the request context was canceled. 
+// This is to preserve behavior from AWS SDK Go V1 that marked a request as non-retryable in the same situation.
+// AWS SDK Go V2 clients created with a customRetryer will not retry NON_RETRYABLE_ERRORs.
 func (l *delayPrerequest) HandleFinalize(ctx context.Context, in middleware.FinalizeInput, next middleware.FinalizeHandler) (
-    out middleware.FinalizeOutput, metadata middleware.Metadata, err error,
+	out middleware.FinalizeOutput, metadata middleware.Metadata, err error,
 ) {
 	now := time.Now()
 	delay := l.delayer.backoff.ComputeDelayForRequest(now)
@@ -218,18 +222,19 @@ func (l *delayPrerequest) HandleFinalize(ctx context.Context, in middleware.Fina
 		}
 	}
 
-    return next.HandleFinalize(ctx, in)
+	return next.HandleFinalize(ctx, in)
 }
 
-type delayAfterRetry struct{
+type delayAfterRetry struct {
 	delayer *CrossRequestRetryDelay
-	cfg 	aws.Config
+	cfg     aws.Config
 }
+
 func (l *delayAfterRetry) ID() string {
-    return "k8s/delay-afterretry"
+	return "k8s/delay-afterretry"
 }
 func (l *delayAfterRetry) HandleFinalize(ctx context.Context, in middleware.FinalizeInput, next middleware.FinalizeHandler) (
-    out middleware.FinalizeOutput, metadata middleware.Metadata, err error,
+	out middleware.FinalizeOutput, metadata middleware.Metadata, err error,
 ) {
 	finOutput, finMetadata, finErr := next.HandleFinalize(ctx, in)
 	if finErr == nil {
@@ -237,12 +242,12 @@ func (l *delayAfterRetry) HandleFinalize(ctx context.Context, in middleware.Fina
 	}
 
 	var ae smithy.APIError
-    if errors.As(err, &ae) && strings.Contains(ae.Error(), "RequestLimitExceeded") {
-        l.delayer.backoff.ReportError()
+	if errors.As(err, &ae) && strings.Contains(ae.Error(), "RequestLimitExceeded") {
+		l.delayer.backoff.ReportError()
 		recordAWSThrottlesMetric(operationNameV2(ctx))
 		klog.Warningf("Got RequestLimitExceeded error on AWS request (%s)",
 			describeRequestV2(ctx))
-    }
+	}
 	return finOutput, finMetadata, finErr
 }
 
@@ -250,15 +255,15 @@ func (l *delayAfterRetry) HandleFinalize(ctx context.Context, in middleware.Fina
 func operationNameV2(ctx context.Context) string {
 	name := "?"
 	if opName := middleware.GetOperationName(ctx); opName != "" {
-        name = opName
-    }
+		name = opName
+	}
 	return name
 }
 
 // Return a user-friendly string describing the request, for use in log messages
 func describeRequestV2(ctx context.Context) string {
 	service := middleware.GetServiceID(ctx)
-    
+
 	return service + "::" + operationNameV2(ctx)
 }
 
@@ -275,4 +280,3 @@ func sleepWithContext(ctx context.Context, dur time.Duration) error {
 
 	return nil
 }
-

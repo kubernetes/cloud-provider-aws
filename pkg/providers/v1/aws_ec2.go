@@ -17,16 +17,16 @@ limitations under the License.
 package aws
 
 import (
+	"context"
 	"fmt"
 	"time"
-	"context"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/ec2"
 	ec2types "github.com/aws/aws-sdk-go-v2/service/ec2/types"
 )
 
-// An interface to satisfy the ec2.Client API. 
+// An interface to satisfy the ec2.Client API.
 // More details about this pattern: https://docs.aws.amazon.com/sdk-for-go/v2/developer-guide/unit-testing.html
 type EC2API interface {
 	AuthorizeSecurityGroupIngress(ctx context.Context, params *ec2.AuthorizeSecurityGroupIngressInput, optFns ...func(*ec2.Options)) (*ec2.AuthorizeSecurityGroupIngressOutput, error)
@@ -47,6 +47,7 @@ type EC2API interface {
 	ModifyInstanceAttribute(ctx context.Context, params *ec2.ModifyInstanceAttributeInput, optFns ...func(*ec2.Options)) (*ec2.ModifyInstanceAttributeOutput, error)
 	RevokeSecurityGroupIngress(ctx context.Context, params *ec2.RevokeSecurityGroupIngressInput, optFns ...func(*ec2.Options)) (*ec2.RevokeSecurityGroupIngressOutput, error)
 }
+
 // awsSdkEC2 is an implementation of the EC2 interface, backed by aws-sdk-go
 type awsSdkEC2 struct {
 	ec2 EC2API

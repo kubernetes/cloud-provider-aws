@@ -21,8 +21,8 @@ import (
 	"fmt"
 	"sync"
 
-	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go-v2/service/ec2"
+	"github.com/aws/aws-sdk-go/aws"
 	"k8s.io/klog/v2"
 )
 
