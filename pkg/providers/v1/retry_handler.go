@@ -17,15 +17,21 @@ limitations under the License.
 package aws
 
 import (
+	"errors"
 	"math"
+	"strings"
 	"sync"
 	"time"
 
 	"github.com/aws/aws-sdk-go/aws"
+	awsv2 "github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go/aws/awserr"
 	"github.com/aws/aws-sdk-go/aws/request"
+	"github.com/aws/smithy-go"
 	"k8s.io/klog/v2"
 )
+
+var NON_RETRYABLE_ERROR = "non-retryable error"
 
 const (
 	decayIntervalSeconds = 20
@@ -172,4 +178,18 @@ func (b *Backoff) ReportError() {
 	defer b.mutex.Unlock()
 
 	b.countErrorsRequestLimit += 1.0
+}
+
+// Standard retry implementation, except that it doesn't retry RequestLimitExceeded errors.
+// This works in tandem with CrossRequestRetryDelay, which reports these errors before
+// the middleware exits upon seeing this error
+type customRetryer struct {
+    awsv2.Retryer
+}
+func (r customRetryer) IsErrorRetryable(err error) bool {
+	var ae smithy.APIError
+    if errors.As(err, &ae) && strings.Contains(ae.Error(), NON_RETRYABLE_ERROR) {
+        return false
+    }
+    return r.IsErrorRetryable(err)
 }

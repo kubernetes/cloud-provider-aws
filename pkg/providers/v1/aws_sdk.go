@@ -17,37 +17,44 @@ limitations under the License.
 package aws
 
 import (
+	"context"
 	"fmt"
 	"sync"
 
 	"github.com/aws/aws-sdk-go/aws"
+	awsv2 "github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go/aws/credentials"
 	"github.com/aws/aws-sdk-go/aws/ec2metadata"
+	"github.com/aws/aws-sdk-go-v2/aws/retry"
 	"github.com/aws/aws-sdk-go/aws/request"
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go-v2/service/ec2"
-	// awsConfig "github.com/aws/aws-sdk-go-v2/config"
+	awsConfig "github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go/service/elb"
 	"github.com/aws/aws-sdk-go/service/elbv2"
 	"github.com/aws/aws-sdk-go/service/kms"
+	"github.com/aws/aws-sdk-go-v2/aws/middleware"
+
+	smithymiddleware "github.com/aws/smithy-go/middleware"
 	"k8s.io/client-go/pkg/version"
 	"k8s.io/klog/v2"
-
 	"k8s.io/cloud-provider-aws/pkg/providers/v1/config"
 	"k8s.io/cloud-provider-aws/pkg/providers/v1/iface"
 )
 
 type awsSDKProvider struct {
 	creds *credentials.Credentials
+	credsV2 awsv2.CredentialsProvider // for use in aws-sdk-go v2 clients
 	cfg   awsCloudConfigProvider
 
 	mutex          sync.Mutex
 	regionDelayers map[string]*CrossRequestRetryDelay
 }
 
-func newAWSSDKProvider(creds *credentials.Credentials, cfg *config.CloudConfig) *awsSDKProvider {
+func newAWSSDKProvider(creds *credentials.Credentials, credsV2 awsv2.CredentialsProvider, cfg *config.CloudConfig) *awsSDKProvider {
 	return &awsSDKProvider{
 		creds:          creds,
+		credsV2: 		credsV2,
 		cfg:            cfg,
 		regionDelayers: make(map[string]*CrossRequestRetryDelay),
 	}
@@ -113,10 +120,26 @@ func (p *awsSDKProvider) getCrossRequestRetryDelay(regionName string) *CrossRequ
 	return delayer
 }
 
-func (p *awsSDKProvider) Compute(regionName string) (iface.EC2, error) {
+func (p *awsSDKProvider) Compute(ctx context.Context, regionName string) (iface.EC2, error) {
+	cfg, err := awsConfig.LoadDefaultConfig(context.TODO(),
+		awsConfig.WithRegion(regionName),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("unable to initialize AWS config: %v", err)
+	}
+	cfg.Region = regionName
+	cfg.Credentials = p.credsV2
+
+	p.AddHandlersV2(ctx, regionName, cfg)
+
+	ec2Client := ec2.NewFromConfig(cfg, func(o *ec2.Options) {
+		o.Retryer = &customRetryer{
+			retry.NewStandard(),
+		}
+	})
 
 	ec2 := &awsSdkEC2{
-		ec2: ec2.New(ec2.Options{Region: regionName}),
+		ec2: ec2Client,
 	}
 	return ec2, nil
 }
@@ -206,4 +229,32 @@ func (p *awsSDKProvider) KeyManagement(regionName string) (KMS, error) {
 	p.AddHandlers(regionName, &kmsClient.Handlers)
 
 	return kmsClient, nil
+}
+
+func (p *awsSDKProvider) AddHandlersV2(ctx context.Context, regionName string, cfg awsv2.Config) {
+	// TODO: add retryer
+	cfg.APIOptions = append(cfg.APIOptions,
+		middleware.AddUserAgentKeyValue("kubernetes", version.Get().String()),
+		func(stack *smithymiddleware.Stack) error {
+			return stack.Finalize.Add(&awsHandlerLoggerV2{}, smithymiddleware.Before)
+		},
+	)
+
+	delayer := p.getCrossRequestRetryDelay(regionName)
+	if delayer != nil {
+		cfg.APIOptions = append(cfg.APIOptions,
+			func(stack *smithymiddleware.Stack) error {
+				return stack.Finalize.Add(&delayPrerequest{
+					delayer: delayer,
+				}, smithymiddleware.Before)
+			},
+			func(stack *smithymiddleware.Stack) error {
+				return stack.Finalize.Insert(&delayAfterRetry{
+					delayer: delayer,
+				}, "Retry", smithymiddleware.Before)
+			},
+		)
+	}
+
+	p.addAPILoggingHandlers(cfg)
 }
