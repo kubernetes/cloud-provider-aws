@@ -594,16 +594,16 @@ func TestCloud_findInstancesForELB(t *testing.T) {
 	}
 
 	want := map[InstanceID]*ec2types.Instance{
-		"i-self": &awsServices.selfInstance,
+		"i-self": awsServices.selfInstance,
 	}
 	got, err := c.findInstancesForELB(context.TODO(), []*v1.Node{defaultNode}, nil)
 	assert.NoError(t, err)
 	assert.True(t, reflect.DeepEqual(want, got))
 
 	// Add a new EC2 instance
-	awsServices.instances = append(awsServices.instances, *newInstance)
+	awsServices.instances = append(awsServices.instances, newInstance)
 	want = map[InstanceID]*ec2types.Instance{
-		"i-self": &awsServices.selfInstance,
+		"i-self": awsServices.selfInstance,
 		InstanceID(aws.StringValue(newInstance.InstanceId)): newInstance,
 	}
 	got, err = c.findInstancesForELB(context.TODO(), []*v1.Node{defaultNode, newNode}, nil)

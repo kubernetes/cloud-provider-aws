@@ -64,7 +64,7 @@ func (m *MockedFakeEC2) expectDescribeSecurityGroups(clusterID, groupName string
 	m.On("DescribeSecurityGroups", &ec2.DescribeSecurityGroupsInput{Filters: []ec2types.Filter{
 		newEc2Filter("group-name", groupName),
 		newEc2Filter("vpc-id", ""),
-	}}).Return([]*ec2types.SecurityGroup{{Tags: tags}})
+	}}).Return([]ec2types.SecurityGroup{{Tags: tags}})
 }
 
 func (m *MockedFakeEC2) expectDescribeSecurityGroupsAll(clusterID string) {
@@ -73,7 +73,7 @@ func (m *MockedFakeEC2) expectDescribeSecurityGroupsAll(clusterID string) {
 		{Key: aws.String(fmt.Sprintf("%s%s", TagNameKubernetesClusterPrefix, clusterID)), Value: aws.String(ResourceLifecycleOwned)},
 	}
 
-	m.On("DescribeSecurityGroups", &ec2.DescribeSecurityGroupsInput{}).Return([]*ec2types.SecurityGroup{{
+	m.On("DescribeSecurityGroups", &ec2.DescribeSecurityGroupsInput{}).Return([]ec2types.SecurityGroup{{
 		GroupId: aws.String("sg-123456"),
 		Tags:    tags,
 	}})
@@ -87,7 +87,7 @@ func (m *MockedFakeEC2) expectDescribeSecurityGroupsByFilter(clusterID, filterNa
 
 	m.On("DescribeSecurityGroups", &ec2.DescribeSecurityGroupsInput{Filters: []ec2types.Filter{
 		newEc2Filter(filterName, filterValues...),
-	}}).Return([]*ec2types.SecurityGroup{{Tags: tags}})
+	}}).Return([]ec2types.SecurityGroup{{Tags: tags}})
 }
 
 func (m *MockedFakeEC2) DescribeSecurityGroups(ctx context.Context, request *ec2.DescribeSecurityGroupsInput, optFns ...func(*ec2.Options)) ([]ec2types.SecurityGroup, error) {
@@ -509,7 +509,7 @@ func TestNewAWSCloud(t *testing.T) {
 	}
 }
 
-func mockInstancesResp(selfInstance ec2types.Instance, instances []ec2types.Instance) (*Cloud, *FakeAWSServices) {
+func mockInstancesResp(selfInstance *ec2types.Instance, instances []*ec2types.Instance) (*Cloud, *FakeAWSServices) {
 	awsServices := newMockedFakeAWSServices(TestClusterID)
 	awsServices.instances = instances
 	awsServices.selfInstance = selfInstance
@@ -653,7 +653,7 @@ func TestNodeAddressesByProviderID(t *testing.T) {
 	} {
 		t.Run(tc.Name, func(t *testing.T) {
 			instance := makeInstance(tc.InstanceID, tc.PrivateIP, tc.PublicIP, tc.PrivateDNSName, tc.PublicDNSName, tc.Ipv6s, tc.SetNetInterface)
-			aws1, _ := mockInstancesResp(instance, []ec2types.Instance{instance})
+			aws1, _ := mockInstancesResp(&instance, []*ec2types.Instance{&instance})
 			_, err := aws1.NodeAddressesByProviderID(context.TODO(), "i-xxx")
 			if err == nil {
 				t.Errorf("Should error when no instance found")
@@ -759,7 +759,7 @@ func TestNodeAddresses(t *testing.T) {
 	} {
 		t.Run(tc.Name, func(t *testing.T) {
 			instance := makeInstance(tc.InstanceID, tc.PrivateIP, tc.PublicIP, tc.PrivateDNSName, tc.PublicDNSName, tc.Ipv6s, tc.SetNetInterface)
-			aws1, _ := mockInstancesResp(instance, []ec2types.Instance{instance})
+			aws1, _ := mockInstancesResp(&instance, []*ec2types.Instance{&instance})
 			_, err := aws1.NodeAddresses(context.TODO(), "instance-mismatch.ec2.internal")
 			if err == nil {
 				t.Errorf("Should error when no instance found")
@@ -1615,7 +1615,7 @@ func TestFindInstanceByNodeNameExcludesTerminatedInstances(t *testing.T) {
 		testInstance.InstanceId = aws.String(id)
 		testInstance.State = &ec2types.InstanceState{Code: aws.Int32(awsState.id), Name: awsState.state}
 
-		awsServices.instances = append(awsDefaultInstances, testInstance)
+		awsServices.instances = append(awsDefaultInstances, &testInstance)
 
 		c, err := newAWSCloud(config.CloudConfig{}, awsServices)
 		if err != nil {
@@ -1655,14 +1655,13 @@ func TestGetInstanceByNodeNameBatching(t *testing.T) {
 	for i := 0; i < 200; i++ {
 		nodeName := fmt.Sprintf("ip-171-20-42-%d.ec2.internal", i)
 		nodeNames = append(nodeNames, nodeName)
-		ec2Instance := ec2types.Instance{}
+		ec2Instance := &ec2types.Instance{}
 		instanceID := fmt.Sprintf("i-abcedf%d", i)
 		ec2Instance.InstanceId = aws.String(instanceID)
 		ec2Instance.PrivateDnsName = aws.String(nodeName)
 		ec2Instance.State = &ec2types.InstanceState{Code: aws.Int32(48), Name: ec2types.InstanceStateNameRunning}
 		ec2Instance.Tags = tags
 		awsServices.instances = append(awsServices.instances, ec2Instance)
-
 	}
 
 	instances, err := c.getInstancesByNodeNames(context.TODO(), nodeNames)
@@ -2988,9 +2987,9 @@ func (m *MockedFakeEC2) maybeExpectDescribeSecurityGroups(clusterID, groupName s
 	m.On("DescribeSecurityGroups", &ec2.DescribeSecurityGroupsInput{Filters: []ec2types.Filter{
 		newEc2Filter("group-name", groupName),
 		newEc2Filter("vpc-id", ""),
-	}}).Maybe().Return([]*ec2types.SecurityGroup{{Tags: tags}})
+	}}).Maybe().Return([]ec2types.SecurityGroup{{Tags: tags}})
 
-	m.On("DescribeSecurityGroups", &ec2.DescribeSecurityGroupsInput{}).Maybe().Return([]*ec2types.SecurityGroup{{Tags: tags}})
+	m.On("DescribeSecurityGroups", &ec2.DescribeSecurityGroupsInput{}).Maybe().Return([]ec2types.SecurityGroup{{Tags: tags}})
 }
 
 func TestNLBNodeRegistration(t *testing.T) {
@@ -3099,7 +3098,7 @@ func TestNLBNodeRegistration(t *testing.T) {
 
 func makeNamedNode(s *FakeAWSServices, offset int, name string) *v1.Node {
 	instanceID := fmt.Sprintf("i-%x", int64(0x02bce90670bb0c7cd)+int64(offset))
-	instance := ec2types.Instance{}
+	instance := &ec2types.Instance{}
 	instance.InstanceId = aws.String(instanceID)
 	instance.Placement = &ec2types.Placement{
 		AvailabilityZone: aws.String("us-west-2c"),
