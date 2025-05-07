@@ -21,31 +21,31 @@ import (
 	"fmt"
 	"sync"
 
-	"github.com/aws/aws-sdk-go/aws"
 	awsv2 "github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/aws/middleware"
+	"github.com/aws/aws-sdk-go-v2/aws/retry"
+	awsConfig "github.com/aws/aws-sdk-go-v2/config"
+	"github.com/aws/aws-sdk-go-v2/service/ec2"
+	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/credentials"
 	"github.com/aws/aws-sdk-go/aws/ec2metadata"
-	"github.com/aws/aws-sdk-go-v2/aws/retry"
 	"github.com/aws/aws-sdk-go/aws/request"
 	"github.com/aws/aws-sdk-go/aws/session"
-	"github.com/aws/aws-sdk-go-v2/service/ec2"
-	awsConfig "github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go/service/elb"
 	"github.com/aws/aws-sdk-go/service/elbv2"
 	"github.com/aws/aws-sdk-go/service/kms"
-	"github.com/aws/aws-sdk-go-v2/aws/middleware"
 
 	smithymiddleware "github.com/aws/smithy-go/middleware"
 	"k8s.io/client-go/pkg/version"
-	"k8s.io/klog/v2"
 	"k8s.io/cloud-provider-aws/pkg/providers/v1/config"
 	"k8s.io/cloud-provider-aws/pkg/providers/v1/iface"
+	"k8s.io/klog/v2"
 )
 
 type awsSDKProvider struct {
-	creds *credentials.Credentials
+	creds   *credentials.Credentials
 	credsV2 awsv2.CredentialsProvider // for use in aws-sdk-go v2 clients
-	cfg   awsCloudConfigProvider
+	cfg     awsCloudConfigProvider
 
 	mutex          sync.Mutex
 	regionDelayers map[string]*CrossRequestRetryDelay
@@ -54,7 +54,7 @@ type awsSDKProvider struct {
 func newAWSSDKProvider(creds *credentials.Credentials, credsV2 awsv2.CredentialsProvider, cfg *config.CloudConfig) *awsSDKProvider {
 	return &awsSDKProvider{
 		creds:          creds,
-		credsV2: 		credsV2,
+		credsV2:        credsV2,
 		cfg:            cfg,
 		regionDelayers: make(map[string]*CrossRequestRetryDelay),
 	}
@@ -243,7 +243,6 @@ func (p *awsSDKProvider) KeyManagement(regionName string) (KMS, error) {
 }
 
 func (p *awsSDKProvider) AddHandlersV2(ctx context.Context, regionName string, cfg awsv2.Config) {
-	// TODO: add retryer
 	cfg.APIOptions = append(cfg.APIOptions,
 		middleware.AddUserAgentKeyValue("kubernetes", version.Get().String()),
 		func(stack *smithymiddleware.Stack) error {

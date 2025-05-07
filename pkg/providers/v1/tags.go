@@ -21,9 +21,9 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go-v2/service/ec2"
 	ec2types "github.com/aws/aws-sdk-go-v2/service/ec2/types"
+	"github.com/aws/aws-sdk-go/aws"
 	"k8s.io/klog/v2"
 
 	"k8s.io/apimachinery/pkg/util/wait"
