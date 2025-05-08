@@ -6,8 +6,8 @@ import (
 	"strings"
 
 	"github.com/aws/aws-sdk-go/aws/request"
-
 	"github.com/aws/aws-sdk-go/aws/endpoints"
+	"github.com/aws/aws-sdk-go-v2/aws"
 
 	"k8s.io/klog/v2"
 )
@@ -209,5 +209,5 @@ func (cfg *CloudConfig) GetResolver() endpoints.ResolverFunc {
 // SDKProvider can be used by variants to add their own handlers
 type SDKProvider interface {
 	AddHandlers(regionName string, h *request.Handlers)
-	AddHandlersV2(ctx context.Context, regionName string, h *request.Handlers)
+	AddHandlersV2(ctx context.Context, regionName string, cfg aws.Config)
 }
