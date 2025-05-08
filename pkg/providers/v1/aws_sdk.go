@@ -242,6 +242,8 @@ func (p *awsSDKProvider) KeyManagement(regionName string) (KMS, error) {
 	return kmsClient, nil
 }
 
+// Adds handlers to AWS SDK Go V2 clients. For AWS SDK Go V1 clients,
+// func (p *awsSDKProvider) AddHandlers is used.
 func (p *awsSDKProvider) AddHandlersV2(ctx context.Context, regionName string, cfg awsv2.Config) {
 	cfg.APIOptions = append(cfg.APIOptions,
 		middleware.AddUserAgentKeyValue("kubernetes", version.Get().String()),

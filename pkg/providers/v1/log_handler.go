@@ -85,6 +85,8 @@ func (l *awsValidateResponseHandlerLoggerV2) HandleDeserialize(ctx context.Conte
 	return out, metadata, err
 }
 
+// Adds handlers to AWS SDK Go V2 clients. For AWS SDK Go V1 clients,
+// func awsServiceAndName(req *request.Request) is used.
 func awsServiceAndNameV2(ctx context.Context) (string, string) {
 	service := middleware.GetServiceID(ctx)
 

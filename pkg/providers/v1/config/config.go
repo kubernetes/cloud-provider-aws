@@ -1,6 +1,7 @@
 package config
 
 import (
+	"context"
 	"fmt"
 	"strings"
 
@@ -208,4 +209,5 @@ func (cfg *CloudConfig) GetResolver() endpoints.ResolverFunc {
 // SDKProvider can be used by variants to add their own handlers
 type SDKProvider interface {
 	AddHandlers(regionName string, h *request.Handlers)
+	AddHandlersV2(ctx context.Context, regionName string, h *request.Handlers)
 }
