@@ -33,6 +33,7 @@ import (
 	"github.com/aws/aws-sdk-go/aws/awserr"
 	"github.com/aws/aws-sdk-go/service/elb"
 	"github.com/aws/aws-sdk-go/service/elbv2"
+	"github.com/aws/smithy-go"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
@@ -3874,4 +3875,33 @@ func TestInstanceIDIndexFunc(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestIsAWSErrorInstanceNotFound(t *testing.T) {
+	mockedEC2API := newMockedEC2API()
+	ec2Client := &awsSdkEC2{
+		ec2: mockedEC2API,
+	}
+
+	// API error
+	mockedEC2API.On("DescribeInstances", mock.Anything).Return(&ec2.DescribeInstancesOutput{}, error(&smithy.GenericAPIError{
+		Code:    string(ec2types.UnsuccessfulInstanceCreditSpecificationErrorCodeInstanceNotFound),
+		Message: "test",
+	}))
+	_, err := ec2Client.ec2.DescribeInstances(context.Background(), &ec2.DescribeInstancesInput{})
+	assert.True(t, IsAWSErrorInstanceNotFound(err))
+
+	// Wrapped error
+	_, err = ec2Client.ec2.DescribeInstances(context.Background(), &ec2.DescribeInstancesInput{})
+	err = fmt.Errorf("error listing AWS instances: %q", err)
+	assert.True(t, IsAWSErrorInstanceNotFound(err))
+
+	// Expect false for nil and any other errors
+	assert.False(t, IsAWSErrorInstanceNotFound(nil))
+
+	mockedEC2API.On("DescribeInstances", mock.Anything).Return(&ec2.DescribeInstancesInput{}, &smithy.GenericAPIError{
+		Code: string(ec2types.UnsuccessfulInstanceCreditSpecificationErrorCodeIncorrectInstanceState),
+	})
+	_, err = ec2Client.ec2.DescribeInstances(context.Background(), &ec2.DescribeInstancesInput{})
+	assert.False(t, IsAWSErrorInstanceNotFound(nil))
 }
