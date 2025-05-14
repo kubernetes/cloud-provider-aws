@@ -208,6 +208,9 @@ func (cfg *CloudConfig) GetResolver() endpoints.ResolverFunc {
 	}
 }
 
+// GetEC2Endpoint returns client configuration options that override
+// the signing name and region, if appropriate. Replicates logic
+// from GetResolver() for AWS SDK Go V2 clients.
 func (cfg *CloudConfig) GetEC2Endpoint(region string) []func(*ec2.Options) {
 	opts := []func(*ec2.Options){}
 	for _, override := range cfg.ServiceOverride {
