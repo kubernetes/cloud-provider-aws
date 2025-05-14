@@ -144,7 +144,7 @@ func TestBackoffRecovers(t *testing.T) {
 // when the request context is canceled, are not retried with customRetryer is used.
 func TestNonRetryableError(t *testing.T) {
 	mockedEC2API := newMockedEC2API()
-	mockedEC2API.On("DescribeInstances", mock.Anything).Return(&ec2.DescribeInstancesOutput{}, errors.New(NON_RETRYABLE_ERROR))
+	mockedEC2API.On("DescribeInstances", mock.Anything).Return(&ec2.DescribeInstancesOutput{}, errors.New(nonRetryableError))
 
 	ec2Client := &awsSdkEC2{
 		ec2: mockedEC2API,
