@@ -26,7 +26,7 @@ import (
 	ec2types "github.com/aws/aws-sdk-go-v2/service/ec2/types"
 )
 
-// An interface to satisfy the ec2.Client API.
+// EC2API is an interface to satisfy the ec2.Client API.
 // More details about this pattern: https://docs.aws.amazon.com/sdk-for-go/v2/developer-guide/unit-testing.html
 type EC2API interface {
 	AuthorizeSecurityGroupIngress(ctx context.Context, params *ec2.AuthorizeSecurityGroupIngressInput, optFns ...func(*ec2.Options)) (*ec2.AuthorizeSecurityGroupIngressOutput, error)
