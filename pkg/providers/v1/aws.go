@@ -18,6 +18,7 @@ package aws
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -41,6 +42,7 @@ import (
 	"github.com/aws/aws-sdk-go/service/elbv2"
 	"github.com/aws/aws-sdk-go/service/kms"
 	"github.com/aws/aws-sdk-go/service/sts"
+	"github.com/aws/smithy-go"
 	"gopkg.in/gcfg.v1"
 
 	v1 "k8s.io/api/core/v1"
@@ -405,6 +407,7 @@ type Cloud struct {
 // Interface to make the CloudConfig immutable for awsSDKProvider
 type awsCloudConfigProvider interface {
 	GetResolver() endpoints.ResolverFunc
+	GetEC2Endpoint(region string) []func(*ec2.Options) // for AWS SDK Go V2 Clients
 }
 
 // InstanceIDIndexFunc indexes based on a Node's instance ID found in its spec.providerID
@@ -1081,10 +1084,9 @@ func IsAWSErrorInstanceNotFound(err error) bool {
 		return false
 	}
 
-	if awsError, ok := err.(awserr.Error); ok {
-		if awsError.Code() == string(ec2types.UnsuccessfulInstanceCreditSpecificationErrorCodeInstanceNotFound) {
-			return true
-		}
+	var ae smithy.APIError
+	if errors.As(err, &ae) {
+		return ae.ErrorCode() == string(ec2types.UnsuccessfulInstanceCreditSpecificationErrorCodeInstanceNotFound)
 	} else if strings.Contains(err.Error(), string(ec2types.UnsuccessfulInstanceCreditSpecificationErrorCodeInstanceNotFound)) {
 		// In places like https://github.com/kubernetes/cloud-provider-aws/blob/1c6194aad0122ab44504de64187e3d1a7415b198/pkg/providers/v1/aws.go#L1007,
 		// the error has been transformed into something else so check the error string to see if it contains the error code we're looking for.

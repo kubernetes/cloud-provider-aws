@@ -64,12 +64,12 @@ func (p *awsSDKProvider) AddHandlers(regionName string, h *request.Handlers) {
 	h.Build.PushFrontNamed(request.NamedHandler{
 		Name: "k8s/user-agent",
 		Fn:   request.MakeAddToUserAgentHandler("kubernetes", version.Get().String()),
-	})
+	}) // done
 
 	h.Sign.PushFrontNamed(request.NamedHandler{
 		Name: "k8s/logger",
 		Fn:   awsHandlerLogger,
-	})
+	}) // done
 
 	delayer := p.getCrossRequestRetryDelay(regionName)
 	if delayer != nil {
@@ -96,16 +96,40 @@ func (p *awsSDKProvider) addAPILoggingHandlers(h *request.Handlers) {
 	h.ValidateResponse.PushFrontNamed(request.NamedHandler{
 		Name: "k8s/api-validate-response",
 		Fn:   awsValidateResponseHandlerLogger,
-	})
+	}) // done
+}
+
+// Adds handlers to AWS SDK Go V2 clients. For AWS SDK Go V1 clients,
+// func (p *awsSDKProvider) AddHandlers is used.
+func (p *awsSDKProvider) AddHandlersV2(ctx context.Context, regionName string, cfg *awsv2.Config) {
+	cfg.APIOptions = append(cfg.APIOptions,
+		middleware.AddUserAgentKeyValue("kubernetes", version.Get().String()),
+		func(stack *smithymiddleware.Stack) error {
+			return stack.Finalize.Add(awsHandlerLoggerMiddleware(), smithymiddleware.Before)
+		},
+	)
+
+	delayer := p.getCrossRequestRetryDelay(regionName)
+	if delayer != nil {
+		cfg.APIOptions = append(cfg.APIOptions,
+			func(stack *smithymiddleware.Stack) error {
+				stack.Finalize.Add(delayPreSign(delayer), smithymiddleware.Before)
+				stack.Finalize.Insert(delayAfterRetry(delayer), "Retry", smithymiddleware.Before)
+				return nil
+			},
+		)
+	}
+
+	p.addAPILoggingHandlersV2(cfg)
 }
 
 // Adds logging middleware for AWS SDK Go V2 clients
-func (p *awsSDKProvider) addAPILoggingHandlersV2(cfg awsv2.Config) {
-	cfg.ClientLogMode = awsv2.LogRequest
-
+func (p *awsSDKProvider) addAPILoggingHandlersV2(cfg *awsv2.Config) {
 	cfg.APIOptions = append(cfg.APIOptions,
 		func(stack *smithymiddleware.Stack) error {
-			return stack.Deserialize.Add(&awsValidateResponseHandlerLoggerV2{}, smithymiddleware.Before)
+			stack.Serialize.Add(awsSendHandlerLoggerMiddleware(), smithymiddleware.After)
+			stack.Deserialize.Add(awsValidateResponseHandlerLoggerMiddleware(), smithymiddleware.Before)
+			return nil
 		},
 	)
 }
@@ -132,22 +156,22 @@ func (p *awsSDKProvider) getCrossRequestRetryDelay(regionName string) *CrossRequ
 }
 
 func (p *awsSDKProvider) Compute(ctx context.Context, regionName string) (iface.EC2, error) {
-	cfg, err := awsConfig.LoadDefaultConfig(context.TODO(),
+	cfg, err := awsConfig.LoadDefaultConfig(ctx,
 		awsConfig.WithRegion(regionName),
+		awsConfig.WithCredentialsProvider(p.credsV2),
 	)
 	if err != nil {
 		return nil, fmt.Errorf("unable to initialize AWS config: %v", err)
 	}
-	cfg.Region = regionName
-	cfg.Credentials = p.credsV2
 
-	p.AddHandlersV2(ctx, regionName, cfg)
-
-	ec2Client := ec2.NewFromConfig(cfg, func(o *ec2.Options) {
+	p.AddHandlersV2(ctx, regionName, &cfg)
+	var opts []func(*ec2.Options) = p.cfg.GetEC2Endpoint(regionName)
+	opts = append(opts, func(o *ec2.Options) {
 		o.Retryer = &customRetryer{
 			retry.NewStandard(),
 		}
 	})
+	ec2Client := ec2.NewFromConfig(cfg, opts...)
 
 	ec2 := &awsSdkEC2{
 		ec2: ec2Client,
@@ -240,33 +264,4 @@ func (p *awsSDKProvider) KeyManagement(regionName string) (KMS, error) {
 	p.AddHandlers(regionName, &kmsClient.Handlers)
 
 	return kmsClient, nil
-}
-
-// Adds handlers to AWS SDK Go V2 clients. For AWS SDK Go V1 clients,
-// func (p *awsSDKProvider) AddHandlers is used.
-func (p *awsSDKProvider) AddHandlersV2(ctx context.Context, regionName string, cfg awsv2.Config) {
-	cfg.APIOptions = append(cfg.APIOptions,
-		middleware.AddUserAgentKeyValue("kubernetes", version.Get().String()),
-		func(stack *smithymiddleware.Stack) error {
-			return stack.Finalize.Add(&awsHandlerLoggerV2{}, smithymiddleware.Before)
-		},
-	)
-
-	delayer := p.getCrossRequestRetryDelay(regionName)
-	if delayer != nil {
-		cfg.APIOptions = append(cfg.APIOptions,
-			func(stack *smithymiddleware.Stack) error {
-				return stack.Finalize.Add(&delayPrerequest{
-					delayer: delayer,
-				}, smithymiddleware.Before)
-			},
-			func(stack *smithymiddleware.Stack) error {
-				return stack.Finalize.Insert(&delayAfterRetry{
-					delayer: delayer,
-				}, "Retry", smithymiddleware.Before)
-			},
-		)
-	}
-
-	p.addAPILoggingHandlersV2(cfg)
 }

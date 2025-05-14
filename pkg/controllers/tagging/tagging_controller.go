@@ -188,7 +188,8 @@ func NewTaggingController(
 
 // Run will start the controller to tag resources attached to the cluster
 // and untag resources detached from the cluster.
-func (tc *Controller) Run(ctx context.Context, stopCh <-chan struct{}) {
+func (tc *Controller) Run(ctx context.Context) {
+	stopCh := ctx.Done()
 	defer utilruntime.HandleCrash()
 	defer tc.workqueue.ShutDown()
 
