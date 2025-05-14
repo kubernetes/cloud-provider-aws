@@ -34,12 +34,12 @@ import (
 	"k8s.io/klog/v2"
 )
 
-// Error code for any error coming from an API request that should not be retried. This
+// nonRetryableError is the code for errors coming from API requests that should not be retried. This
 // exists to replicate behavior from AWS SDK Go V1, where requests were marked as non-retryable
 // in certain cases.
 // In AWS SDK Go V2, an error with this error code is thrown in those same cases, and then
 // caught during the IsErrorRetryable check by customRetryer.
-var NON_RETRYABLE_ERROR = "non-retryable error"
+var nonRetryableError = "non-retryable error"
 
 const (
 	decayIntervalSeconds = 20
@@ -196,7 +196,7 @@ type customRetryer struct {
 }
 
 func (r customRetryer) IsErrorRetryable(err error) bool {
-	if strings.Contains(err.Error(), NON_RETRYABLE_ERROR) {
+	if strings.Contains(err.Error(), nonRetryableError) {
 		return false
 	}
 	return r.Retryer.IsErrorRetryable(err)
@@ -221,7 +221,7 @@ func delayPreSign(delayer *CrossRequestRetryDelay) middleware.FinalizeMiddleware
 					describeRequestV2(ctx), delay.String())
 
 				if err := sleepWithContext(ctx, delay); err != nil {
-					return middleware.FinalizeOutput{}, middleware.Metadata{}, errors.New(NON_RETRYABLE_ERROR)
+					return middleware.FinalizeOutput{}, middleware.Metadata{}, errors.New(nonRetryableError)
 				}
 			}
 
