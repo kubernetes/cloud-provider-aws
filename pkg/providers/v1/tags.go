@@ -350,7 +350,7 @@ func (c *Cloud) TagResourceBatch(ctx context.Context, resourceID string, tags ma
 		return err
 	}
 
-	klog.Infof("Done calling create-tags to EC2: %v", output)
+	klog.Infof("Done calling create-tags to EC2: %v", *output)
 
 	return nil
 }

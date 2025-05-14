@@ -5,9 +5,11 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/aws/aws-sdk-go/aws/request"
-	"github.com/aws/aws-sdk-go/aws/endpoints"
 	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go/aws/endpoints"
+	"github.com/aws/aws-sdk-go/aws/request"
+
+	"github.com/aws/aws-sdk-go-v2/service/ec2"
 
 	"k8s.io/klog/v2"
 )
@@ -206,8 +208,21 @@ func (cfg *CloudConfig) GetResolver() endpoints.ResolverFunc {
 	}
 }
 
+func (cfg *CloudConfig) GetEC2Endpoint(region string) []func(*ec2.Options) {
+	opts := []func(*ec2.Options){}
+	for _, override := range cfg.ServiceOverride {
+		if override.Service == ec2.ServiceID && override.Region == region {
+			opts = append(opts,
+				ec2.WithSigV4SigningName(override.SigningName),
+				ec2.WithSigV4SigningRegion(override.Region),
+			)
+		}
+	}
+	return opts
+}
+
 // SDKProvider can be used by variants to add their own handlers
 type SDKProvider interface {
 	AddHandlers(regionName string, h *request.Handlers)
-	AddHandlersV2(ctx context.Context, regionName string, cfg aws.Config)
+	AddHandlersV2(ctx context.Context, regionName string, cfg *aws.Config)
 }

@@ -54,39 +54,57 @@ func awsServiceAndName(req *request.Request) (string, string) {
 }
 
 // Middleware for AWS SDK Go V2 clients
-type awsHandlerLoggerV2 struct{}
+// AWS SDK Go V2 version of awsHandlerLogger()
+func awsHandlerLoggerMiddleware() middleware.FinalizeMiddleware {
+	return middleware.FinalizeMiddlewareFunc(
+		"k8s/logger",
+		func(ctx context.Context, in middleware.FinalizeInput, next middleware.FinalizeHandler) (
+			out middleware.FinalizeOutput, metadata middleware.Metadata, err error,
+		) {
+			service, name := awsServiceAndNameV2(ctx)
 
-func (l *awsHandlerLoggerV2) ID() string {
-	return "k8s/logger"
-}
-func (l *awsHandlerLoggerV2) HandleFinalize(ctx context.Context, in middleware.FinalizeInput, next middleware.FinalizeHandler) (
-	out middleware.FinalizeOutput, metadata middleware.Metadata, err error,
-) {
-	service, name := awsServiceAndNameV2(ctx)
-	klog.V(4).Infof("AWS request: %s %s", service, name)
-	return next.HandleFinalize(ctx, in)
-}
-
-type awsValidateResponseHandlerLoggerV2 struct{}
-
-func (l *awsValidateResponseHandlerLoggerV2) ID() string {
-	return "k8s/api-validate-response"
-}
-func (l *awsValidateResponseHandlerLoggerV2) HandleDeserialize(ctx context.Context, in middleware.DeserializeInput, next middleware.DeserializeHandler) (
-	out middleware.DeserializeOutput, metadata middleware.Metadata, err error,
-) {
-	out, metadata, err = next.HandleDeserialize(ctx, in)
-	response, ok := out.RawResponse.(*http.Response)
-	if !ok {
-		return out, metadata, &smithy.DeserializationError{Err: fmt.Errorf("unknown transport type %T", out.RawResponse)}
-	}
-	service, name := awsServiceAndNameV2(ctx)
-	klog.V(4).Infof("AWS API ValidateResponse: %s %s %d", service, name, response.StatusCode)
-	return out, metadata, err
+			klog.V(4).Infof("AWS request: %s %s", service, name)
+			return next.HandleFinalize(ctx, in)
+		},
+	)
 }
 
-// Adds handlers to AWS SDK Go V2 clients. For AWS SDK Go V1 clients,
-// func awsServiceAndName(req *request.Request) is used.
+// AWS SDK Go V2 version of awsValidateResponseHandlerLogger()
+func awsValidateResponseHandlerLoggerMiddleware() middleware.DeserializeMiddleware {
+	return middleware.DeserializeMiddlewareFunc(
+		"k8s/api-validate-response",
+		func(ctx context.Context, in middleware.DeserializeInput, next middleware.DeserializeHandler) (
+			out middleware.DeserializeOutput, metadata middleware.Metadata, err error,
+		) {
+			out, metadata, err = next.HandleDeserialize(ctx, in)
+			response, ok := out.RawResponse.(*http.Response)
+			if !ok {
+				return out, metadata, &smithy.DeserializationError{Err: fmt.Errorf("unknown transport type %T", out.RawResponse)}
+			}
+			service, name := awsServiceAndNameV2(ctx)
+			klog.V(4).Infof("AWS API ValidateResponse: %s %s %d", service, name, response.StatusCode)
+			return out, metadata, err
+		},
+	)
+}
+
+// AWS SDK Go V2 version of awsSendHandlerLogger(), sans logging req.Operation, which is logged
+// during the Finalize phase in delayPreSign().
+func awsSendHandlerLoggerMiddleware() middleware.SerializeMiddleware {
+	return middleware.SerializeMiddlewareFunc(
+		"k8s/api-request",
+		func(ctx context.Context, in middleware.SerializeInput, next middleware.SerializeHandler) (
+			out middleware.SerializeOutput, metadata middleware.Metadata, err error,
+		) {
+			service, name := awsServiceAndNameV2(ctx)
+			klog.V(4).Infof("AWS API Send: %s %s %v", service, name, in.Parameters)
+			return next.HandleSerialize(ctx, in)
+		},
+	)
+}
+
+// Gets the service and operation name from AWS SDK Go V2 client requests.
+// For AWS SDK Go V1 clients, func awsServiceAndName(req *request.Request) is used.
 func awsServiceAndNameV2(ctx context.Context) (string, string) {
 	service := middleware.GetServiceID(ctx)
 
