@@ -407,7 +407,8 @@ type Cloud struct {
 // Interface to make the CloudConfig immutable for awsSDKProvider
 type awsCloudConfigProvider interface {
 	GetResolver() endpoints.ResolverFunc
-	GetEC2Endpoint(region string) []func(*ec2.Options) // for AWS SDK Go V2 Clients
+	GetEC2Endpoint(region string) []func(*ec2.Options) // for AWS SDK Go V2 EC2 Clients
+	GetCustomEC2Resolver() ec2.EndpointResolverV2      // for AWS SDK Go V2 EC2 Clients
 }
 
 // InstanceIDIndexFunc indexes based on a Node's instance ID found in its spec.providerID
