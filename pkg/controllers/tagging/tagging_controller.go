@@ -189,23 +189,22 @@ func NewTaggingController(
 // Run will start the controller to tag resources attached to the cluster
 // and untag resources detached from the cluster.
 func (tc *Controller) Run(ctx context.Context) {
-	stopCh := ctx.Done()
 	defer utilruntime.HandleCrash()
 	defer tc.workqueue.ShutDown()
 
 	// Wait for the caches to be synced before starting workers
 	klog.Info("Waiting for informer caches to sync")
-	if ok := cache.WaitForCacheSync(stopCh, tc.nodesSynced); !ok {
+	if ok := cache.WaitForCacheSync(ctx.Done(), tc.nodesSynced); !ok {
 		klog.Errorf("failed to wait for caches to sync")
 		return
 	}
 
 	klog.Infof("Starting the tagging controller")
 	for i := 0; i < tc.workerCount; i++ {
-		go wait.Until(func() { tc.work(ctx) }, tc.nodeMonitorPeriod, stopCh)
+		go wait.UntilWithContext(ctx, func(ctx context.Context) { tc.work(ctx) }, tc.nodeMonitorPeriod)
 	}
 
-	<-stopCh
+	<-ctx.Done()
 }
 
 // work is a long-running function that continuously

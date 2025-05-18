@@ -3,6 +3,8 @@ package config
 import (
 	"context"
 	"fmt"
+	"net/url"
+
 	"strings"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -10,6 +12,7 @@ import (
 	"github.com/aws/aws-sdk-go/aws/request"
 
 	"github.com/aws/aws-sdk-go-v2/service/ec2"
+	smithyendpoints "github.com/aws/smithy-go/endpoints"
 
 	"k8s.io/klog/v2"
 )
@@ -217,11 +220,45 @@ func (cfg *CloudConfig) GetEC2Endpoint(region string) []func(*ec2.Options) {
 		if override.Service == ec2.ServiceID && override.Region == region {
 			opts = append(opts,
 				ec2.WithSigV4SigningName(override.SigningName),
-				ec2.WithSigV4SigningRegion(override.Region),
+				ec2.WithSigV4SigningRegion(override.SigningRegion),
 			)
 		}
 	}
 	return opts
+}
+
+func (cfg *CloudConfig) GetCustomEC2Resolver() ec2.EndpointResolverV2 {
+	return &EC2Resolver{
+		Resolver: ec2.NewDefaultEndpointResolverV2(),
+		Cfg:      cfg,
+	}
+}
+
+// EC2Resolver overrides the endpoint for an AWS SDK Go V2 EC2 Client,
+// using the provided CloudConfig to determine if an override
+// is appropriate.
+type EC2Resolver struct {
+	Resolver ec2.EndpointResolverV2
+	Cfg      *CloudConfig
+}
+
+func (r *EC2Resolver) ResolveEndpoint(
+	ctx context.Context, params ec2.EndpointParameters,
+) (
+	endpoint smithyendpoints.Endpoint, err error,
+) {
+	for _, override := range r.Cfg.ServiceOverride {
+		if override.Service == ec2.ServiceID && override.Region == aws.ToString(params.Region) {
+			customURL, err := url.Parse("https://www.foo.com/bar")
+			if err != nil {
+				return r.Resolver.ResolveEndpoint(ctx, params)
+			}
+			return smithyendpoints.Endpoint{
+				URI: *customURL,
+			}, nil
+		}
+	}
+	return r.Resolver.ResolveEndpoint(ctx, params)
 }
 
 // SDKProvider can be used by variants to add their own handlers
