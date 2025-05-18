@@ -36,6 +36,7 @@ import (
 	"github.com/aws/aws-sdk-go/service/kms"
 
 	smithymiddleware "github.com/aws/smithy-go/middleware"
+
 	"k8s.io/client-go/pkg/version"
 	"k8s.io/cloud-provider-aws/pkg/providers/v1/config"
 	"k8s.io/cloud-provider-aws/pkg/providers/v1/iface"
@@ -64,12 +65,12 @@ func (p *awsSDKProvider) AddHandlers(regionName string, h *request.Handlers) {
 	h.Build.PushFrontNamed(request.NamedHandler{
 		Name: "k8s/user-agent",
 		Fn:   request.MakeAddToUserAgentHandler("kubernetes", version.Get().String()),
-	}) // done
+	})
 
 	h.Sign.PushFrontNamed(request.NamedHandler{
 		Name: "k8s/logger",
 		Fn:   awsHandlerLogger,
-	}) // done
+	})
 
 	delayer := p.getCrossRequestRetryDelay(regionName)
 	if delayer != nil {
@@ -96,7 +97,7 @@ func (p *awsSDKProvider) addAPILoggingHandlers(h *request.Handlers) {
 	h.ValidateResponse.PushFrontNamed(request.NamedHandler{
 		Name: "k8s/api-validate-response",
 		Fn:   awsValidateResponseHandlerLogger,
-	}) // done
+	})
 }
 
 // Adds handlers to AWS SDK Go V2 clients. For AWS SDK Go V1 clients,
@@ -170,6 +171,9 @@ func (p *awsSDKProvider) Compute(ctx context.Context, regionName string) (iface.
 		o.Retryer = &customRetryer{
 			retry.NewStandard(),
 		}
+	})
+	opts = append(opts, func(o *ec2.Options) {
+		o.EndpointResolverV2 = p.cfg.GetCustomEC2Resolver()
 	})
 	ec2Client := ec2.NewFromConfig(cfg, opts...)
 
