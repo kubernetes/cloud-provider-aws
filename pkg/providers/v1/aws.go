@@ -400,8 +400,9 @@ type Cloud struct {
 	eventRecorder    record.EventRecorder
 
 	// Batching AWS api calls
-	createTagsBatcher *createTagsBatcher
-	deleteTagsBatcher *deleteTagsBatcher
+	createTagsBatcher       *createTagsBatcher
+	deleteTagsBatcher       *deleteTagsBatcher
+	describeInstanceBatcher *describeInstanceBatcher
 }
 
 // Interface to make the CloudConfig immutable for awsSDKProvider
@@ -619,15 +620,16 @@ func newAWSCloud2(cfg config.CloudConfig, awsServices Services, provider config.
 	}
 
 	awsCloud := &Cloud{
-		ec2:               ec2,
-		elb:               elb,
-		elbv2:             elbv2,
-		metadata:          metadata,
-		kms:               kms,
-		cfg:               &cfg,
-		region:            regionName,
-		createTagsBatcher: newCreateTagsBatcher(ctx, ec2),
-		deleteTagsBatcher: newDeleteTagsBatcher(ctx, ec2),
+		ec2:                     ec2,
+		elb:                     elb,
+		elbv2:                   elbv2,
+		metadata:                metadata,
+		kms:                     kms,
+		cfg:                     &cfg,
+		region:                  regionName,
+		createTagsBatcher:       newCreateTagsBatcher(ctx, ec2),
+		deleteTagsBatcher:       newDeleteTagsBatcher(ctx, ec2),
+		describeInstanceBatcher: newdescribeInstanceBatcher(ctx, ec2),
 	}
 	awsCloud.instanceCache.cloud = awsCloud
 	awsCloud.zoneCache.cloud = awsCloud
@@ -910,7 +912,7 @@ func (c *Cloud) InstanceExistsByProviderID(ctx context.Context, providerID strin
 		InstanceIds: []string{string(instanceID)},
 	}
 
-	instances, err := c.ec2.DescribeInstances(ctx, request)
+	instances, err := c.describeInstanceBatcher.DescribeInstances(ctx, request)
 	if err != nil {
 		// if err is InstanceNotFound, return false with no error
 		if IsAWSErrorInstanceNotFound(err) {
@@ -949,7 +951,7 @@ func (c *Cloud) InstanceShutdownByProviderID(ctx context.Context, providerID str
 		InstanceIds: []string{string(instanceID)},
 	}
 
-	instances, err := c.ec2.DescribeInstances(ctx, request)
+	instances, err := c.describeInstanceBatcher.DescribeInstances(ctx, request)
 	if err != nil {
 		return false, err
 	}
@@ -3150,7 +3152,7 @@ func (c *Cloud) getInstancesByIDs(ctx context.Context, instanceIDs []string) (ma
 		InstanceIds: instanceIDs,
 	}
 
-	instances, err := c.ec2.DescribeInstances(ctx, request)
+	instances, err := c.describeInstanceBatcher.DescribeInstances(ctx, request)
 	if err != nil {
 		return nil, err
 	}
@@ -3161,7 +3163,7 @@ func (c *Cloud) getInstancesByIDs(ctx context.Context, instanceIDs []string) (ma
 			continue
 		}
 
-		instancesByID[instanceID] = &instance
+		instancesByID[instanceID] = instance
 	}
 
 	return instancesByID, nil
