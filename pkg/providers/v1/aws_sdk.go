@@ -166,7 +166,7 @@ func (p *awsSDKProvider) Compute(ctx context.Context, regionName string) (iface.
 	}
 
 	p.AddHandlersV2(ctx, regionName, &cfg)
-	var opts []func(*ec2.Options) = p.cfg.GetEC2Endpoint(regionName)
+	var opts []func(*ec2.Options) = p.cfg.GetEC2EndpointOpts(regionName)
 	opts = append(opts, func(o *ec2.Options) {
 		o.Retryer = &customRetryer{
 			retry.NewStandard(),

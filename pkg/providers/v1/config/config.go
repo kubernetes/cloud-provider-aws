@@ -211,10 +211,10 @@ func (cfg *CloudConfig) GetResolver() endpoints.ResolverFunc {
 	}
 }
 
-// GetEC2Endpoint returns client configuration options that override
+// GetEC2EndpointOpts returns client configuration options that override
 // the signing name and region, if appropriate. Replicates logic
 // from GetResolver() for AWS SDK Go V2 clients.
-func (cfg *CloudConfig) GetEC2Endpoint(region string) []func(*ec2.Options) {
+func (cfg *CloudConfig) GetEC2EndpointOpts(region string) []func(*ec2.Options) {
 	opts := []func(*ec2.Options){}
 	for _, override := range cfg.ServiceOverride {
 		if override.Service == ec2.ServiceID && override.Region == region {
@@ -249,7 +249,7 @@ func (r *EC2Resolver) ResolveEndpoint(
 ) {
 	for _, override := range r.Cfg.ServiceOverride {
 		if override.Service == ec2.ServiceID && override.Region == aws.ToString(params.Region) {
-			customURL, err := url.Parse("https://www.foo.com/bar")
+			customURL, err := url.Parse(override.URL)
 			if err != nil {
 				return r.Resolver.ResolveEndpoint(ctx, params)
 			}
