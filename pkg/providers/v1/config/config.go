@@ -231,7 +231,7 @@ func (r *EC2Resolver) ResolveEndpoint(
 		if override.Service == ec2.ServiceID && override.Region == aws.ToString(params.Region) {
 			customURL, err := url.Parse(override.URL)
 			if err != nil {
-				return r.Resolver.ResolveEndpoint(ctx, params)
+				return smithyendpoints.Endpoint{}, fmt.Errorf("could not parse override URL, %w", err)
 			}
 			return smithyendpoints.Endpoint{
 				URI: *customURL,
