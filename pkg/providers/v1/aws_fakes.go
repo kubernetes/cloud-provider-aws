@@ -24,6 +24,7 @@ import (
 	"strconv"
 	"strings"
 
+	stscredsv2 "github.com/aws/aws-sdk-go-v2/credentials/stscreds"
 	"github.com/aws/aws-sdk-go-v2/service/ec2"
 	ec2types "github.com/aws/aws-sdk-go-v2/service/ec2/types"
 	"github.com/aws/aws-sdk-go/aws"
@@ -155,7 +156,7 @@ func (s *FakeAWSServices) countCall(service string, api string, resourceID strin
 }
 
 // Compute returns a fake EC2 client
-func (s *FakeAWSServices) Compute(ctx context.Context, region string) (iface.EC2, error) {
+func (s *FakeAWSServices) Compute(ctx context.Context, region string, assumeRoleProvider *stscredsv2.AssumeRoleProvider) (iface.EC2, error) {
 	return s.ec2, nil
 }
 

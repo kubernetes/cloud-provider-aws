@@ -25,6 +25,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/aws/middleware"
 	"github.com/aws/aws-sdk-go-v2/aws/retry"
 	awsConfig "github.com/aws/aws-sdk-go-v2/config"
+	stscredsv2 "github.com/aws/aws-sdk-go-v2/credentials/stscreds"
 	"github.com/aws/aws-sdk-go-v2/service/ec2"
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/credentials"
@@ -156,12 +157,15 @@ func (p *awsSDKProvider) getCrossRequestRetryDelay(regionName string) *CrossRequ
 	return delayer
 }
 
-func (p *awsSDKProvider) Compute(ctx context.Context, regionName string) (iface.EC2, error) {
+func (p *awsSDKProvider) Compute(ctx context.Context, regionName string, assumeRoleProvider *stscredsv2.AssumeRoleProvider) (iface.EC2, error) {
 	klog.InfoS("[debug] [Compute] entered")
 	cfg, err := awsConfig.LoadDefaultConfig(ctx,
 		awsConfig.WithRegion(regionName),
-		awsConfig.WithCredentialsProvider(p.credsV2),
 	)
+	klog.InfoS("[debug] [Compute] assumeRoleProvider: ", assumeRoleProvider)
+	if assumeRoleProvider != nil {
+		cfg.Credentials = awsv2.NewCredentialsCache(assumeRoleProvider)
+	}
 	klog.InfoS("[debug] [Compute] loaded config, err:", err)
 	if err != nil {
 		return nil, fmt.Errorf("unable to initialize AWS config: %v", err)
