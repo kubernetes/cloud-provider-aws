@@ -594,6 +594,7 @@ func newAWSCloud2(cfg config.CloudConfig, awsServices Services, provider config.
 	}
 
 	ec2, err := awsServices.Compute(ctx, regionName)
+	klog.InfoS("Created ec2, ", ec2, "nil check: ", (ec2 == nil))
 	if err != nil {
 		return nil, fmt.Errorf("error creating AWS EC2 client: %v", err)
 	}
