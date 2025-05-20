@@ -38,7 +38,7 @@ func TestComputeEndpointOverride(t *testing.T) {
 		},
 	}
 	mockProvider := &awsSDKProvider{
-		cfg: &cfgWithServiceOverride,
+		cfg:            &cfgWithServiceOverride,
 		regionDelayers: make(map[string]*CrossRequestRetryDelay),
 	}
 
@@ -79,7 +79,7 @@ func TestComputeNoRetry(t *testing.T) {
 		},
 	}
 	mockProvider := &awsSDKProvider{
-		cfg: &cfgWithServiceOverride,
+		cfg:            &cfgWithServiceOverride,
 		regionDelayers: make(map[string]*CrossRequestRetryDelay),
 	}
 
@@ -120,7 +120,7 @@ func TestComputeWithRetry(t *testing.T) {
 		},
 	}
 	mockProvider := &awsSDKProvider{
-		cfg: &cfgWithServiceOverride,
+		cfg:            &cfgWithServiceOverride,
 		regionDelayers: make(map[string]*CrossRequestRetryDelay),
 	}
 
