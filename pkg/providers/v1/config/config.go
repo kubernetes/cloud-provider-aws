@@ -135,13 +135,15 @@ func (cfg *CloudConfig) GetRegion(metadata EC2Metadata) (string, error) {
 		return cfg.Global.Region, nil
 	}
 
-	klog.Info("Loading region from metadata service")
+	klog.Info("Loading region from metadata service a")
 	region, err := metadata.Region()
+	klog.Info("Loaded region from metadata service, err:", err)
 	if err != nil {
 		return "", err
 	}
 
 	cfg.Global.Region = region
+	klog.Info("Loaded region from metadata service, set region to", region)
 	return region, nil
 }
 
