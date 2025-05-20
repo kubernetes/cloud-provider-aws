@@ -290,7 +290,7 @@ const MaxReadThenCreateRetries = 30
 
 // Services is an abstraction over AWS, to allow mocking/other implementations
 type Services interface {
-	Compute(ctx context.Context, region string) (iface.EC2, error)
+	Compute(ctx context.Context, region string, assumeRoleProvider *stscredsv2.AssumeRoleProvider) (iface.EC2, error)
 	LoadBalancing(region string) (ELB, error)
 	LoadBalancingV2(region string) (ELBV2, error)
 	Metadata() (config.EC2Metadata, error)
@@ -593,7 +593,7 @@ func newAWSCloud2(cfg config.CloudConfig, awsServices Services, provider config.
 		return nil, err
 	}
 
-	ec2, err := awsServices.Compute(ctx, regionName)
+	ec2, err := awsServices.Compute(ctx, regionName, credentialsV2)
 	klog.InfoS("[debug] Created ec2, ", ec2, "nil check: ", (ec2 == nil))
 	if err != nil {
 		return nil, fmt.Errorf("error creating AWS EC2 client: %v", err)

@@ -42,7 +42,7 @@ func TestComputeEndpointOverride(t *testing.T) {
 		regionDelayers: make(map[string]*CrossRequestRetryDelay),
 	}
 
-	ec2Client, err := mockProvider.Compute(context.TODO(), "us-west-2")
+	ec2Client, err := mockProvider.Compute(context.TODO(), "us-west-2", nil)
 	if err != nil {
 		t.Errorf("error creating client, %v", err)
 	}
@@ -83,7 +83,7 @@ func TestComputeNoRetry(t *testing.T) {
 		regionDelayers: make(map[string]*CrossRequestRetryDelay),
 	}
 
-	ec2Client, err := mockProvider.Compute(context.TODO(), "us-west-2")
+	ec2Client, err := mockProvider.Compute(context.TODO(), "us-west-2", nil)
 	if err != nil {
 		t.Errorf("error creating client, %v", err)
 	}
@@ -124,7 +124,7 @@ func TestComputeWithRetry(t *testing.T) {
 		regionDelayers: make(map[string]*CrossRequestRetryDelay),
 	}
 
-	ec2Client, err := mockProvider.Compute(context.TODO(), "us-west-2")
+	ec2Client, err := mockProvider.Compute(context.TODO(), "us-west-2", nil)
 	if err != nil {
 		t.Errorf("error creating client, %v", err)
 	}
