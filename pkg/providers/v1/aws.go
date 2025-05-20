@@ -594,11 +594,12 @@ func newAWSCloud2(cfg config.CloudConfig, awsServices Services, provider config.
 	}
 
 	ec2, err := awsServices.Compute(ctx, regionName)
-	klog.InfoS("Created ec2, ", ec2, "nil check: ", (ec2 == nil))
+	klog.InfoS("[debug] Created ec2, ", ec2, "nil check: ", (ec2 == nil))
 	if err != nil {
 		return nil, fmt.Errorf("error creating AWS EC2 client: %v", err)
 	}
 
+	klog.InfoS("[debug] Created ec2, ", ec2, "nil check: ", (ec2 == nil))
 	ec2v2, err := services.NewEc2SdkV2(ctx, regionName, credentialsV2)
 	if err != nil {
 		return nil, fmt.Errorf("error creating AWS EC2v2 client: %v", err)
@@ -630,6 +631,7 @@ func newAWSCloud2(cfg config.CloudConfig, awsServices Services, provider config.
 		createTagsBatcher: newCreateTagsBatcher(ctx, ec2),
 		deleteTagsBatcher: newDeleteTagsBatcher(ctx, ec2),
 	}
+	klog.InfoS("[debug] Created cloud, ec2:", ec2)
 	awsCloud.instanceCache.cloud = awsCloud
 	awsCloud.zoneCache.cloud = awsCloud
 	awsCloud.instanceTopologyManager = resourcemanagers.NewInstanceTopologyManager(ec2v2, &cfg)
@@ -646,7 +648,9 @@ func newAWSCloud2(cfg config.CloudConfig, awsServices Services, provider config.
 		}
 		awsCloud.vpcID = cfg.Global.VPC
 	} else {
+		klog.InfoS("[debug] calling buildSelfAWSInstance", awsCloud.ec2)
 		selfAWSInstance, err := awsCloud.buildSelfAWSInstance(ctx)
+		klog.InfoS("[debug] done calling buildSelfAWSInstance", awsCloud.ec2)
 		if err != nil {
 			return nil, err
 		}
@@ -1117,7 +1121,9 @@ func (c *Cloud) buildSelfAWSInstance(ctx context.Context) (*awsInstance, error) 
 	// information from the instance returned by the EC2 API - it is a
 	// single API call to get all the information, and it means we don't
 	// have two code paths.
+	klog.InfoS("[debug] calling getInstanceByID", c.ec2)
 	instance, err := c.getInstanceByID(ctx, instanceID)
+	klog.InfoS("[debug] done calling getInstanceByID", c.ec2)
 	if err != nil {
 		return nil, fmt.Errorf("error finding instance %s: %q", instanceID, err)
 	}
@@ -3082,7 +3088,9 @@ func (c *Cloud) UpdateLoadBalancer(ctx context.Context, clusterName string, serv
 
 // Returns the instance with the specified ID
 func (c *Cloud) getInstanceByID(ctx context.Context, instanceID string) (*ec2types.Instance, error) {
+	klog.InfoS("[debug] calling getInstancesByIDs", c.ec2)
 	instances, err := c.getInstancesByIDs(ctx, []string{instanceID})
+	klog.InfoS("[debug] done calling getInstancesByIDs", c.ec2)
 	if err != nil {
 		return nil, err
 	}
@@ -3107,7 +3115,9 @@ func (c *Cloud) getInstancesByIDs(ctx context.Context, instanceIDs []string) (ma
 		InstanceIds: instanceIDs,
 	}
 
+	klog.InfoS("[debug] calling DescribeInstances", c.ec2)
 	instances, err := c.ec2.DescribeInstances(ctx, request)
+	klog.InfoS("[debug] done calling DescribeInstances", c.ec2)
 	if err != nil {
 		return nil, err
 	}
