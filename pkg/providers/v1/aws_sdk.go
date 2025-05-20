@@ -157,31 +157,31 @@ func (p *awsSDKProvider) getCrossRequestRetryDelay(regionName string) *CrossRequ
 }
 
 func (p *awsSDKProvider) Compute(ctx context.Context, regionName string) (iface.EC2, error) {
-	klog.InfoS("[Compute] entered")
+	klog.InfoS("[debug] [Compute] entered")
 	cfg, err := awsConfig.LoadDefaultConfig(ctx,
 		awsConfig.WithRegion(regionName),
 		awsConfig.WithCredentialsProvider(p.credsV2),
 	)
-	klog.InfoS("[Compute] loaded config, err:", err)
+	klog.InfoS("[debug] [Compute] loaded config, err:", err)
 	if err != nil {
 		return nil, fmt.Errorf("unable to initialize AWS config: %v", err)
 	}
 
 	p.AddHandlersV2(ctx, regionName, &cfg)
-	klog.InfoS("[Compute] added handlers")
+	klog.InfoS("[debug] [Compute] added handlers")
 	var opts []func(*ec2.Options) = p.cfg.GetEC2EndpointOpts(regionName)
 	opts = append(opts, func(o *ec2.Options) {
 		o.Retryer = &customRetryer{
 			retry.NewStandard(),
 		}
 	})
-	klog.InfoS("[Compute] did GetEC2EndpointOpts")
+	klog.InfoS("[debug] [Compute] did GetEC2EndpointOpts")
 	opts = append(opts, func(o *ec2.Options) {
 		o.EndpointResolverV2 = p.cfg.GetCustomEC2Resolver()
 	})
-	klog.InfoS("[Compute] did GetCustomEC2Resolver")
+	klog.InfoS("[debug] [Compute] did GetCustomEC2Resolver")
 	ec2Client := ec2.NewFromConfig(cfg, opts...)
-	klog.InfoS("[Compute] did NewFromConfig")
+	klog.InfoS("[debug] [Compute] did NewFromConfig")
 
 	ec2 := &awsSdkEC2{
 		ec2: ec2Client,
