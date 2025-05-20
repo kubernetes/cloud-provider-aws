@@ -229,6 +229,7 @@ func (cfg *CloudConfig) GetEC2EndpointOpts(region string) []func(*ec2.Options) {
 	return opts
 }
 
+// GetCustomEC2Resolver returns an endpoint resolver for EC2 Clients
 func (cfg *CloudConfig) GetCustomEC2Resolver() ec2.EndpointResolverV2 {
 	return &EC2Resolver{
 		Resolver: ec2.NewDefaultEndpointResolverV2(),
@@ -244,6 +245,7 @@ type EC2Resolver struct {
 	Cfg      *CloudConfig
 }
 
+// ResolveEndpoint resolves the endpoint, overriding when custom configurations are set.
 func (r *EC2Resolver) ResolveEndpoint(
 	ctx context.Context, params ec2.EndpointParameters,
 ) (
