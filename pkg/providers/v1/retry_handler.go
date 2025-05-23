@@ -184,7 +184,6 @@ func (b *Backoff) ComputeDelayForRequest(now time.Time) time.Duration {
 func (b *Backoff) ReportError() {
 	b.mutex.Lock()
 	defer b.mutex.Unlock()
-
 	b.countErrorsRequestLimit += 1.0
 }
 
@@ -204,9 +203,9 @@ func (r customRetryer) IsErrorRetryable(err error) bool {
 
 // Middleware for AWS SDK Go V2 clients
 // middleware replica of CrossRequestRetryDelay.BeforeSign()
-// Throws NON_RETRYABLE_ERROR if the request context was canceled, to preserve behavior from AWS
+// Throws nonRetryableError if the request context was canceled, to preserve behavior from AWS
 // SDK Go V1, where requests were marked as non-retryable under the same conditions.
-// This works in tandem with customRetryer, which will not retry  NON_RETRYABLE_ERRORs.
+// This works in tandem with customRetryer, which will not retry nonRetryableErrors.
 func delayPreSign(delayer *CrossRequestRetryDelay) middleware.FinalizeMiddleware {
 	return middleware.FinalizeMiddlewareFunc(
 		"k8s/delay-presign",
@@ -248,7 +247,7 @@ func delayAfterRetry(delayer *CrossRequestRetryDelay) middleware.FinalizeMiddlew
 			}
 
 			var ae smithy.APIError
-			if errors.As(err, &ae) && strings.Contains(ae.Error(), "RequestLimitExceeded") {
+			if errors.As(finErr, &ae) && strings.Contains(ae.Error(), "RequestLimitExceeded") {
 				delayer.backoff.ReportError()
 				recordAWSThrottlesMetric(operationNameV2(ctx))
 				klog.Warningf("Got RequestLimitExceeded error on AWS request (%s)",
