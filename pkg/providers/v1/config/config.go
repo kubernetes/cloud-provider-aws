@@ -1,12 +1,18 @@
 package config
 
 import (
+	"context"
 	"fmt"
+	"net/url"
+
 	"strings"
 
+	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go/aws/endpoints"
 	"github.com/aws/aws-sdk-go/aws/request"
 
-	"github.com/aws/aws-sdk-go/aws/endpoints"
+	"github.com/aws/aws-sdk-go-v2/service/ec2"
+	smithyendpoints "github.com/aws/smithy-go/endpoints"
 
 	"k8s.io/klog/v2"
 )
@@ -205,7 +211,60 @@ func (cfg *CloudConfig) GetResolver() endpoints.ResolverFunc {
 	}
 }
 
+// GetEC2EndpointOpts returns client configuration options that override
+// the signing name and region, if appropriate. Replicates logic
+// from GetResolver() for AWS SDK Go V2 clients.
+func (cfg *CloudConfig) GetEC2EndpointOpts(region string) []func(*ec2.Options) {
+	opts := []func(*ec2.Options){}
+	for _, override := range cfg.ServiceOverride {
+		if override.Service == ec2.ServiceID && override.Region == region {
+			opts = append(opts,
+				ec2.WithSigV4SigningName(override.SigningName),
+				ec2.WithSigV4SigningRegion(override.SigningRegion),
+			)
+		}
+	}
+	return opts
+}
+
+// GetCustomEC2Resolver returns an endpoint resolver for EC2 Clients
+func (cfg *CloudConfig) GetCustomEC2Resolver() ec2.EndpointResolverV2 {
+	return &EC2Resolver{
+		Resolver: ec2.NewDefaultEndpointResolverV2(),
+		Cfg:      cfg,
+	}
+}
+
+// EC2Resolver overrides the endpoint for an AWS SDK Go V2 EC2 Client,
+// using the provided CloudConfig to determine if an override
+// is appropriate.
+type EC2Resolver struct {
+	Resolver ec2.EndpointResolverV2
+	Cfg      *CloudConfig
+}
+
+// ResolveEndpoint resolves the endpoint, overriding when custom configurations are set.
+func (r *EC2Resolver) ResolveEndpoint(
+	ctx context.Context, params ec2.EndpointParameters,
+) (
+	endpoint smithyendpoints.Endpoint, err error,
+) {
+	for _, override := range r.Cfg.ServiceOverride {
+		if override.Service == ec2.ServiceID && override.Region == aws.ToString(params.Region) {
+			customURL, err := url.Parse(override.URL)
+			if err != nil {
+				return smithyendpoints.Endpoint{}, fmt.Errorf("could not parse override URL, %w", err)
+			}
+			return smithyendpoints.Endpoint{
+				URI: *customURL,
+			}, nil
+		}
+	}
+	return r.Resolver.ResolveEndpoint(ctx, params)
+}
+
 // SDKProvider can be used by variants to add their own handlers
 type SDKProvider interface {
 	AddHandlers(regionName string, h *request.Handlers)
+	AddHandlersV2(ctx context.Context, regionName string, cfg *aws.Config)
 }
