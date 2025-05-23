@@ -54,7 +54,6 @@ func TestComputeEndpointOverride(t *testing.T) {
 func TestComputeNoRetry(t *testing.T) {
 	attemptCount := 0
 	testServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		fmt.Println("hit custom endpoint")
 		attemptCount++
 		// http code is a placeholder, error message is what's used by the retryer
 		http.Error(w, nonRetryableError, http.StatusForbidden)
@@ -95,7 +94,6 @@ func TestComputeNoRetry(t *testing.T) {
 func TestComputeWithRetry(t *testing.T) {
 	attemptCount := 0
 	testServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		fmt.Println("hit custom endpoint")
 		attemptCount++
 		// Request timeouts are generally retried (https://pkg.go.dev/github.com/aws/aws-sdk-go-v2/aws/retry)
 		http.Error(w, "RequestTimeout", 500)
