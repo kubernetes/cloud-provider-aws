@@ -19,12 +19,20 @@ package aws
 import (
 	"context"
 	"errors"
+	"fmt"
+	"net/http"
+	"net/http/httptest"
+
 	"testing"
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws/retry"
 	"github.com/aws/aws-sdk-go-v2/service/ec2"
+	"github.com/aws/smithy-go"
+	"github.com/aws/smithy-go/middleware"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
+	"k8s.io/cloud-provider-aws/pkg/providers/v1/config"
 )
 
 // There follows a group of tests for the backoff logic.  There's nothing
@@ -140,7 +148,7 @@ func TestBackoffRecovers(t *testing.T) {
 	}
 }
 
-// Make sure that NON_RETRYABLE_ERRORs, which are thrown by AWS SDK Go V2 clients
+// Make sure that nonRetryableErrors, which are thrown by AWS SDK Go V2 clients
 // when the request context is canceled, are not retried with customRetryer is used.
 func TestNonRetryableError(t *testing.T) {
 	mockedEC2API := newMockedEC2API()
@@ -151,11 +159,95 @@ func TestNonRetryableError(t *testing.T) {
 	}
 	_, err := ec2Client.ec2.DescribeInstances(context.Background(), &ec2.DescribeInstancesInput{})
 
-	// Verify that the custom retryer can recognize when a NON_RETRYABLE_ERROR is thrown
+	// Verify that the custom retryer can recognize when a nonRetryableError is thrown
 	retryer := &customRetryer{
 		retry.NewStandard(),
 	}
 	if retryer.IsErrorRetryable(err) {
-		t.Errorf("Expected NON_RETRYABLE_ERROR error to be non-retryable")
+		t.Errorf("Expected nonRetryableError error to be non-retryable")
 	}
+}
+
+// Tests delayPresign to ensure that it delays the request
+func TestDelayPresign(t *testing.T) {
+	// This test forces certain results from ComputeDelayForRequest() and sleepWithContext()
+	// to trigger a delay from delayPresign().
+	// Dummy server to make sure the client request doesn't actually hit the API.
+	testServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
+
+	cfgWithServiceOverride := config.CloudConfig{
+		ServiceOverride: map[string]*struct {
+			Service       string
+			Region        string
+			URL           string
+			SigningRegion string
+			SigningMethod string
+			SigningName   string
+		}{
+			"1": {
+				Service:       "EC2",
+				Region:        "us-west-2",
+				URL:           testServer.URL,
+				SigningRegion: "signingRegion",
+				SigningName:   "signingName",
+			},
+		},
+	}
+	// Create a dummy delayer that sets a delay of 5 seconds for ComputeDelayForRequest()
+	delayer := NewCrossRequestRetryDelay()
+	delayer.backoff.countRequests = 1
+	delayer.backoff.countErrorsRequestLimit = 100000
+	delayer.backoff.maxDelay = 100000
+	regionDelayersMap := make(map[string]*CrossRequestRetryDelay)
+	regionDelayersMap["us-west-2"] = delayer
+	mockProvider := &awsSDKProvider{
+		cfg:            &cfgWithServiceOverride,
+		regionDelayers: regionDelayersMap,
+	}
+
+	ec2Client, err := mockProvider.Compute(context.Background(), "us-west-2", nil)
+	if err != nil {
+		t.Errorf("error creating client, %v", err)
+	}
+	startTime := time.Now()
+	_, _ = ec2Client.DescribeInstances(context.Background(), &ec2.DescribeInstancesInput{})
+	endTime := time.Now()
+	diff := endTime.Sub(startTime)
+	assert.True(t, diff > 5, fmt.Sprintf("expected a delay of at least 5 seconds, got %d", diff))
+}
+
+// Tests that delayAfterRetry() recognizes RequestLimitExceeded errors and counts them towards the backoff
+func TestAfterRetry(t *testing.T) {
+	// Dummy handler that delayAfterRetry() will trigger in its next.HandleFinalize() call.
+	// Throws a RequestLimitExceeded error, which delayAfterRetry() should recognize.
+	nextHandlerCalled := false
+	nextHandler := middleware.FinalizeHandlerFunc(
+		func(ctx context.Context, in middleware.FinalizeInput) (
+			out middleware.FinalizeOutput, metadata middleware.Metadata, err error,
+		) {
+			nextHandlerCalled = true
+			return middleware.FinalizeOutput{}, middleware.Metadata{}, &smithy.GenericAPIError{
+				Code:    "RequestLimitExceeded",
+				Message: "You have exceeded the request limit.",
+			}
+		},
+	)
+
+	delayer := NewCrossRequestRetryDelay()
+	preDelayErrorCount := delayer.backoff.countErrorsRequestLimit
+	_, _, err := delayAfterRetry(delayer).HandleFinalize(
+		context.Background(),
+		middleware.FinalizeInput{},
+		nextHandler,
+	)
+	postDelayErrorCount := delayer.backoff.countErrorsRequestLimit
+
+	// Verify that a RequestLimitExceeded error was thrown
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "RequestLimitExceeded")
+	assert.True(t, nextHandlerCalled, "Next handler should have been called")
+
+	// Verify that the delayer's backoff was updated
+	diff := (int)(postDelayErrorCount - preDelayErrorCount)
+	assert.True(t, diff == 1, fmt.Sprintf("expected an update to the backoff count of %d, got %d", 1, diff))
 }
