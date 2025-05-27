@@ -55,9 +55,24 @@ func TestComputeNoRetry(t *testing.T) {
 	attemptCount := 0
 	testServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		attemptCount++
-		// http code is a placeholder, error message is what's used by the retryer
-		http.Error(w, nonRetryableError, http.StatusForbidden)
+		w.Header().Set("Content-Type", "text/xml")
+		w.WriteHeader(http.StatusBadRequest)
+
+		// Insert the nonRetryableError error message
+		errorXML := fmt.Sprintf(`
+			<Response>
+			<Errors>
+				<Error>
+				<Code>%d</Code>
+				<Message>%s</Message>
+				</Error>
+			</Errors>
+			<RequestID>12345678-1234-1234-1234-123456789012</RequestID>
+			</Response>`, http.StatusBadRequest, nonRetryableError)
+
+		w.Write([]byte(errorXML))
 	}))
+	defer testServer.Close()
 
 	cfgWithServiceOverride := config.CloudConfig{
 		ServiceOverride: map[string]*struct {
@@ -95,7 +110,7 @@ func TestComputeWithRetry(t *testing.T) {
 	attemptCount := 0
 	testServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		attemptCount++
-		// Request timeouts are generally retried (https://pkg.go.dev/github.com/aws/aws-sdk-go-v2/aws/retry)
+		// 500 status codes are retried by SDK (see https://pkg.go.dev/github.com/aws/aws-sdk-go-v2/aws/retry)
 		http.Error(w, "RequestTimeout", 500)
 	}))
 
