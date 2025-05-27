@@ -24,13 +24,13 @@ import (
 	"time"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/kubelet/pkg/apis/credentialprovider/v1"
+	v1 "k8s.io/kubelet/pkg/apis/credentialprovider/v1"
 )
 
 type fakePlugin struct {
 }
 
-func (f *fakePlugin) GetCredentials(ctx context.Context, image string, args []string) (*v1.CredentialProviderResponse, error) {
+func (f *fakePlugin) GetCredentials(ctx context.Context, request *v1.CredentialProviderRequest, args []string) (*v1.CredentialProviderResponse, error) {
 	return &v1.CredentialProviderResponse{
 		CacheKeyType:  v1.RegistryPluginCacheKeyType,
 		CacheDuration: &metav1.Duration{Duration: 10 * time.Minute},
@@ -66,12 +66,6 @@ func Test_runPlugin(t *testing.T) {
 		{
 			name:        "invalid apiVersion",
 			in:          bytes.NewBufferString(`{"kind":"CredentialProviderRequest","apiVersion":"foo.k8s.io/v1","image":"test.registry.io/foobar"}`),
-			expectedOut: nil,
-			expectErr:   true,
-		},
-		{
-			name:        "empty image",
-			in:          bytes.NewBufferString(`{"kind":"CredentialProviderRequest","apiVersion":"credentialprovider.kubelet.k8s.io/v1","image":""}`),
 			expectedOut: nil,
 			expectErr:   true,
 		},
