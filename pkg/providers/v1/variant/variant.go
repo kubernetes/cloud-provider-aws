@@ -1,6 +1,7 @@
 package variant
 
 import (
+	"context"
 	"fmt"
 	"sync"
 
@@ -21,10 +22,10 @@ type Variant interface {
 	Initialize(cloudConfig *config.CloudConfig, credentials *credentials.Credentials,
 		provider config.SDKProvider, ec2API iface.EC2, region string) error
 	IsSupportedNode(nodeName string) bool
-	NodeAddresses(instanceID, vpcID string) ([]v1.NodeAddress, error)
-	GetZone(instanceID, vpcID, region string) (cloudprovider.Zone, error)
-	InstanceExists(instanceID, vpcID string) (bool, error)
-	InstanceShutdown(instanceID, vpcID string) (bool, error)
+	NodeAddresses(ctx context.Context, instanceID, vpcID string) ([]v1.NodeAddress, error)
+	GetZone(ctx context.Context, instanceID, vpcID, region string) (cloudprovider.Zone, error)
+	InstanceExists(ctx context.Context, instanceID, vpcID string) (bool, error)
+	InstanceShutdown(ctx context.Context, instanceID, vpcID string) (bool, error)
 	InstanceTypeByProviderID(id string) (string, error)
 }
 
