@@ -158,7 +158,7 @@ func (p *awsSDKProvider) getCrossRequestRetryDelay(regionName string) *CrossRequ
 }
 
 func (p *awsSDKProvider) Compute(ctx context.Context, regionName string, assumeRoleProvider *stscredsv2.AssumeRoleProvider) (iface.EC2, error) {
-	cfg, err := awsConfig.LoadDefaultConfig(ctx,
+	cfg, err := awsConfig.LoadDefaultConfig(ctx, awsConfig.WithDefaultsMode(awsv2.DefaultsModeInRegion),
 		awsConfig.WithRegion(regionName),
 	)
 	if assumeRoleProvider != nil {
