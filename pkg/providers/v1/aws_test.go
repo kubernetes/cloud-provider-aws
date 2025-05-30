@@ -29,9 +29,10 @@ import (
 
 	"github.com/aws/aws-sdk-go-v2/service/ec2"
 	ec2types "github.com/aws/aws-sdk-go-v2/service/ec2/types"
+	elb "github.com/aws/aws-sdk-go-v2/service/elasticloadbalancing"
+	elbtypes "github.com/aws/aws-sdk-go-v2/service/elasticloadbalancing/types"
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/awserr"
-	"github.com/aws/aws-sdk-go/service/elb"
 	"github.com/aws/aws-sdk-go/service/elbv2"
 	"github.com/aws/smithy-go"
 	"github.com/stretchr/testify/assert"
@@ -101,27 +102,27 @@ type MockedFakeELB struct {
 	mock.Mock
 }
 
-func (m *MockedFakeELB) DescribeLoadBalancers(input *elb.DescribeLoadBalancersInput) (*elb.DescribeLoadBalancersOutput, error) {
+func (m *MockedFakeELB) DescribeLoadBalancers(ctx context.Context, input *elb.DescribeLoadBalancersInput, optFns ...func(*elb.Options)) (*elb.DescribeLoadBalancersOutput, error) {
 	args := m.Called(input)
 	return args.Get(0).(*elb.DescribeLoadBalancersOutput), nil
 }
 
 func (m *MockedFakeELB) expectDescribeLoadBalancers(loadBalancerName string) {
-	m.On("DescribeLoadBalancers", &elb.DescribeLoadBalancersInput{LoadBalancerNames: []*string{aws.String(loadBalancerName)}}).Return(&elb.DescribeLoadBalancersOutput{
-		LoadBalancerDescriptions: []*elb.LoadBalancerDescription{
+	m.On("DescribeLoadBalancers", &elb.DescribeLoadBalancersInput{LoadBalancerNames: []string{loadBalancerName}}).Return(&elb.DescribeLoadBalancersOutput{
+		LoadBalancerDescriptions: []elbtypes.LoadBalancerDescription{
 			{
-				SecurityGroups: []*string{aws.String("sg-123456")},
+				SecurityGroups: []string{"sg-123456"},
 			},
 		},
 	})
 }
 
-func (m *MockedFakeELB) AddTags(input *elb.AddTagsInput) (*elb.AddTagsOutput, error) {
+func (m *MockedFakeELB) AddTags(ctx context.Context, input *elb.AddTagsInput, optFns ...func(*elb.Options)) (*elb.AddTagsOutput, error) {
 	args := m.Called(input)
 	return args.Get(0).(*elb.AddTagsOutput), nil
 }
 
-func (m *MockedFakeELB) ConfigureHealthCheck(input *elb.ConfigureHealthCheckInput) (*elb.ConfigureHealthCheckOutput, error) {
+func (m *MockedFakeELB) ConfigureHealthCheck(ctx context.Context, input *elb.ConfigureHealthCheckInput, optFns ...func(*elb.Options)) (*elb.ConfigureHealthCheckOutput, error) {
 	args := m.Called(input)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
@@ -129,7 +130,7 @@ func (m *MockedFakeELB) ConfigureHealthCheck(input *elb.ConfigureHealthCheckInpu
 	return args.Get(0).(*elb.ConfigureHealthCheckOutput), args.Error(1)
 }
 
-func (m *MockedFakeELB) expectConfigureHealthCheck(loadBalancerName *string, expectedHC *elb.HealthCheck, returnErr error) {
+func (m *MockedFakeELB) expectConfigureHealthCheck(loadBalancerName *string, expectedHC *elbtypes.HealthCheck, returnErr error) {
 	expected := &elb.ConfigureHealthCheckInput{HealthCheck: expectedHC, LoadBalancerName: loadBalancerName}
 	call := m.On("ConfigureHealthCheck", expected)
 	if returnErr != nil {
@@ -1817,9 +1818,9 @@ func TestBuildListener(t *testing.T) {
 	tests := []struct {
 		name string
 
-		lbPort                    int64
+		lbPort                    int32
 		portName                  string
-		instancePort              int64
+		instancePort              int32
 		backendProtocolAnnotation string
 		certAnnotation            string
 		sslPortAnnotation         string
@@ -1929,10 +1930,10 @@ func TestBuildListener(t *testing.T) {
 				if test.certID != "" {
 					cert = &test.certID
 				}
-				expected := &elb.Listener{
+				expected := elbtypes.Listener{
 					InstancePort:     &test.instancePort,
 					InstanceProtocol: &test.instanceProtocol,
-					LoadBalancerPort: &test.lbPort,
+					LoadBalancerPort: test.lbPort,
 					Protocol:         &test.lbProtocol,
 					SSLCertificateId: cert,
 				}
@@ -1946,27 +1947,25 @@ func TestBuildListener(t *testing.T) {
 }
 
 func TestProxyProtocolEnabled(t *testing.T) {
-	policies := sets.NewString(ProxyProtocolPolicyName, "FooBarFoo")
-	fakeBackend := &elb.BackendServerDescription{
-		InstancePort: aws.Int64(80),
-		PolicyNames:  stringSetToPointers(policies),
+	policies := []string{ProxyProtocolPolicyName, "FooBarFoo"}
+	fakeBackend := elbtypes.BackendServerDescription{
+		InstancePort: aws.Int32(80),
+		PolicyNames:  policies,
 	}
 	result := proxyProtocolEnabled(fakeBackend)
 	assert.True(t, result, "expected to find %s in %s", ProxyProtocolPolicyName, policies)
 
-	policies = sets.NewString("FooBarFoo")
-	fakeBackend = &elb.BackendServerDescription{
-		InstancePort: aws.Int64(80),
-		PolicyNames: []*string{
-			aws.String("FooBarFoo"),
-		},
+	policies = []string{"FooBarFoo"}
+	fakeBackend = elbtypes.BackendServerDescription{
+		InstancePort: aws.Int32(80),
+		PolicyNames:  []string{"FooBarFoo"},
 	}
 	result = proxyProtocolEnabled(fakeBackend)
 	assert.False(t, result, "did not expect to find %s in %s", ProxyProtocolPolicyName, policies)
 
-	policies = sets.NewString()
-	fakeBackend = &elb.BackendServerDescription{
-		InstancePort: aws.Int64(80),
+	policies = []string{}
+	fakeBackend = elbtypes.BackendServerDescription{
+		InstancePort: aws.Int32(80),
 	}
 	result = proxyProtocolEnabled(fakeBackend)
 	assert.False(t, result, "did not expect to find %s in %s", ProxyProtocolPolicyName, policies)
@@ -2116,8 +2115,8 @@ func TestAddLoadBalancerTags(t *testing.T) {
 	want["tag1"] = "val1"
 
 	expectedAddTagsRequest := &elb.AddTagsInput{
-		LoadBalancerNames: []*string{&loadBalancerName},
-		Tags: []*elb.Tag{
+		LoadBalancerNames: []string{loadBalancerName},
+		Tags: []elbtypes.Tag{
 			{
 				Key:   aws.String("tag1"),
 				Value: aws.String("val1"),
@@ -2135,60 +2134,60 @@ func TestEnsureLoadBalancerHealthCheck(t *testing.T) {
 	tests := []struct {
 		name        string
 		annotations map[string]string
-		want        elb.HealthCheck
+		want        elbtypes.HealthCheck
 	}{
 		{
 			name:        "falls back to HC defaults",
 			annotations: map[string]string{},
-			want: elb.HealthCheck{
-				HealthyThreshold:   aws.Int64(2),
-				UnhealthyThreshold: aws.Int64(6),
-				Timeout:            aws.Int64(5),
-				Interval:           aws.Int64(10),
+			want: elbtypes.HealthCheck{
+				HealthyThreshold:   aws.Int32(2),
+				UnhealthyThreshold: aws.Int32(6),
+				Timeout:            aws.Int32(5),
+				Interval:           aws.Int32(10),
 				Target:             aws.String("TCP:8080"),
 			},
 		},
 		{
 			name:        "healthy threshold override",
 			annotations: map[string]string{ServiceAnnotationLoadBalancerHCHealthyThreshold: "7"},
-			want: elb.HealthCheck{
-				HealthyThreshold:   aws.Int64(7),
-				UnhealthyThreshold: aws.Int64(6),
-				Timeout:            aws.Int64(5),
-				Interval:           aws.Int64(10),
+			want: elbtypes.HealthCheck{
+				HealthyThreshold:   aws.Int32(7),
+				UnhealthyThreshold: aws.Int32(6),
+				Timeout:            aws.Int32(5),
+				Interval:           aws.Int32(10),
 				Target:             aws.String("TCP:8080"),
 			},
 		},
 		{
 			name:        "unhealthy threshold override",
 			annotations: map[string]string{ServiceAnnotationLoadBalancerHCUnhealthyThreshold: "7"},
-			want: elb.HealthCheck{
-				HealthyThreshold:   aws.Int64(2),
-				UnhealthyThreshold: aws.Int64(7),
-				Timeout:            aws.Int64(5),
-				Interval:           aws.Int64(10),
+			want: elbtypes.HealthCheck{
+				HealthyThreshold:   aws.Int32(2),
+				UnhealthyThreshold: aws.Int32(7),
+				Timeout:            aws.Int32(5),
+				Interval:           aws.Int32(10),
 				Target:             aws.String("TCP:8080"),
 			},
 		},
 		{
 			name:        "timeout override",
 			annotations: map[string]string{ServiceAnnotationLoadBalancerHCTimeout: "7"},
-			want: elb.HealthCheck{
-				HealthyThreshold:   aws.Int64(2),
-				UnhealthyThreshold: aws.Int64(6),
-				Timeout:            aws.Int64(7),
-				Interval:           aws.Int64(10),
+			want: elbtypes.HealthCheck{
+				HealthyThreshold:   aws.Int32(2),
+				UnhealthyThreshold: aws.Int32(6),
+				Timeout:            aws.Int32(7),
+				Interval:           aws.Int32(10),
 				Target:             aws.String("TCP:8080"),
 			},
 		},
 		{
 			name:        "interval override",
 			annotations: map[string]string{ServiceAnnotationLoadBalancerHCInterval: "7"},
-			want: elb.HealthCheck{
-				HealthyThreshold:   aws.Int64(2),
-				UnhealthyThreshold: aws.Int64(6),
-				Timeout:            aws.Int64(5),
-				Interval:           aws.Int64(7),
+			want: elbtypes.HealthCheck{
+				HealthyThreshold:   aws.Int32(2),
+				UnhealthyThreshold: aws.Int32(6),
+				Timeout:            aws.Int32(5),
+				Interval:           aws.Int32(7),
 				Target:             aws.String("TCP:8080"),
 			},
 		},
@@ -2197,11 +2196,11 @@ func TestEnsureLoadBalancerHealthCheck(t *testing.T) {
 			annotations: map[string]string{
 				ServiceAnnotationLoadBalancerHealthCheckPort: "2122",
 			},
-			want: elb.HealthCheck{
-				HealthyThreshold:   aws.Int64(2),
-				UnhealthyThreshold: aws.Int64(6),
-				Timeout:            aws.Int64(5),
-				Interval:           aws.Int64(10),
+			want: elbtypes.HealthCheck{
+				HealthyThreshold:   aws.Int32(2),
+				UnhealthyThreshold: aws.Int32(6),
+				Timeout:            aws.Int32(5),
+				Interval:           aws.Int32(10),
 				Target:             aws.String("TCP:2122"),
 			},
 		},
@@ -2210,11 +2209,11 @@ func TestEnsureLoadBalancerHealthCheck(t *testing.T) {
 			annotations: map[string]string{
 				ServiceAnnotationLoadBalancerHealthCheckProtocol: "HTTP",
 			},
-			want: elb.HealthCheck{
-				HealthyThreshold:   aws.Int64(2),
-				UnhealthyThreshold: aws.Int64(6),
-				Timeout:            aws.Int64(5),
-				Interval:           aws.Int64(10),
+			want: elbtypes.HealthCheck{
+				HealthyThreshold:   aws.Int32(2),
+				UnhealthyThreshold: aws.Int32(6),
+				Timeout:            aws.Int32(5),
+				Interval:           aws.Int32(10),
 				Target:             aws.String("HTTP:8080/"),
 			},
 		},
@@ -2225,11 +2224,11 @@ func TestEnsureLoadBalancerHealthCheck(t *testing.T) {
 				ServiceAnnotationLoadBalancerHealthCheckPath:     "/healthz",
 				ServiceAnnotationLoadBalancerHealthCheckPort:     "31224",
 			},
-			want: elb.HealthCheck{
-				HealthyThreshold:   aws.Int64(2),
-				UnhealthyThreshold: aws.Int64(6),
-				Timeout:            aws.Int64(5),
-				Interval:           aws.Int64(10),
+			want: elbtypes.HealthCheck{
+				HealthyThreshold:   aws.Int32(2),
+				UnhealthyThreshold: aws.Int32(6),
+				Timeout:            aws.Int32(5),
+				Interval:           aws.Int32(10),
 				Target:             aws.String("HTTPS:31224/healthz"),
 			},
 		},
@@ -2240,11 +2239,11 @@ func TestEnsureLoadBalancerHealthCheck(t *testing.T) {
 				ServiceAnnotationLoadBalancerHealthCheckPath:     "/healthz",
 				ServiceAnnotationLoadBalancerHealthCheckPort:     "3124",
 			},
-			want: elb.HealthCheck{
-				HealthyThreshold:   aws.Int64(2),
-				UnhealthyThreshold: aws.Int64(6),
-				Timeout:            aws.Int64(5),
-				Interval:           aws.Int64(10),
+			want: elbtypes.HealthCheck{
+				HealthyThreshold:   aws.Int32(2),
+				UnhealthyThreshold: aws.Int32(6),
+				Timeout:            aws.Int32(5),
+				Interval:           aws.Int32(10),
 				Target:             aws.String("SSL:3124"),
 			},
 		},
@@ -2254,11 +2253,11 @@ func TestEnsureLoadBalancerHealthCheck(t *testing.T) {
 				ServiceAnnotationLoadBalancerHealthCheckProtocol: "TCP",
 				ServiceAnnotationLoadBalancerHealthCheckPort:     "traffic-port",
 			},
-			want: elb.HealthCheck{
-				HealthyThreshold:   aws.Int64(2),
-				UnhealthyThreshold: aws.Int64(6),
-				Timeout:            aws.Int64(5),
-				Interval:           aws.Int64(10),
+			want: elbtypes.HealthCheck{
+				HealthyThreshold:   aws.Int32(2),
+				UnhealthyThreshold: aws.Int32(6),
+				Timeout:            aws.Int32(5),
+				Interval:           aws.Int32(10),
 				Target:             aws.String("TCP:8080"),
 			},
 		},
@@ -2266,15 +2265,15 @@ func TestEnsureLoadBalancerHealthCheck(t *testing.T) {
 	lbName := "myLB"
 	// this HC will always differ from the expected HC and thus it is expected an
 	// API call will be made to update it
-	currentHC := &elb.HealthCheck{}
-	elbDesc := &elb.LoadBalancerDescription{LoadBalancerName: &lbName, HealthCheck: currentHC}
-	defaultHealthyThreshold := int64(2)
-	defaultUnhealthyThreshold := int64(6)
-	defaultTimeout := int64(5)
-	defaultInterval := int64(10)
+	currentHC := &elbtypes.HealthCheck{}
+	elbDesc := &elbtypes.LoadBalancerDescription{LoadBalancerName: &lbName, HealthCheck: currentHC}
+	defaultHealthyThreshold := int32(2)
+	defaultUnhealthyThreshold := int32(6)
+	defaultTimeout := int32(5)
+	defaultInterval := int32(10)
 	protocol, path, port := "TCP", "", int32(8080)
 	target := "TCP:8080"
-	defaultHC := &elb.HealthCheck{
+	defaultHC := &elbtypes.HealthCheck{
 		HealthyThreshold:   &defaultHealthyThreshold,
 		UnhealthyThreshold: &defaultUnhealthyThreshold,
 		Timeout:            &defaultTimeout,
@@ -2301,19 +2300,19 @@ func TestEnsureLoadBalancerHealthCheck(t *testing.T) {
 		c, err := newAWSCloud(config.CloudConfig{}, awsServices)
 		assert.Nil(t, err, "Error building aws cloud: %v", err)
 		expectedHC := *defaultHC
-		timeout := int64(3)
-		expectedHC.Timeout = &timeout
+		timeout := int32(3)
+		expectedHC.Timeout = aws.Int32(timeout)
 		annotations := map[string]string{ServiceAnnotationLoadBalancerHCTimeout: "3"}
-		var currentHC elb.HealthCheck
+		var currentHC elbtypes.HealthCheck
 		currentHC = expectedHC
 
 		// NOTE no call expectations are set on the ELB mock
 		// test default HC
-		elbDesc := &elb.LoadBalancerDescription{LoadBalancerName: &lbName, HealthCheck: defaultHC}
+		elbDesc := &elbtypes.LoadBalancerDescription{LoadBalancerName: &lbName, HealthCheck: defaultHC}
 		err = c.ensureLoadBalancerHealthCheck(elbDesc, protocol, port, path, map[string]string{})
 		assert.NoError(t, err)
 		// test HC with override
-		elbDesc = &elb.LoadBalancerDescription{LoadBalancerName: &lbName, HealthCheck: &currentHC}
+		elbDesc = &elbtypes.LoadBalancerDescription{LoadBalancerName: &lbName, HealthCheck: &currentHC}
 		err = c.ensureLoadBalancerHealthCheck(elbDesc, protocol, port, path, annotations)
 		assert.NoError(t, err)
 	})
@@ -2323,9 +2322,9 @@ func TestEnsureLoadBalancerHealthCheck(t *testing.T) {
 		c, err := newAWSCloud(config.CloudConfig{}, awsServices)
 		assert.Nil(t, err, "Error building aws cloud: %v", err)
 		expectedHC := *defaultHC
-		invalidThreshold := int64(1)
-		expectedHC.HealthyThreshold = &invalidThreshold
-		require.Error(t, expectedHC.Validate()) // confirm test precondition
+		invalidThreshold := int32(1)
+		expectedHC.HealthyThreshold = aws.Int32(invalidThreshold)
+		require.Error(t, ValidateHealthCheck(&expectedHC)) // confirm test precondition
 		annotations := map[string]string{ServiceAnnotationLoadBalancerHCTimeout: "1"}
 
 		// NOTE no call expectations are set on the ELB mock

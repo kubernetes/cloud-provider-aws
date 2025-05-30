@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
+	elb "github.com/aws/aws-sdk-go-v2/service/elasticloadbalancing"
 	"github.com/aws/aws-sdk-go/aws/endpoints"
 	"github.com/aws/aws-sdk-go/aws/request"
 
@@ -251,6 +252,58 @@ func (r *EC2Resolver) ResolveEndpoint(
 ) {
 	for _, override := range r.Cfg.ServiceOverride {
 		if override.Service == ec2.ServiceID && override.Region == aws.ToString(params.Region) {
+			customURL, err := url.Parse(override.URL)
+			if err != nil {
+				return smithyendpoints.Endpoint{}, fmt.Errorf("could not parse override URL, %w", err)
+			}
+			return smithyendpoints.Endpoint{
+				URI: *customURL,
+			}, nil
+		}
+	}
+	return r.Resolver.ResolveEndpoint(ctx, params)
+}
+
+// GetELBEndpointOpts returns client configuration options that override
+// the signing name and region, if appropriate. Replicates logic
+// from GetResolver() for AWS SDK Go V2 clients.
+func (cfg *CloudConfig) GetELBEndpointOpts(region string) []func(*elb.Options) {
+	opts := []func(*elb.Options){}
+	for _, override := range cfg.ServiceOverride {
+		if override.Service == elb.ServiceID && override.Region == region {
+			opts = append(opts,
+				elb.WithSigV4SigningName(override.SigningName),
+				elb.WithSigV4SigningRegion(override.SigningRegion),
+			)
+		}
+	}
+	return opts
+}
+
+// GetCustomELBResolver returns an endpoint resolver for ELB Clients
+func (cfg *CloudConfig) GetCustomELBResolver() elb.EndpointResolverV2 {
+	return &ELBResolver{
+		Resolver: elb.NewDefaultEndpointResolverV2(),
+		Cfg:      cfg,
+	}
+}
+
+// ELBResolver overrides the endpoint for an AWS SDK Go V2 ELB Client,
+// using the provided CloudConfig to determine if an override
+// is appropriate.
+type ELBResolver struct {
+	Resolver elb.EndpointResolverV2
+	Cfg      *CloudConfig
+}
+
+// ResolveEndpoint resolves the endpoint, overriding when custom configurations are set.
+func (r *ELBResolver) ResolveEndpoint(
+	ctx context.Context, params elb.EndpointParameters,
+) (
+	endpoint smithyendpoints.Endpoint, err error,
+) {
+	for _, override := range r.Cfg.ServiceOverride {
+		if override.Service == elb.ServiceID && override.Region == aws.ToString(params.Region) {
 			customURL, err := url.Parse(override.URL)
 			if err != nil {
 				return smithyendpoints.Endpoint{}, fmt.Errorf("could not parse override URL, %w", err)

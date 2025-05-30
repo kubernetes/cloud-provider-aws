@@ -28,8 +28,8 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 
 	ec2types "github.com/aws/aws-sdk-go-v2/service/ec2/types"
+	elbtypes "github.com/aws/aws-sdk-go-v2/service/elasticloadbalancing/types"
 	"github.com/aws/aws-sdk-go/aws"
-	"github.com/aws/aws-sdk-go/service/elb"
 	"github.com/aws/aws-sdk-go/service/elbv2"
 	"github.com/stretchr/testify/assert"
 
@@ -216,76 +216,70 @@ func TestSyncElbListeners(t *testing.T) {
 	tests := []struct {
 		name                 string
 		loadBalancerName     string
-		listeners            []*elb.Listener
-		listenerDescriptions []*elb.ListenerDescription
-		toCreate             []*elb.Listener
-		toDelete             []*int64
+		listeners            []elbtypes.Listener
+		listenerDescriptions []elbtypes.ListenerDescription
+		toCreate             []elbtypes.Listener
+		toDelete             []int32
 	}{
 		{
 			name:             "no edge cases",
 			loadBalancerName: "lb_one",
-			listeners: []*elb.Listener{
-				{InstancePort: aws.Int64(443), InstanceProtocol: aws.String("HTTP"), LoadBalancerPort: aws.Int64(443), Protocol: aws.String("HTTP"), SSLCertificateId: aws.String("abc-123")},
-				{InstancePort: aws.Int64(80), InstanceProtocol: aws.String("TCP"), LoadBalancerPort: aws.Int64(80), Protocol: aws.String("TCP"), SSLCertificateId: aws.String("def-456")},
-				{InstancePort: aws.Int64(8443), InstanceProtocol: aws.String("TCP"), LoadBalancerPort: aws.Int64(8443), Protocol: aws.String("TCP"), SSLCertificateId: aws.String("def-456")},
+			listeners: []elbtypes.Listener{
+				{InstancePort: aws.Int32(443), InstanceProtocol: aws.String("HTTP"), LoadBalancerPort: 443, Protocol: aws.String("HTTP"), SSLCertificateId: aws.String("abc-123")},
+				{InstancePort: aws.Int32(80), InstanceProtocol: aws.String("TCP"), LoadBalancerPort: 80, Protocol: aws.String("TCP"), SSLCertificateId: aws.String("def-456")},
+				{InstancePort: aws.Int32(8443), InstanceProtocol: aws.String("TCP"), LoadBalancerPort: 8443, Protocol: aws.String("TCP"), SSLCertificateId: aws.String("def-456")},
 			},
-			listenerDescriptions: []*elb.ListenerDescription{
-				{Listener: &elb.Listener{InstancePort: aws.Int64(80), InstanceProtocol: aws.String("TCP"), LoadBalancerPort: aws.Int64(80), Protocol: aws.String("TCP")}},
-				{Listener: &elb.Listener{InstancePort: aws.Int64(8443), InstanceProtocol: aws.String("TCP"), LoadBalancerPort: aws.Int64(8443), Protocol: aws.String("TCP"), SSLCertificateId: aws.String("def-456")}},
+			listenerDescriptions: []elbtypes.ListenerDescription{
+				{Listener: &elbtypes.Listener{InstancePort: aws.Int32(80), InstanceProtocol: aws.String("TCP"), LoadBalancerPort: 80, Protocol: aws.String("TCP")}},
+				{Listener: &elbtypes.Listener{InstancePort: aws.Int32(8443), InstanceProtocol: aws.String("TCP"), LoadBalancerPort: 8443, Protocol: aws.String("TCP"), SSLCertificateId: aws.String("def-456")}},
 			},
-			toDelete: []*int64{
-				aws.Int64(80),
-			},
-			toCreate: []*elb.Listener{
-				{InstancePort: aws.Int64(443), InstanceProtocol: aws.String("HTTP"), LoadBalancerPort: aws.Int64(443), Protocol: aws.String("HTTP"), SSLCertificateId: aws.String("abc-123")},
-				{InstancePort: aws.Int64(80), InstanceProtocol: aws.String("TCP"), LoadBalancerPort: aws.Int64(80), Protocol: aws.String("TCP"), SSLCertificateId: aws.String("def-456")},
+			toDelete: []int32{80},
+			toCreate: []elbtypes.Listener{
+				{InstancePort: aws.Int32(443), InstanceProtocol: aws.String("HTTP"), LoadBalancerPort: 443, Protocol: aws.String("HTTP"), SSLCertificateId: aws.String("abc-123")},
+				{InstancePort: aws.Int32(80), InstanceProtocol: aws.String("TCP"), LoadBalancerPort: 80, Protocol: aws.String("TCP"), SSLCertificateId: aws.String("def-456")},
 			},
 		},
 		{
 			name:             "no listeners to delete",
 			loadBalancerName: "lb_two",
-			listeners: []*elb.Listener{
-				{InstancePort: aws.Int64(443), InstanceProtocol: aws.String("HTTP"), LoadBalancerPort: aws.Int64(443), Protocol: aws.String("HTTP"), SSLCertificateId: aws.String("abc-123")},
-				{InstancePort: aws.Int64(80), InstanceProtocol: aws.String("TCP"), LoadBalancerPort: aws.Int64(80), Protocol: aws.String("TCP"), SSLCertificateId: aws.String("def-456")},
+			listeners: []elbtypes.Listener{
+				{InstancePort: aws.Int32(443), InstanceProtocol: aws.String("HTTP"), LoadBalancerPort: 443, Protocol: aws.String("HTTP"), SSLCertificateId: aws.String("abc-123")},
+				{InstancePort: aws.Int32(80), InstanceProtocol: aws.String("TCP"), LoadBalancerPort: 80, Protocol: aws.String("TCP"), SSLCertificateId: aws.String("def-456")},
 			},
-			listenerDescriptions: []*elb.ListenerDescription{
-				{Listener: &elb.Listener{InstancePort: aws.Int64(443), InstanceProtocol: aws.String("HTTP"), LoadBalancerPort: aws.Int64(443), Protocol: aws.String("HTTP"), SSLCertificateId: aws.String("abc-123")}},
+			listenerDescriptions: []elbtypes.ListenerDescription{
+				{Listener: &elbtypes.Listener{InstancePort: aws.Int32(443), InstanceProtocol: aws.String("HTTP"), LoadBalancerPort: 443, Protocol: aws.String("HTTP"), SSLCertificateId: aws.String("abc-123")}},
 			},
-			toCreate: []*elb.Listener{
-				{InstancePort: aws.Int64(80), InstanceProtocol: aws.String("TCP"), LoadBalancerPort: aws.Int64(80), Protocol: aws.String("TCP"), SSLCertificateId: aws.String("def-456")},
+			toCreate: []elbtypes.Listener{
+				{InstancePort: aws.Int32(80), InstanceProtocol: aws.String("TCP"), LoadBalancerPort: 80, Protocol: aws.String("TCP"), SSLCertificateId: aws.String("def-456")},
 			},
-			toDelete: []*int64{},
+			toDelete: []int32{},
 		},
 		{
 			name:             "no listeners to create",
 			loadBalancerName: "lb_three",
-			listeners: []*elb.Listener{
-				{InstancePort: aws.Int64(443), InstanceProtocol: aws.String("HTTP"), LoadBalancerPort: aws.Int64(443), Protocol: aws.String("HTTP"), SSLCertificateId: aws.String("abc-123")},
+			listeners: []elbtypes.Listener{
+				{InstancePort: aws.Int32(443), InstanceProtocol: aws.String("HTTP"), LoadBalancerPort: 443, Protocol: aws.String("HTTP"), SSLCertificateId: aws.String("abc-123")},
 			},
-			listenerDescriptions: []*elb.ListenerDescription{
-				{Listener: &elb.Listener{InstancePort: aws.Int64(80), InstanceProtocol: aws.String("TCP"), LoadBalancerPort: aws.Int64(80), Protocol: aws.String("TCP")}},
-				{Listener: &elb.Listener{InstancePort: aws.Int64(443), InstanceProtocol: aws.String("HTTP"), LoadBalancerPort: aws.Int64(443), Protocol: aws.String("HTTP"), SSLCertificateId: aws.String("abc-123")}},
+			listenerDescriptions: []elbtypes.ListenerDescription{
+				{Listener: &elbtypes.Listener{InstancePort: aws.Int32(80), InstanceProtocol: aws.String("TCP"), LoadBalancerPort: 80, Protocol: aws.String("TCP")}},
+				{Listener: &elbtypes.Listener{InstancePort: aws.Int32(443), InstanceProtocol: aws.String("HTTP"), LoadBalancerPort: 443, Protocol: aws.String("HTTP"), SSLCertificateId: aws.String("abc-123")}},
 			},
-			toDelete: []*int64{
-				aws.Int64(80),
-			},
-			toCreate: []*elb.Listener{},
+			toDelete: []int32{80},
+			toCreate: []elbtypes.Listener{},
 		},
 		{
 			name:             "nil actual listener",
 			loadBalancerName: "lb_four",
-			listeners: []*elb.Listener{
-				{InstancePort: aws.Int64(443), InstanceProtocol: aws.String("HTTP"), LoadBalancerPort: aws.Int64(443), Protocol: aws.String("HTTP")},
+			listeners: []elbtypes.Listener{
+				{InstancePort: aws.Int32(443), InstanceProtocol: aws.String("HTTP"), LoadBalancerPort: 443, Protocol: aws.String("HTTP")},
 			},
-			listenerDescriptions: []*elb.ListenerDescription{
-				{Listener: &elb.Listener{InstancePort: aws.Int64(443), InstanceProtocol: aws.String("HTTP"), LoadBalancerPort: aws.Int64(443), Protocol: aws.String("HTTP"), SSLCertificateId: aws.String("abc-123")}},
+			listenerDescriptions: []elbtypes.ListenerDescription{
+				{Listener: &elbtypes.Listener{InstancePort: aws.Int32(443), InstanceProtocol: aws.String("HTTP"), LoadBalancerPort: 443, Protocol: aws.String("HTTP"), SSLCertificateId: aws.String("abc-123")}},
 				{Listener: nil},
 			},
-			toDelete: []*int64{
-				aws.Int64(443),
-			},
-			toCreate: []*elb.Listener{
-				{InstancePort: aws.Int64(443), InstanceProtocol: aws.String("HTTP"), LoadBalancerPort: aws.Int64(443), Protocol: aws.String("HTTP")},
+			toDelete: []int32{443},
+			toCreate: []elbtypes.Listener{
+				{InstancePort: aws.Int32(443), InstanceProtocol: aws.String("HTTP"), LoadBalancerPort: 443, Protocol: aws.String("HTTP")},
 			},
 		},
 	}
@@ -302,37 +296,37 @@ func TestSyncElbListeners(t *testing.T) {
 func TestElbListenersAreEqual(t *testing.T) {
 	tests := []struct {
 		name             string
-		expected, actual *elb.Listener
+		expected, actual elbtypes.Listener
 		equal            bool
 	}{
 		{
 			name:     "should be equal",
-			expected: &elb.Listener{InstancePort: aws.Int64(80), InstanceProtocol: aws.String("TCP"), LoadBalancerPort: aws.Int64(80), Protocol: aws.String("TCP")},
-			actual:   &elb.Listener{InstancePort: aws.Int64(80), InstanceProtocol: aws.String("TCP"), LoadBalancerPort: aws.Int64(80), Protocol: aws.String("TCP")},
+			expected: elbtypes.Listener{InstancePort: aws.Int32(80), InstanceProtocol: aws.String("TCP"), LoadBalancerPort: 80, Protocol: aws.String("TCP")},
+			actual:   elbtypes.Listener{InstancePort: aws.Int32(80), InstanceProtocol: aws.String("TCP"), LoadBalancerPort: 80, Protocol: aws.String("TCP")},
 			equal:    true,
 		},
 		{
 			name:     "instance port should be different",
-			expected: &elb.Listener{InstancePort: aws.Int64(443), InstanceProtocol: aws.String("TCP"), LoadBalancerPort: aws.Int64(80), Protocol: aws.String("TCP")},
-			actual:   &elb.Listener{InstancePort: aws.Int64(80), InstanceProtocol: aws.String("TCP"), LoadBalancerPort: aws.Int64(80), Protocol: aws.String("TCP")},
+			expected: elbtypes.Listener{InstancePort: aws.Int32(443), InstanceProtocol: aws.String("TCP"), LoadBalancerPort: 80, Protocol: aws.String("TCP")},
+			actual:   elbtypes.Listener{InstancePort: aws.Int32(80), InstanceProtocol: aws.String("TCP"), LoadBalancerPort: 80, Protocol: aws.String("TCP")},
 			equal:    false,
 		},
 		{
 			name:     "instance protocol should be different",
-			expected: &elb.Listener{InstancePort: aws.Int64(80), InstanceProtocol: aws.String("HTTP"), LoadBalancerPort: aws.Int64(80), Protocol: aws.String("TCP")},
-			actual:   &elb.Listener{InstancePort: aws.Int64(80), InstanceProtocol: aws.String("TCP"), LoadBalancerPort: aws.Int64(80), Protocol: aws.String("TCP")},
+			expected: elbtypes.Listener{InstancePort: aws.Int32(80), InstanceProtocol: aws.String("HTTP"), LoadBalancerPort: 80, Protocol: aws.String("TCP")},
+			actual:   elbtypes.Listener{InstancePort: aws.Int32(80), InstanceProtocol: aws.String("TCP"), LoadBalancerPort: 80, Protocol: aws.String("TCP")},
 			equal:    false,
 		},
 		{
 			name:     "load balancer port should be different",
-			expected: &elb.Listener{InstancePort: aws.Int64(443), InstanceProtocol: aws.String("TCP"), LoadBalancerPort: aws.Int64(443), Protocol: aws.String("TCP")},
-			actual:   &elb.Listener{InstancePort: aws.Int64(443), InstanceProtocol: aws.String("TCP"), LoadBalancerPort: aws.Int64(80), Protocol: aws.String("TCP")},
+			expected: elbtypes.Listener{InstancePort: aws.Int32(443), InstanceProtocol: aws.String("TCP"), LoadBalancerPort: 443, Protocol: aws.String("TCP")},
+			actual:   elbtypes.Listener{InstancePort: aws.Int32(443), InstanceProtocol: aws.String("TCP"), LoadBalancerPort: 80, Protocol: aws.String("TCP")},
 			equal:    false,
 		},
 		{
 			name:     "protocol should be different",
-			expected: &elb.Listener{InstancePort: aws.Int64(443), InstanceProtocol: aws.String("TCP"), LoadBalancerPort: aws.Int64(80), Protocol: aws.String("TCP")},
-			actual:   &elb.Listener{InstancePort: aws.Int64(443), InstanceProtocol: aws.String("TCP"), LoadBalancerPort: aws.Int64(80), Protocol: aws.String("HTTP")},
+			expected: elbtypes.Listener{InstancePort: aws.Int32(443), InstanceProtocol: aws.String("TCP"), LoadBalancerPort: 80, Protocol: aws.String("TCP")},
+			actual:   elbtypes.Listener{InstancePort: aws.Int32(443), InstanceProtocol: aws.String("TCP"), LoadBalancerPort: 80, Protocol: aws.String("HTTP")},
 			equal:    false,
 		},
 	}
