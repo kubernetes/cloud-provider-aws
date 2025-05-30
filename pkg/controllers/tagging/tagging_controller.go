@@ -383,7 +383,7 @@ func (tc *Controller) untagEc2Instance(ctx context.Context, node *taggingControl
 
 	var err error
 	if tc.batchingEnabled {
-		err = tc.cloud.UntagResourceBatch(context.TODO(), string(instanceID), tc.tags)
+		err = tc.cloud.UntagResourceBatch(ctx, string(instanceID), tc.tags)
 	} else {
 		err = tc.cloud.UntagResource(ctx, string(instanceID), tc.tags)
 	}

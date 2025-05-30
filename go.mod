@@ -9,6 +9,8 @@ require (
 	github.com/aws/aws-sdk-go-v2/config v1.29.14
 	github.com/aws/aws-sdk-go-v2/service/ecr v1.36.2
 	github.com/aws/aws-sdk-go-v2/service/ecrpublic v1.27.2
+	github.com/aws/aws-sdk-go-v2/service/elasticloadbalancing v1.29.3
+	github.com/aws/aws-sdk-go-v2/service/elasticloadbalancingv2 v1.45.2
 	github.com/mitchellh/hashstructure/v2 v2.0.2
 	github.com/onsi/ginkgo/v2 v2.23.4
 	github.com/onsi/gomega v1.37.0
