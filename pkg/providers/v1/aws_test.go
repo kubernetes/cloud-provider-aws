@@ -29,10 +29,14 @@ import (
 
 	"github.com/aws/aws-sdk-go-v2/service/ec2"
 	ec2types "github.com/aws/aws-sdk-go-v2/service/ec2/types"
+	elb "github.com/aws/aws-sdk-go-v2/service/elasticloadbalancing"
+	elbtypes "github.com/aws/aws-sdk-go-v2/service/elasticloadbalancing/types"
+	elbv2 "github.com/aws/aws-sdk-go-v2/service/elasticloadbalancingv2"
+	elbv2types "github.com/aws/aws-sdk-go-v2/service/elasticloadbalancingv2/types"
+
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/awserr"
-	"github.com/aws/aws-sdk-go/service/elb"
-	"github.com/aws/aws-sdk-go/service/elbv2"
+
 	"github.com/aws/smithy-go"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
@@ -101,27 +105,27 @@ type MockedFakeELB struct {
 	mock.Mock
 }
 
-func (m *MockedFakeELB) DescribeLoadBalancers(input *elb.DescribeLoadBalancersInput) (*elb.DescribeLoadBalancersOutput, error) {
+func (m *MockedFakeELB) DescribeLoadBalancers(ctx context.Context, input *elb.DescribeLoadBalancersInput, optFns ...func(*elb.Options)) (*elb.DescribeLoadBalancersOutput, error) {
 	args := m.Called(input)
 	return args.Get(0).(*elb.DescribeLoadBalancersOutput), nil
 }
 
 func (m *MockedFakeELB) expectDescribeLoadBalancers(loadBalancerName string) {
-	m.On("DescribeLoadBalancers", &elb.DescribeLoadBalancersInput{LoadBalancerNames: []*string{aws.String(loadBalancerName)}}).Return(&elb.DescribeLoadBalancersOutput{
-		LoadBalancerDescriptions: []*elb.LoadBalancerDescription{
+	m.On("DescribeLoadBalancers", &elb.DescribeLoadBalancersInput{LoadBalancerNames: []string{loadBalancerName}}).Return(&elb.DescribeLoadBalancersOutput{
+		LoadBalancerDescriptions: []elbtypes.LoadBalancerDescription{
 			{
-				SecurityGroups: []*string{aws.String("sg-123456")},
+				SecurityGroups: []string{"sg-123456"},
 			},
 		},
 	})
 }
 
-func (m *MockedFakeELB) AddTags(input *elb.AddTagsInput) (*elb.AddTagsOutput, error) {
+func (m *MockedFakeELB) AddTags(ctx context.Context, input *elb.AddTagsInput, optFns ...func(*elb.Options)) (*elb.AddTagsOutput, error) {
 	args := m.Called(input)
 	return args.Get(0).(*elb.AddTagsOutput), nil
 }
 
-func (m *MockedFakeELB) ConfigureHealthCheck(input *elb.ConfigureHealthCheckInput) (*elb.ConfigureHealthCheckOutput, error) {
+func (m *MockedFakeELB) ConfigureHealthCheck(ctx context.Context, input *elb.ConfigureHealthCheckInput, optFns ...func(*elb.Options)) (*elb.ConfigureHealthCheckOutput, error) {
 	args := m.Called(input)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
@@ -129,7 +133,7 @@ func (m *MockedFakeELB) ConfigureHealthCheck(input *elb.ConfigureHealthCheckInpu
 	return args.Get(0).(*elb.ConfigureHealthCheckOutput), args.Error(1)
 }
 
-func (m *MockedFakeELB) expectConfigureHealthCheck(loadBalancerName *string, expectedHC *elb.HealthCheck, returnErr error) {
+func (m *MockedFakeELB) expectConfigureHealthCheck(loadBalancerName *string, expectedHC *elbtypes.HealthCheck, returnErr error) {
 	expected := &elb.ConfigureHealthCheckInput{HealthCheck: expectedHC, LoadBalancerName: loadBalancerName}
 	call := m.On("ConfigureHealthCheck", expected)
 	if returnErr != nil {
@@ -1817,9 +1821,9 @@ func TestBuildListener(t *testing.T) {
 	tests := []struct {
 		name string
 
-		lbPort                    int64
+		lbPort                    int32
 		portName                  string
-		instancePort              int64
+		instancePort              int32
 		backendProtocolAnnotation string
 		certAnnotation            string
 		sslPortAnnotation         string
@@ -1929,10 +1933,10 @@ func TestBuildListener(t *testing.T) {
 				if test.certID != "" {
 					cert = &test.certID
 				}
-				expected := &elb.Listener{
+				expected := elbtypes.Listener{
 					InstancePort:     &test.instancePort,
 					InstanceProtocol: &test.instanceProtocol,
-					LoadBalancerPort: &test.lbPort,
+					LoadBalancerPort: test.lbPort,
 					Protocol:         &test.lbProtocol,
 					SSLCertificateId: cert,
 				}
@@ -1946,27 +1950,25 @@ func TestBuildListener(t *testing.T) {
 }
 
 func TestProxyProtocolEnabled(t *testing.T) {
-	policies := sets.NewString(ProxyProtocolPolicyName, "FooBarFoo")
-	fakeBackend := &elb.BackendServerDescription{
-		InstancePort: aws.Int64(80),
-		PolicyNames:  stringSetToPointers(policies),
+	policies := []string{ProxyProtocolPolicyName, "FooBarFoo"}
+	fakeBackend := elbtypes.BackendServerDescription{
+		InstancePort: aws.Int32(80),
+		PolicyNames:  policies,
 	}
 	result := proxyProtocolEnabled(fakeBackend)
 	assert.True(t, result, "expected to find %s in %s", ProxyProtocolPolicyName, policies)
 
-	policies = sets.NewString("FooBarFoo")
-	fakeBackend = &elb.BackendServerDescription{
-		InstancePort: aws.Int64(80),
-		PolicyNames: []*string{
-			aws.String("FooBarFoo"),
-		},
+	policies = []string{"FooBarFoo"}
+	fakeBackend = elbtypes.BackendServerDescription{
+		InstancePort: aws.Int32(80),
+		PolicyNames:  []string{"FooBarFoo"},
 	}
 	result = proxyProtocolEnabled(fakeBackend)
 	assert.False(t, result, "did not expect to find %s in %s", ProxyProtocolPolicyName, policies)
 
-	policies = sets.NewString()
-	fakeBackend = &elb.BackendServerDescription{
-		InstancePort: aws.Int64(80),
+	policies = []string{}
+	fakeBackend = elbtypes.BackendServerDescription{
+		InstancePort: aws.Int32(80),
 	}
 	result = proxyProtocolEnabled(fakeBackend)
 	assert.False(t, result, "did not expect to find %s in %s", ProxyProtocolPolicyName, policies)
@@ -2116,8 +2118,8 @@ func TestAddLoadBalancerTags(t *testing.T) {
 	want["tag1"] = "val1"
 
 	expectedAddTagsRequest := &elb.AddTagsInput{
-		LoadBalancerNames: []*string{&loadBalancerName},
-		Tags: []*elb.Tag{
+		LoadBalancerNames: []string{loadBalancerName},
+		Tags: []elbtypes.Tag{
 			{
 				Key:   aws.String("tag1"),
 				Value: aws.String("val1"),
@@ -2126,7 +2128,7 @@ func TestAddLoadBalancerTags(t *testing.T) {
 	}
 	awsServices.elb.(*MockedFakeELB).On("AddTags", expectedAddTagsRequest).Return(&elb.AddTagsOutput{})
 
-	err := c.addLoadBalancerTags(loadBalancerName, want)
+	err := c.addLoadBalancerTags(context.TODO(), loadBalancerName, want)
 	assert.Nil(t, err, "Error adding load balancer tags: %v", err)
 	awsServices.elb.(*MockedFakeELB).AssertExpectations(t)
 }
@@ -2135,60 +2137,60 @@ func TestEnsureLoadBalancerHealthCheck(t *testing.T) {
 	tests := []struct {
 		name        string
 		annotations map[string]string
-		want        elb.HealthCheck
+		want        elbtypes.HealthCheck
 	}{
 		{
 			name:        "falls back to HC defaults",
 			annotations: map[string]string{},
-			want: elb.HealthCheck{
-				HealthyThreshold:   aws.Int64(2),
-				UnhealthyThreshold: aws.Int64(6),
-				Timeout:            aws.Int64(5),
-				Interval:           aws.Int64(10),
+			want: elbtypes.HealthCheck{
+				HealthyThreshold:   aws.Int32(2),
+				UnhealthyThreshold: aws.Int32(6),
+				Timeout:            aws.Int32(5),
+				Interval:           aws.Int32(10),
 				Target:             aws.String("TCP:8080"),
 			},
 		},
 		{
 			name:        "healthy threshold override",
 			annotations: map[string]string{ServiceAnnotationLoadBalancerHCHealthyThreshold: "7"},
-			want: elb.HealthCheck{
-				HealthyThreshold:   aws.Int64(7),
-				UnhealthyThreshold: aws.Int64(6),
-				Timeout:            aws.Int64(5),
-				Interval:           aws.Int64(10),
+			want: elbtypes.HealthCheck{
+				HealthyThreshold:   aws.Int32(7),
+				UnhealthyThreshold: aws.Int32(6),
+				Timeout:            aws.Int32(5),
+				Interval:           aws.Int32(10),
 				Target:             aws.String("TCP:8080"),
 			},
 		},
 		{
 			name:        "unhealthy threshold override",
 			annotations: map[string]string{ServiceAnnotationLoadBalancerHCUnhealthyThreshold: "7"},
-			want: elb.HealthCheck{
-				HealthyThreshold:   aws.Int64(2),
-				UnhealthyThreshold: aws.Int64(7),
-				Timeout:            aws.Int64(5),
-				Interval:           aws.Int64(10),
+			want: elbtypes.HealthCheck{
+				HealthyThreshold:   aws.Int32(2),
+				UnhealthyThreshold: aws.Int32(7),
+				Timeout:            aws.Int32(5),
+				Interval:           aws.Int32(10),
 				Target:             aws.String("TCP:8080"),
 			},
 		},
 		{
 			name:        "timeout override",
 			annotations: map[string]string{ServiceAnnotationLoadBalancerHCTimeout: "7"},
-			want: elb.HealthCheck{
-				HealthyThreshold:   aws.Int64(2),
-				UnhealthyThreshold: aws.Int64(6),
-				Timeout:            aws.Int64(7),
-				Interval:           aws.Int64(10),
+			want: elbtypes.HealthCheck{
+				HealthyThreshold:   aws.Int32(2),
+				UnhealthyThreshold: aws.Int32(6),
+				Timeout:            aws.Int32(7),
+				Interval:           aws.Int32(10),
 				Target:             aws.String("TCP:8080"),
 			},
 		},
 		{
 			name:        "interval override",
 			annotations: map[string]string{ServiceAnnotationLoadBalancerHCInterval: "7"},
-			want: elb.HealthCheck{
-				HealthyThreshold:   aws.Int64(2),
-				UnhealthyThreshold: aws.Int64(6),
-				Timeout:            aws.Int64(5),
-				Interval:           aws.Int64(7),
+			want: elbtypes.HealthCheck{
+				HealthyThreshold:   aws.Int32(2),
+				UnhealthyThreshold: aws.Int32(6),
+				Timeout:            aws.Int32(5),
+				Interval:           aws.Int32(7),
 				Target:             aws.String("TCP:8080"),
 			},
 		},
@@ -2197,11 +2199,11 @@ func TestEnsureLoadBalancerHealthCheck(t *testing.T) {
 			annotations: map[string]string{
 				ServiceAnnotationLoadBalancerHealthCheckPort: "2122",
 			},
-			want: elb.HealthCheck{
-				HealthyThreshold:   aws.Int64(2),
-				UnhealthyThreshold: aws.Int64(6),
-				Timeout:            aws.Int64(5),
-				Interval:           aws.Int64(10),
+			want: elbtypes.HealthCheck{
+				HealthyThreshold:   aws.Int32(2),
+				UnhealthyThreshold: aws.Int32(6),
+				Timeout:            aws.Int32(5),
+				Interval:           aws.Int32(10),
 				Target:             aws.String("TCP:2122"),
 			},
 		},
@@ -2210,11 +2212,11 @@ func TestEnsureLoadBalancerHealthCheck(t *testing.T) {
 			annotations: map[string]string{
 				ServiceAnnotationLoadBalancerHealthCheckProtocol: "HTTP",
 			},
-			want: elb.HealthCheck{
-				HealthyThreshold:   aws.Int64(2),
-				UnhealthyThreshold: aws.Int64(6),
-				Timeout:            aws.Int64(5),
-				Interval:           aws.Int64(10),
+			want: elbtypes.HealthCheck{
+				HealthyThreshold:   aws.Int32(2),
+				UnhealthyThreshold: aws.Int32(6),
+				Timeout:            aws.Int32(5),
+				Interval:           aws.Int32(10),
 				Target:             aws.String("HTTP:8080/"),
 			},
 		},
@@ -2225,11 +2227,11 @@ func TestEnsureLoadBalancerHealthCheck(t *testing.T) {
 				ServiceAnnotationLoadBalancerHealthCheckPath:     "/healthz",
 				ServiceAnnotationLoadBalancerHealthCheckPort:     "31224",
 			},
-			want: elb.HealthCheck{
-				HealthyThreshold:   aws.Int64(2),
-				UnhealthyThreshold: aws.Int64(6),
-				Timeout:            aws.Int64(5),
-				Interval:           aws.Int64(10),
+			want: elbtypes.HealthCheck{
+				HealthyThreshold:   aws.Int32(2),
+				UnhealthyThreshold: aws.Int32(6),
+				Timeout:            aws.Int32(5),
+				Interval:           aws.Int32(10),
 				Target:             aws.String("HTTPS:31224/healthz"),
 			},
 		},
@@ -2240,11 +2242,11 @@ func TestEnsureLoadBalancerHealthCheck(t *testing.T) {
 				ServiceAnnotationLoadBalancerHealthCheckPath:     "/healthz",
 				ServiceAnnotationLoadBalancerHealthCheckPort:     "3124",
 			},
-			want: elb.HealthCheck{
-				HealthyThreshold:   aws.Int64(2),
-				UnhealthyThreshold: aws.Int64(6),
-				Timeout:            aws.Int64(5),
-				Interval:           aws.Int64(10),
+			want: elbtypes.HealthCheck{
+				HealthyThreshold:   aws.Int32(2),
+				UnhealthyThreshold: aws.Int32(6),
+				Timeout:            aws.Int32(5),
+				Interval:           aws.Int32(10),
 				Target:             aws.String("SSL:3124"),
 			},
 		},
@@ -2254,11 +2256,11 @@ func TestEnsureLoadBalancerHealthCheck(t *testing.T) {
 				ServiceAnnotationLoadBalancerHealthCheckProtocol: "TCP",
 				ServiceAnnotationLoadBalancerHealthCheckPort:     "traffic-port",
 			},
-			want: elb.HealthCheck{
-				HealthyThreshold:   aws.Int64(2),
-				UnhealthyThreshold: aws.Int64(6),
-				Timeout:            aws.Int64(5),
-				Interval:           aws.Int64(10),
+			want: elbtypes.HealthCheck{
+				HealthyThreshold:   aws.Int32(2),
+				UnhealthyThreshold: aws.Int32(6),
+				Timeout:            aws.Int32(5),
+				Interval:           aws.Int32(10),
 				Target:             aws.String("TCP:8080"),
 			},
 		},
@@ -2266,15 +2268,15 @@ func TestEnsureLoadBalancerHealthCheck(t *testing.T) {
 	lbName := "myLB"
 	// this HC will always differ from the expected HC and thus it is expected an
 	// API call will be made to update it
-	currentHC := &elb.HealthCheck{}
-	elbDesc := &elb.LoadBalancerDescription{LoadBalancerName: &lbName, HealthCheck: currentHC}
-	defaultHealthyThreshold := int64(2)
-	defaultUnhealthyThreshold := int64(6)
-	defaultTimeout := int64(5)
-	defaultInterval := int64(10)
+	currentHC := &elbtypes.HealthCheck{}
+	elbDesc := &elbtypes.LoadBalancerDescription{LoadBalancerName: &lbName, HealthCheck: currentHC}
+	defaultHealthyThreshold := int32(2)
+	defaultUnhealthyThreshold := int32(6)
+	defaultTimeout := int32(5)
+	defaultInterval := int32(10)
 	protocol, path, port := "TCP", "", int32(8080)
 	target := "TCP:8080"
-	defaultHC := &elb.HealthCheck{
+	defaultHC := &elbtypes.HealthCheck{
 		HealthyThreshold:   &defaultHealthyThreshold,
 		UnhealthyThreshold: &defaultUnhealthyThreshold,
 		Timeout:            &defaultTimeout,
@@ -2289,7 +2291,7 @@ func TestEnsureLoadBalancerHealthCheck(t *testing.T) {
 			expectedHC := test.want
 			awsServices.elb.(*MockedFakeELB).expectConfigureHealthCheck(&lbName, &expectedHC, nil)
 
-			err = c.ensureLoadBalancerHealthCheck(elbDesc, protocol, port, path, test.annotations)
+			err = c.ensureLoadBalancerHealthCheck(context.TODO(), elbDesc, protocol, port, path, test.annotations)
 
 			require.NoError(t, err)
 			awsServices.elb.(*MockedFakeELB).AssertExpectations(t)
@@ -2301,20 +2303,20 @@ func TestEnsureLoadBalancerHealthCheck(t *testing.T) {
 		c, err := newAWSCloud(config.CloudConfig{}, awsServices)
 		assert.Nil(t, err, "Error building aws cloud: %v", err)
 		expectedHC := *defaultHC
-		timeout := int64(3)
-		expectedHC.Timeout = &timeout
+		timeout := int32(3)
+		expectedHC.Timeout = aws.Int32(timeout)
 		annotations := map[string]string{ServiceAnnotationLoadBalancerHCTimeout: "3"}
-		var currentHC elb.HealthCheck
+		var currentHC elbtypes.HealthCheck
 		currentHC = expectedHC
 
 		// NOTE no call expectations are set on the ELB mock
 		// test default HC
-		elbDesc := &elb.LoadBalancerDescription{LoadBalancerName: &lbName, HealthCheck: defaultHC}
-		err = c.ensureLoadBalancerHealthCheck(elbDesc, protocol, port, path, map[string]string{})
+		elbDesc := &elbtypes.LoadBalancerDescription{LoadBalancerName: &lbName, HealthCheck: defaultHC}
+		err = c.ensureLoadBalancerHealthCheck(context.TODO(), elbDesc, protocol, port, path, map[string]string{})
 		assert.NoError(t, err)
 		// test HC with override
-		elbDesc = &elb.LoadBalancerDescription{LoadBalancerName: &lbName, HealthCheck: &currentHC}
-		err = c.ensureLoadBalancerHealthCheck(elbDesc, protocol, port, path, annotations)
+		elbDesc = &elbtypes.LoadBalancerDescription{LoadBalancerName: &lbName, HealthCheck: &currentHC}
+		err = c.ensureLoadBalancerHealthCheck(context.TODO(), elbDesc, protocol, port, path, annotations)
 		assert.NoError(t, err)
 	})
 
@@ -2323,13 +2325,13 @@ func TestEnsureLoadBalancerHealthCheck(t *testing.T) {
 		c, err := newAWSCloud(config.CloudConfig{}, awsServices)
 		assert.Nil(t, err, "Error building aws cloud: %v", err)
 		expectedHC := *defaultHC
-		invalidThreshold := int64(1)
-		expectedHC.HealthyThreshold = &invalidThreshold
-		require.Error(t, expectedHC.Validate()) // confirm test precondition
+		invalidThreshold := int32(1)
+		expectedHC.HealthyThreshold = aws.Int32(invalidThreshold)
+		require.Error(t, ValidateHealthCheck(&expectedHC)) // confirm test precondition
 		annotations := map[string]string{ServiceAnnotationLoadBalancerHCTimeout: "1"}
 
 		// NOTE no call expectations are set on the ELB mock
-		err = c.ensureLoadBalancerHealthCheck(elbDesc, protocol, port, path, annotations)
+		err = c.ensureLoadBalancerHealthCheck(context.TODO(), elbDesc, protocol, port, path, annotations)
 
 		require.Error(t, err)
 	})
@@ -2341,7 +2343,7 @@ func TestEnsureLoadBalancerHealthCheck(t *testing.T) {
 		annotations := map[string]string{ServiceAnnotationLoadBalancerHCTimeout: "3.3"}
 
 		// NOTE no call expectations are set on the ELB mock
-		err = c.ensureLoadBalancerHealthCheck(elbDesc, protocol, port, path, annotations)
+		err = c.ensureLoadBalancerHealthCheck(context.TODO(), elbDesc, protocol, port, path, annotations)
 
 		require.Error(t, err)
 	})
@@ -2353,7 +2355,7 @@ func TestEnsureLoadBalancerHealthCheck(t *testing.T) {
 		returnErr := fmt.Errorf("throttling error")
 		awsServices.elb.(*MockedFakeELB).expectConfigureHealthCheck(&lbName, defaultHC, returnErr)
 
-		err = c.ensureLoadBalancerHealthCheck(elbDesc, protocol, port, path, map[string]string{})
+		err = c.ensureLoadBalancerHealthCheck(context.TODO(), elbDesc, protocol, port, path, map[string]string{})
 
 		require.Error(t, err)
 		awsServices.elb.(*MockedFakeELB).AssertExpectations(t)
@@ -2530,39 +2532,39 @@ func informerNotSynced() bool {
 }
 
 type MockedFakeELBV2 struct {
-	LoadBalancers []*elbv2.LoadBalancer
-	TargetGroups  []*elbv2.TargetGroup
-	Listeners     []*elbv2.Listener
+	LoadBalancers []elbv2types.LoadBalancer
+	TargetGroups  []elbv2types.TargetGroup
+	Listeners     []elbv2types.Listener
 
 	// keys on all of these maps are ARNs
 	LoadBalancerAttributes map[string]map[string]string
-	Tags                   map[string][]elbv2.Tag
+	Tags                   map[string][]elbv2types.Tag
 	RegisteredInstances    map[string][]string // value is list of instance IDs
 }
 
-func (m *MockedFakeELBV2) AddTags(request *elbv2.AddTagsInput) (*elbv2.AddTagsOutput, error) {
-	for _, arn := range request.ResourceArns {
-		for _, tag := range request.Tags {
-			m.Tags[aws.StringValue(arn)] = append(m.Tags[aws.StringValue(arn)], *tag)
+func (m *MockedFakeELBV2) AddTags(ctx context.Context, input *elbv2.AddTagsInput, optFns ...func(*elbv2.Options)) (*elbv2.AddTagsOutput, error) {
+	for _, arn := range input.ResourceArns {
+		for _, tag := range input.Tags {
+			m.Tags[arn] = append(m.Tags[arn], tag)
 		}
 	}
 
 	return &elbv2.AddTagsOutput{}, nil
 }
 
-func (m *MockedFakeELBV2) CreateLoadBalancer(request *elbv2.CreateLoadBalancerInput) (*elbv2.CreateLoadBalancerOutput, error) {
+func (m *MockedFakeELBV2) CreateLoadBalancer(ctx context.Context, input *elbv2.CreateLoadBalancerInput, optFns ...func(*elbv2.Options)) (*elbv2.CreateLoadBalancerOutput, error) {
 	accountID := 123456789
 	arn := fmt.Sprintf("arn:aws:elasticloadbalancing:us-west-2:%d:loadbalancer/net/%x/%x",
 		accountID,
 		rand.Uint64(),
 		rand.Uint32())
 
-	newLB := &elbv2.LoadBalancer{
+	newLB := elbv2types.LoadBalancer{
 		LoadBalancerArn:  aws.String(arn),
-		LoadBalancerName: request.Name,
-		Type:             aws.String(elbv2.LoadBalancerTypeEnumNetwork),
+		LoadBalancerName: input.Name,
+		Type:             elbv2types.LoadBalancerTypeEnumNetwork,
 		VpcId:            aws.String("vpc-abc123def456abc78"),
-		AvailabilityZones: []*elbv2.AvailabilityZone{
+		AvailabilityZones: []elbv2types.AvailabilityZone{
 			{
 				ZoneName: aws.String("us-west-2a"),
 				SubnetId: aws.String("subnet-abc123de"),
@@ -2572,22 +2574,22 @@ func (m *MockedFakeELBV2) CreateLoadBalancer(request *elbv2.CreateLoadBalancerIn
 	m.LoadBalancers = append(m.LoadBalancers, newLB)
 
 	return &elbv2.CreateLoadBalancerOutput{
-		LoadBalancers: []*elbv2.LoadBalancer{newLB},
+		LoadBalancers: []elbv2types.LoadBalancer{newLB},
 	}, nil
 }
 
-func (m *MockedFakeELBV2) DescribeLoadBalancers(request *elbv2.DescribeLoadBalancersInput) (*elbv2.DescribeLoadBalancersOutput, error) {
+func (m *MockedFakeELBV2) DescribeLoadBalancers(ctx context.Context, input *elbv2.DescribeLoadBalancersInput, optFns ...func(*elbv2.Options)) (*elbv2.DescribeLoadBalancersOutput, error) {
 	findMeNames := make(map[string]bool)
-	for _, name := range request.Names {
-		findMeNames[aws.StringValue(name)] = true
+	for _, name := range input.Names {
+		findMeNames[name] = true
 	}
 
 	findMeARNs := make(map[string]bool)
-	for _, arn := range request.LoadBalancerArns {
-		findMeARNs[aws.StringValue(arn)] = true
+	for _, arn := range input.LoadBalancerArns {
+		findMeARNs[arn] = true
 	}
 
-	result := []*elbv2.LoadBalancer{}
+	result := []elbv2types.LoadBalancer{}
 
 	for _, lb := range m.LoadBalancers {
 		if _, present := findMeNames[aws.StringValue(lb.LoadBalancerName)]; present {
@@ -2600,7 +2602,7 @@ func (m *MockedFakeELBV2) DescribeLoadBalancers(request *elbv2.DescribeLoadBalan
 	}
 
 	if len(findMeNames) > 0 || len(findMeARNs) > 0 {
-		return nil, awserr.New(elbv2.ErrCodeLoadBalancerNotFoundException, "not found", nil)
+		return nil, &elbv2types.LoadBalancerNotFoundException{Message: aws.String("not found")}
 	}
 
 	return &elbv2.DescribeLoadBalancersOutput{
@@ -2608,33 +2610,33 @@ func (m *MockedFakeELBV2) DescribeLoadBalancers(request *elbv2.DescribeLoadBalan
 	}, nil
 }
 
-func (m *MockedFakeELBV2) DeleteLoadBalancer(*elbv2.DeleteLoadBalancerInput) (*elbv2.DeleteLoadBalancerOutput, error) {
+func (m *MockedFakeELBV2) DeleteLoadBalancer(ctx context.Context, input *elbv2.DeleteLoadBalancerInput, optFns ...func(*elbv2.Options)) (*elbv2.DeleteLoadBalancerOutput, error) {
 	panic("Not implemented")
 }
 
-func (m *MockedFakeELBV2) ModifyLoadBalancerAttributes(request *elbv2.ModifyLoadBalancerAttributesInput) (*elbv2.ModifyLoadBalancerAttributesOutput, error) {
-	attrMap, present := m.LoadBalancerAttributes[aws.StringValue(request.LoadBalancerArn)]
+func (m *MockedFakeELBV2) ModifyLoadBalancerAttributes(ctx context.Context, input *elbv2.ModifyLoadBalancerAttributesInput, optFns ...func(*elbv2.Options)) (*elbv2.ModifyLoadBalancerAttributesOutput, error) {
+	attrMap, present := m.LoadBalancerAttributes[aws.StringValue(input.LoadBalancerArn)]
 
 	if !present {
 		attrMap = make(map[string]string)
-		m.LoadBalancerAttributes[aws.StringValue(request.LoadBalancerArn)] = attrMap
+		m.LoadBalancerAttributes[aws.StringValue(input.LoadBalancerArn)] = attrMap
 	}
 
-	for _, attr := range request.Attributes {
+	for _, attr := range input.Attributes {
 		attrMap[aws.StringValue(attr.Key)] = aws.StringValue(attr.Value)
 	}
 
 	return &elbv2.ModifyLoadBalancerAttributesOutput{
-		Attributes: request.Attributes,
+		Attributes: input.Attributes,
 	}, nil
 }
 
-func (m *MockedFakeELBV2) DescribeLoadBalancerAttributes(request *elbv2.DescribeLoadBalancerAttributesInput) (*elbv2.DescribeLoadBalancerAttributesOutput, error) {
-	attrs := []*elbv2.LoadBalancerAttribute{}
+func (m *MockedFakeELBV2) DescribeLoadBalancerAttributes(ctx context.Context, input *elbv2.DescribeLoadBalancerAttributesInput, optFns ...func(*elbv2.Options)) (*elbv2.DescribeLoadBalancerAttributesOutput, error) {
+	attrs := []elbv2types.LoadBalancerAttribute{}
 
-	if lbAttrs, present := m.LoadBalancerAttributes[aws.StringValue(request.LoadBalancerArn)]; present {
+	if lbAttrs, present := m.LoadBalancerAttributes[aws.StringValue(input.LoadBalancerArn)]; present {
 		for key, value := range lbAttrs {
-			attrs = append(attrs, &elbv2.LoadBalancerAttribute{
+			attrs = append(attrs, elbv2types.LoadBalancerAttribute{
 				Key:   aws.String(key),
 				Value: aws.String(value),
 			})
@@ -2646,65 +2648,65 @@ func (m *MockedFakeELBV2) DescribeLoadBalancerAttributes(request *elbv2.Describe
 	}, nil
 }
 
-func (m *MockedFakeELBV2) CreateTargetGroup(request *elbv2.CreateTargetGroupInput) (*elbv2.CreateTargetGroupOutput, error) {
+func (m *MockedFakeELBV2) CreateTargetGroup(ctx context.Context, input *elbv2.CreateTargetGroupInput, optFns ...func(*elbv2.Options)) (*elbv2.CreateTargetGroupOutput, error) {
 	accountID := 123456789
 	arn := fmt.Sprintf("arn:aws:elasticloadbalancing:us-west-2:%d:targetgroup/%x/%x",
 		accountID,
 		rand.Uint64(),
 		rand.Uint32())
 
-	newTG := &elbv2.TargetGroup{
+	newTG := elbv2types.TargetGroup{
 		TargetGroupArn:             aws.String(arn),
-		TargetGroupName:            request.Name,
-		Port:                       request.Port,
-		Protocol:                   request.Protocol,
-		HealthCheckProtocol:        request.HealthCheckProtocol,
-		HealthCheckPath:            request.HealthCheckPath,
-		HealthCheckPort:            request.HealthCheckPort,
-		HealthCheckTimeoutSeconds:  request.HealthCheckTimeoutSeconds,
-		HealthCheckIntervalSeconds: request.HealthCheckIntervalSeconds,
-		HealthyThresholdCount:      request.HealthyThresholdCount,
-		UnhealthyThresholdCount:    request.UnhealthyThresholdCount,
+		TargetGroupName:            input.Name,
+		Port:                       input.Port,
+		Protocol:                   input.Protocol,
+		HealthCheckProtocol:        input.HealthCheckProtocol,
+		HealthCheckPath:            input.HealthCheckPath,
+		HealthCheckPort:            input.HealthCheckPort,
+		HealthCheckTimeoutSeconds:  input.HealthCheckTimeoutSeconds,
+		HealthCheckIntervalSeconds: input.HealthCheckIntervalSeconds,
+		HealthyThresholdCount:      input.HealthyThresholdCount,
+		UnhealthyThresholdCount:    input.UnhealthyThresholdCount,
 	}
 
 	m.TargetGroups = append(m.TargetGroups, newTG)
 
 	return &elbv2.CreateTargetGroupOutput{
-		TargetGroups: []*elbv2.TargetGroup{newTG},
+		TargetGroups: []elbv2types.TargetGroup{newTG},
 	}, nil
 }
 
-func (m *MockedFakeELBV2) DescribeTargetGroups(request *elbv2.DescribeTargetGroupsInput) (*elbv2.DescribeTargetGroupsOutput, error) {
-	var targetGroups []*elbv2.TargetGroup
+func (m *MockedFakeELBV2) DescribeTargetGroups(ctx context.Context, input *elbv2.DescribeTargetGroupsInput, optFns ...func(*elbv2.Options)) (*elbv2.DescribeTargetGroupsOutput, error) {
+	var targetGroups []elbv2types.TargetGroup
 
-	if request.LoadBalancerArn != nil {
-		targetGroups = []*elbv2.TargetGroup{}
+	if input.LoadBalancerArn != nil {
+		targetGroups = []elbv2types.TargetGroup{}
 
 		for _, tg := range m.TargetGroups {
 			for _, lbArn := range tg.LoadBalancerArns {
-				if aws.StringValue(lbArn) == aws.StringValue(request.LoadBalancerArn) {
+				if lbArn == aws.StringValue(input.LoadBalancerArn) {
 					targetGroups = append(targetGroups, tg)
 					break
 				}
 			}
 		}
-	} else if len(request.Names) != 0 {
-		targetGroups = []*elbv2.TargetGroup{}
+	} else if len(input.Names) != 0 {
+		targetGroups = []elbv2types.TargetGroup{}
 
 		for _, tg := range m.TargetGroups {
-			for _, name := range request.Names {
-				if aws.StringValue(tg.TargetGroupName) == aws.StringValue(name) {
+			for _, name := range input.Names {
+				if aws.StringValue(tg.TargetGroupName) == name {
 					targetGroups = append(targetGroups, tg)
 					break
 				}
 			}
 		}
-	} else if len(request.TargetGroupArns) != 0 {
-		targetGroups = []*elbv2.TargetGroup{}
+	} else if len(input.TargetGroupArns) != 0 {
+		targetGroups = []elbv2types.TargetGroup{}
 
 		for _, tg := range m.TargetGroups {
-			for _, arn := range request.TargetGroupArns {
-				if aws.StringValue(tg.TargetGroupArn) == aws.StringValue(arn) {
+			for _, arn := range input.TargetGroupArns {
+				if aws.StringValue(tg.TargetGroupArn) == arn {
 					targetGroups = append(targetGroups, tg)
 					break
 				}
@@ -2719,46 +2721,46 @@ func (m *MockedFakeELBV2) DescribeTargetGroups(request *elbv2.DescribeTargetGrou
 	}, nil
 }
 
-func (m *MockedFakeELBV2) ModifyTargetGroup(request *elbv2.ModifyTargetGroupInput) (*elbv2.ModifyTargetGroupOutput, error) {
-	var matchingTargetGroup *elbv2.TargetGroup
-	dirtyGroups := []*elbv2.TargetGroup{}
+func (m *MockedFakeELBV2) ModifyTargetGroup(ctx context.Context, input *elbv2.ModifyTargetGroupInput, optFns ...func(*elbv2.Options)) (*elbv2.ModifyTargetGroupOutput, error) {
+	var matchingTargetGroup *elbv2types.TargetGroup
+	dirtyGroups := []elbv2types.TargetGroup{}
 
 	for _, tg := range m.TargetGroups {
-		if aws.StringValue(tg.TargetGroupArn) == aws.StringValue(request.TargetGroupArn) {
-			matchingTargetGroup = tg
+		if aws.StringValue(tg.TargetGroupArn) == aws.StringValue(input.TargetGroupArn) {
+			matchingTargetGroup = &tg
 			break
 		}
 	}
 
 	if matchingTargetGroup != nil {
-		dirtyGroups = append(dirtyGroups, matchingTargetGroup)
+		dirtyGroups = append(dirtyGroups, *matchingTargetGroup)
 
-		if request.HealthCheckEnabled != nil {
-			matchingTargetGroup.HealthCheckEnabled = request.HealthCheckEnabled
+		if input.HealthCheckEnabled != nil {
+			matchingTargetGroup.HealthCheckEnabled = input.HealthCheckEnabled
 		}
-		if request.HealthCheckIntervalSeconds != nil {
-			matchingTargetGroup.HealthCheckIntervalSeconds = request.HealthCheckIntervalSeconds
+		if input.HealthCheckIntervalSeconds != nil {
+			matchingTargetGroup.HealthCheckIntervalSeconds = input.HealthCheckIntervalSeconds
 		}
-		if request.HealthCheckPath != nil {
-			matchingTargetGroup.HealthCheckPath = request.HealthCheckPath
+		if input.HealthCheckPath != nil {
+			matchingTargetGroup.HealthCheckPath = input.HealthCheckPath
 		}
-		if request.HealthCheckPort != nil {
-			matchingTargetGroup.HealthCheckPort = request.HealthCheckPort
+		if input.HealthCheckPort != nil {
+			matchingTargetGroup.HealthCheckPort = input.HealthCheckPort
 		}
-		if request.HealthCheckProtocol != nil {
-			matchingTargetGroup.HealthCheckProtocol = request.HealthCheckProtocol
+		if string(input.HealthCheckProtocol) != "" {
+			matchingTargetGroup.HealthCheckProtocol = input.HealthCheckProtocol
 		}
-		if request.HealthCheckTimeoutSeconds != nil {
-			matchingTargetGroup.HealthCheckTimeoutSeconds = request.HealthCheckTimeoutSeconds
+		if input.HealthCheckTimeoutSeconds != nil {
+			matchingTargetGroup.HealthCheckTimeoutSeconds = input.HealthCheckTimeoutSeconds
 		}
-		if request.HealthyThresholdCount != nil {
-			matchingTargetGroup.HealthyThresholdCount = request.HealthyThresholdCount
+		if input.HealthyThresholdCount != nil {
+			matchingTargetGroup.HealthyThresholdCount = input.HealthyThresholdCount
 		}
-		if request.Matcher != nil {
-			matchingTargetGroup.Matcher = request.Matcher
+		if input.Matcher != nil {
+			matchingTargetGroup.Matcher = input.Matcher
 		}
-		if request.UnhealthyThresholdCount != nil {
-			matchingTargetGroup.UnhealthyThresholdCount = request.UnhealthyThresholdCount
+		if input.UnhealthyThresholdCount != nil {
+			matchingTargetGroup.UnhealthyThresholdCount = input.UnhealthyThresholdCount
 		}
 	}
 
@@ -2767,44 +2769,44 @@ func (m *MockedFakeELBV2) ModifyTargetGroup(request *elbv2.ModifyTargetGroupInpu
 	}, nil
 }
 
-func (m *MockedFakeELBV2) DeleteTargetGroup(request *elbv2.DeleteTargetGroupInput) (*elbv2.DeleteTargetGroupOutput, error) {
-	newTargetGroups := []*elbv2.TargetGroup{}
+func (m *MockedFakeELBV2) DeleteTargetGroup(ctx context.Context, input *elbv2.DeleteTargetGroupInput, optFns ...func(*elbv2.Options)) (*elbv2.DeleteTargetGroupOutput, error) {
+	newTargetGroups := []elbv2types.TargetGroup{}
 
 	for _, tg := range m.TargetGroups {
-		if aws.StringValue(tg.TargetGroupArn) != aws.StringValue(request.TargetGroupArn) {
+		if aws.StringValue(tg.TargetGroupArn) != aws.StringValue(input.TargetGroupArn) {
 			newTargetGroups = append(newTargetGroups, tg)
 		}
 	}
 
 	m.TargetGroups = newTargetGroups
 
-	delete(m.RegisteredInstances, aws.StringValue(request.TargetGroupArn))
+	delete(m.RegisteredInstances, aws.StringValue(input.TargetGroupArn))
 
 	return &elbv2.DeleteTargetGroupOutput{}, nil
 }
 
-func (m *MockedFakeELBV2) DescribeTargetHealth(request *elbv2.DescribeTargetHealthInput) (*elbv2.DescribeTargetHealthOutput, error) {
-	healthDescriptions := []*elbv2.TargetHealthDescription{}
+func (m *MockedFakeELBV2) DescribeTargetHealth(ctx context.Context, input *elbv2.DescribeTargetHealthInput, optFns ...func(*elbv2.Options)) (*elbv2.DescribeTargetHealthOutput, error) {
+	healthDescriptions := []elbv2types.TargetHealthDescription{}
 
-	var matchingTargetGroup *elbv2.TargetGroup
+	var matchingTargetGroup elbv2types.TargetGroup
 
 	for _, tg := range m.TargetGroups {
-		if aws.StringValue(tg.TargetGroupArn) == aws.StringValue(request.TargetGroupArn) {
+		if aws.StringValue(tg.TargetGroupArn) == aws.StringValue(input.TargetGroupArn) {
 			matchingTargetGroup = tg
 			break
 		}
 	}
 
-	if registeredTargets, present := m.RegisteredInstances[aws.StringValue(request.TargetGroupArn)]; present {
+	if registeredTargets, present := m.RegisteredInstances[aws.StringValue(input.TargetGroupArn)]; present {
 		for _, target := range registeredTargets {
-			healthDescriptions = append(healthDescriptions, &elbv2.TargetHealthDescription{
+			healthDescriptions = append(healthDescriptions, elbv2types.TargetHealthDescription{
 				HealthCheckPort: matchingTargetGroup.HealthCheckPort,
-				Target: &elbv2.TargetDescription{
+				Target: &elbv2types.TargetDescription{
 					Id:   aws.String(target),
 					Port: matchingTargetGroup.Port,
 				},
-				TargetHealth: &elbv2.TargetHealth{
-					State: aws.String("healthy"),
+				TargetHealth: &elbv2types.TargetHealth{
+					State: elbv2types.TargetHealthStateEnumHealthy,
 				},
 			})
 		}
@@ -2815,21 +2817,21 @@ func (m *MockedFakeELBV2) DescribeTargetHealth(request *elbv2.DescribeTargetHeal
 	}, nil
 }
 
-func (m *MockedFakeELBV2) DescribeTargetGroupAttributes(*elbv2.DescribeTargetGroupAttributesInput) (*elbv2.DescribeTargetGroupAttributesOutput, error) {
+func (m *MockedFakeELBV2) DescribeTargetGroupAttributes(ctx context.Context, input *elbv2.DescribeTargetGroupAttributesInput, optFns ...func(*elbv2.Options)) (*elbv2.DescribeTargetGroupAttributesOutput, error) {
 	panic("Not implemented")
 }
 
-func (m *MockedFakeELBV2) ModifyTargetGroupAttributes(*elbv2.ModifyTargetGroupAttributesInput) (*elbv2.ModifyTargetGroupAttributesOutput, error) {
+func (m *MockedFakeELBV2) ModifyTargetGroupAttributes(ctx context.Context, input *elbv2.ModifyTargetGroupAttributesInput, optFns ...func(*elbv2.Options)) (*elbv2.ModifyTargetGroupAttributesOutput, error) {
 	panic("Not implemented")
 }
 
-func (m *MockedFakeELBV2) RegisterTargets(request *elbv2.RegisterTargetsInput) (*elbv2.RegisterTargetsOutput, error) {
-	arn := aws.StringValue(request.TargetGroupArn)
+func (m *MockedFakeELBV2) RegisterTargets(ctx context.Context, input *elbv2.RegisterTargetsInput, optFns ...func(*elbv2.Options)) (*elbv2.RegisterTargetsOutput, error) {
+	arn := aws.StringValue(input.TargetGroupArn)
 	alreadyExists := make(map[string]bool)
 	for _, targetID := range m.RegisteredInstances[arn] {
 		alreadyExists[targetID] = true
 	}
-	for _, target := range request.Targets {
+	for _, target := range input.Targets {
 		if !alreadyExists[aws.StringValue(target.Id)] {
 			m.RegisteredInstances[arn] = append(m.RegisteredInstances[arn], aws.StringValue(target.Id))
 		}
@@ -2837,24 +2839,24 @@ func (m *MockedFakeELBV2) RegisterTargets(request *elbv2.RegisterTargetsInput) (
 	return &elbv2.RegisterTargetsOutput{}, nil
 }
 
-func (m *MockedFakeELBV2) DeregisterTargets(request *elbv2.DeregisterTargetsInput) (*elbv2.DeregisterTargetsOutput, error) {
+func (m *MockedFakeELBV2) DeregisterTargets(ctx context.Context, input *elbv2.DeregisterTargetsInput, optFns ...func(*elbv2.Options)) (*elbv2.DeregisterTargetsOutput, error) {
 	removeMe := make(map[string]bool)
 
-	for _, target := range request.Targets {
+	for _, target := range input.Targets {
 		removeMe[aws.StringValue(target.Id)] = true
 	}
 	newRegisteredInstancesForArn := []string{}
-	for _, targetID := range m.RegisteredInstances[aws.StringValue(request.TargetGroupArn)] {
+	for _, targetID := range m.RegisteredInstances[aws.StringValue(input.TargetGroupArn)] {
 		if !removeMe[targetID] {
 			newRegisteredInstancesForArn = append(newRegisteredInstancesForArn, targetID)
 		}
 	}
-	m.RegisteredInstances[aws.StringValue(request.TargetGroupArn)] = newRegisteredInstancesForArn
+	m.RegisteredInstances[aws.StringValue(input.TargetGroupArn)] = newRegisteredInstancesForArn
 
 	return &elbv2.DeregisterTargetsOutput{}, nil
 }
 
-func (m *MockedFakeELBV2) CreateListener(request *elbv2.CreateListenerInput) (*elbv2.CreateListenerOutput, error) {
+func (m *MockedFakeELBV2) CreateListener(ctx context.Context, input *elbv2.CreateListenerInput, optFns ...func(*elbv2.Options)) (*elbv2.CreateListenerOutput, error) {
 	accountID := 123456789
 	arn := fmt.Sprintf("arn:aws:elasticloadbalancing:us-west-2:%d:listener/net/%x/%x/%x",
 		accountID,
@@ -2862,40 +2864,40 @@ func (m *MockedFakeELBV2) CreateListener(request *elbv2.CreateListenerInput) (*e
 		rand.Uint32(),
 		rand.Uint32())
 
-	newListener := &elbv2.Listener{
+	newListener := elbv2types.Listener{
 		ListenerArn:     aws.String(arn),
-		Port:            request.Port,
-		Protocol:        request.Protocol,
-		DefaultActions:  request.DefaultActions,
-		LoadBalancerArn: request.LoadBalancerArn,
+		Port:            input.Port,
+		Protocol:        input.Protocol,
+		DefaultActions:  input.DefaultActions,
+		LoadBalancerArn: input.LoadBalancerArn,
 	}
 
 	m.Listeners = append(m.Listeners, newListener)
 
 	for _, tg := range m.TargetGroups {
-		for _, action := range request.DefaultActions {
+		for _, action := range input.DefaultActions {
 			if aws.StringValue(action.TargetGroupArn) == aws.StringValue(tg.TargetGroupArn) {
-				tg.LoadBalancerArns = append(tg.LoadBalancerArns, request.LoadBalancerArn)
+				tg.LoadBalancerArns = append(tg.LoadBalancerArns, aws.StringValue(input.LoadBalancerArn))
 				break
 			}
 		}
 	}
 
 	return &elbv2.CreateListenerOutput{
-		Listeners: []*elbv2.Listener{newListener},
+		Listeners: []elbv2types.Listener{newListener},
 	}, nil
 }
 
-func (m *MockedFakeELBV2) DescribeListeners(request *elbv2.DescribeListenersInput) (*elbv2.DescribeListenersOutput, error) {
-	if len(request.ListenerArns) == 0 && request.LoadBalancerArn == nil {
+func (m *MockedFakeELBV2) DescribeListeners(ctx context.Context, input *elbv2.DescribeListenersInput, optFns ...func(*elbv2.Options)) (*elbv2.DescribeListenersOutput, error) {
+	if len(input.ListenerArns) == 0 && input.LoadBalancerArn == nil {
 		return &elbv2.DescribeListenersOutput{
 			Listeners: m.Listeners,
 		}, nil
-	} else if len(request.ListenerArns) == 0 {
-		listeners := []*elbv2.Listener{}
+	} else if len(input.ListenerArns) == 0 {
+		listeners := []elbv2types.Listener{}
 
 		for _, lb := range m.Listeners {
-			if aws.StringValue(lb.LoadBalancerArn) == aws.StringValue(request.LoadBalancerArn) {
+			if aws.StringValue(lb.LoadBalancerArn) == aws.StringValue(input.LoadBalancerArn) {
 				listeners = append(listeners, lb)
 			}
 		}
@@ -2907,31 +2909,32 @@ func (m *MockedFakeELBV2) DescribeListeners(request *elbv2.DescribeListenersInpu
 	panic("Not implemented")
 }
 
-func (m *MockedFakeELBV2) DeleteListener(*elbv2.DeleteListenerInput) (*elbv2.DeleteListenerOutput, error) {
+func (m *MockedFakeELBV2) DeleteListener(ctx context.Context, input *elbv2.DeleteListenerInput, optFns ...func(*elbv2.Options)) (*elbv2.DeleteListenerOutput, error) {
 	panic("Not implemented")
 }
 
-func (m *MockedFakeELBV2) ModifyListener(request *elbv2.ModifyListenerInput) (*elbv2.ModifyListenerOutput, error) {
-	modifiedListeners := []*elbv2.Listener{}
+func (m *MockedFakeELBV2) ModifyListener(ctx context.Context, input *elbv2.ModifyListenerInput, optFns ...func(*elbv2.Options)) (*elbv2.ModifyListenerOutput, error) {
 
-	for _, listener := range m.Listeners {
-		if aws.StringValue(listener.ListenerArn) == aws.StringValue(request.ListenerArn) {
-			if request.DefaultActions != nil {
+	modifiedListeners := []elbv2types.Listener{}
+	for i := range m.Listeners {
+		listener := &m.Listeners[i]
+		if aws.StringValue(listener.ListenerArn) == aws.StringValue(input.ListenerArn) {
+			if input.DefaultActions != nil {
 				// for each old action, find the corresponding target group, and remove the listener's LB ARN from its list
 				for _, action := range listener.DefaultActions {
-					var targetGroupForAction *elbv2.TargetGroup
+					var targetGroupForAction *elbv2types.TargetGroup
 
 					for _, tg := range m.TargetGroups {
 						if aws.StringValue(action.TargetGroupArn) == aws.StringValue(tg.TargetGroupArn) {
-							targetGroupForAction = tg
+							targetGroupForAction = &tg
 							break
 						}
 					}
 
 					if targetGroupForAction != nil {
-						newLoadBalancerARNs := []*string{}
+						newLoadBalancerARNs := []string{}
 						for _, lbArn := range targetGroupForAction.LoadBalancerArns {
-							if aws.StringValue(lbArn) != aws.StringValue(listener.LoadBalancerArn) {
+							if lbArn != aws.StringValue(listener.LoadBalancerArn) {
 								newLoadBalancerARNs = append(newLoadBalancerARNs, lbArn)
 							}
 						}
@@ -2940,42 +2943,39 @@ func (m *MockedFakeELBV2) ModifyListener(request *elbv2.ModifyListenerInput) (*e
 					}
 				}
 
-				listener.DefaultActions = request.DefaultActions
+				listener.DefaultActions = input.DefaultActions
 
 				// for each new action, add the listener's LB ARN to that action's target groups' lists
-				for _, action := range request.DefaultActions {
-					var targetGroupForAction *elbv2.TargetGroup
+				for _, action := range input.DefaultActions {
+					var targetGroupForAction *elbv2types.TargetGroup
 
 					for _, tg := range m.TargetGroups {
 						if aws.StringValue(action.TargetGroupArn) == aws.StringValue(tg.TargetGroupArn) {
-							targetGroupForAction = tg
+							targetGroupForAction = &tg
 							break
 						}
 					}
 
 					if targetGroupForAction != nil {
-						targetGroupForAction.LoadBalancerArns = append(targetGroupForAction.LoadBalancerArns, listener.LoadBalancerArn)
+						targetGroupForAction.LoadBalancerArns = append(targetGroupForAction.LoadBalancerArns, aws.StringValue(listener.LoadBalancerArn))
 					}
 				}
 			}
-			if request.Port != nil {
-				listener.Port = request.Port
+			if input.Port != nil {
+				listener.Port = input.Port
 			}
-			if request.Protocol != nil {
-				listener.Protocol = request.Protocol
+			if string(input.Protocol) != "" {
+				listener.Protocol = input.Protocol
 			}
 
-			modifiedListeners = append(modifiedListeners, listener)
+			modifiedListeners = append(modifiedListeners, *listener)
 		}
+
 	}
 
 	return &elbv2.ModifyListenerOutput{
 		Listeners: modifiedListeners,
 	}, nil
-}
-
-func (m *MockedFakeELBV2) WaitUntilLoadBalancersDeleted(*elbv2.DescribeLoadBalancersInput) error {
-	panic("Not implemented")
 }
 
 func (m *MockedFakeEC2) maybeExpectDescribeSecurityGroups(clusterID, groupName string) {
@@ -2994,7 +2994,7 @@ func (m *MockedFakeEC2) maybeExpectDescribeSecurityGroups(clusterID, groupName s
 
 func TestNLBNodeRegistration(t *testing.T) {
 	awsServices := newMockedFakeAWSServices(TestClusterID)
-	awsServices.elbv2 = &MockedFakeELBV2{Tags: make(map[string][]elbv2.Tag), RegisteredInstances: make(map[string][]string), LoadBalancerAttributes: make(map[string]map[string]string)}
+	awsServices.elbv2 = &MockedFakeELBV2{Tags: make(map[string][]elbv2types.Tag), RegisteredInstances: make(map[string][]string), LoadBalancerAttributes: make(map[string]map[string]string)}
 	c, _ := newAWSCloud(config.CloudConfig{}, awsServices)
 
 	awsServices.ec2.(*MockedFakeEC2).Subnets = []ec2types.Subnet{
@@ -3251,7 +3251,7 @@ func TestCloud_buildNLBHealthCheckConfiguration(t *testing.T) {
 			},
 			want: healthCheckConfig{
 				Port:               "traffic-port",
-				Protocol:           elbv2.ProtocolEnumTcp,
+				Protocol:           elbv2types.ProtocolEnumTcp,
 				Interval:           30,
 				Timeout:            10,
 				HealthyThreshold:   3,
@@ -3285,7 +3285,7 @@ func TestCloud_buildNLBHealthCheckConfiguration(t *testing.T) {
 			want: healthCheckConfig{
 				Port:               "32213",
 				Path:               "/healthz",
-				Protocol:           elbv2.ProtocolEnumHttp,
+				Protocol:           elbv2types.ProtocolEnumHttp,
 				Interval:           10,
 				Timeout:            10,
 				HealthyThreshold:   2,
@@ -3430,7 +3430,7 @@ func TestCloud_buildNLBHealthCheckConfiguration(t *testing.T) {
 			},
 			want: healthCheckConfig{
 				Port:               "traffic-port",
-				Protocol:           elbv2.ProtocolEnumTcp,
+				Protocol:           elbv2types.ProtocolEnumTcp,
 				Interval:           23,
 				Timeout:            10,
 				HealthyThreshold:   3,
@@ -3488,7 +3488,7 @@ func TestCloud_buildNLBHealthCheckConfiguration(t *testing.T) {
 			},
 			want: healthCheckConfig{
 				Port:               "traffic-port",
-				Protocol:           elbv2.ProtocolEnumTcp,
+				Protocol:           elbv2types.ProtocolEnumTcp,
 				Interval:           30,
 				Timeout:            10,
 				HealthyThreshold:   7,
