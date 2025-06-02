@@ -165,7 +165,7 @@ func NewTaggingController(
 			// and when it gets tagged, there might be another event which put the same item in the work queue
 			// (since the node won't have the labels yet) and hence prevents us from making an unnecessary EC2 call.
 			if !tc.isTaggingRequired(node) {
-				klog.Infof("Skip putting node %s in work queue since it was already tagged earlier.", node.GetName())
+				klog.V(3).Infof("Skip putting node %s in work queue since it was already tagged earlier.", node.GetName())
 				return
 			}
 
