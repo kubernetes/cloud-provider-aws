@@ -14,6 +14,7 @@ limitations under the License.
 package tagging
 
 import (
+	"context"
 	"crypto/md5"
 	"fmt"
 	"sort"
@@ -22,6 +23,7 @@ import (
 
 	"golang.org/x/time/rate"
 	v1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	"k8s.io/apimachinery/pkg/util/wait"
 	coreinformers "k8s.io/client-go/informers/core/v1"
@@ -34,22 +36,29 @@ import (
 	nodehelpers "k8s.io/cloud-provider/node/helpers"
 	_ "k8s.io/component-base/metrics/prometheus/workqueue" // enable prometheus provider for workqueue metrics
 	"k8s.io/klog/v2"
+
+	"k8s.io/cloud-provider-aws/pkg/providers/v1/variant"
 )
 
 func init() {
 	registerMetrics()
 }
 
-// workItem contains the node and an action for that node
+// taggingControllerNode contains the node details required for tag/untag of node resources.
+type taggingControllerNode struct {
+	providerID string
+	name       string
+}
+
+// workItem contains the node name, provider id and an action for that node.
 type workItem struct {
-	node           *v1.Node
-	action         func(node *v1.Node) error
-	requeuingCount int
-	enqueueTime    time.Time
+	name       string
+	providerID string
+	action     string
 }
 
 func (w workItem) String() string {
-	return fmt.Sprintf("[Node: %s, RequeuingCount: %d, EnqueueTime: %s]", w.node.GetName(), w.requeuingCount, w.enqueueTime)
+	return fmt.Sprintf("[Node: %s, Action: %s]", w.name, w.action)
 }
 
 const (
@@ -60,17 +69,15 @@ const (
 	// The label for depicting total number of errors a work item encounter and succeed
 	totalErrorsWorkItemErrorMetric = "total_errors"
 
-	// The label for depicting total time when work item gets queued to processed
-	workItemProcessingTimeWorkItemMetric = "work_item_processing_time"
-
-	// The label for depicting total time when work item gets queued to dequeued
-	workItemDequeuingTimeWorkItemMetric = "work_item_dequeuing_time"
-
 	// The label for depicting total number of errors a work item encounter and fail
 	errorsAfterRetriesExhaustedWorkItemErrorMetric = "errors_after_retries_exhausted"
 
 	// The period of time after Node creation to retry tagging due to eventual consistency of the CreateTags API.
 	newNodeEventualConsistencyGracePeriod = time.Minute * 5
+
+	addTag = "ADD"
+
+	deleteTag = "DELETE"
 )
 
 // Controller is the controller implementation for tagging cluster resources.
@@ -95,6 +102,8 @@ type Controller struct {
 	resources []string
 
 	rateLimitEnabled bool
+	workerCount      int
+	batchingEnabled  bool
 }
 
 // NewTaggingController creates a NewTaggingController object
@@ -106,41 +115,46 @@ func NewTaggingController(
 	tags map[string]string,
 	resources []string,
 	rateLimit float64,
-	burstLimit int) (*Controller, error) {
-
+	burstLimit int,
+	workerCount int,
+	batchingEnabled bool) (*Controller, error) {
 	awsCloud, ok := cloud.(*awsv1.Cloud)
 	if !ok {
 		err := fmt.Errorf("tagging controller does not support %v provider", cloud.ProviderName())
 		return nil, err
 	}
 
-	var rateLimiter workqueue.RateLimiter
+	var rateLimiter workqueue.TypedRateLimiter[any]
 	var rateLimitEnabled bool
 	if rateLimit > 0.0 && burstLimit > 0 {
 		klog.Infof("Rate limit enabled on controller with rate %f and burst %d.", rateLimit, burstLimit)
 		// This is the workqueue.DefaultControllerRateLimiter() but in case where throttling is enabled on the controller,
 		// the rate and burst values are set to the provided values.
-		rateLimiter = workqueue.NewMaxOfRateLimiter(
-			workqueue.NewItemExponentialFailureRateLimiter(5*time.Millisecond, 1000*time.Second),
-			&workqueue.BucketRateLimiter{Limiter: rate.NewLimiter(rate.Limit(rateLimit), burstLimit)},
+		rateLimiter = workqueue.NewTypedMaxOfRateLimiter(
+			workqueue.NewTypedItemExponentialFailureRateLimiter[any](5*time.Millisecond, 1000*time.Second),
+			&workqueue.TypedBucketRateLimiter[any]{Limiter: rate.NewLimiter(rate.Limit(rateLimit), burstLimit)},
 		)
 		rateLimitEnabled = true
 	} else {
 		klog.Infof("Rate limit disabled on controller.")
-		rateLimiter = workqueue.DefaultControllerRateLimiter()
+		rateLimiter = workqueue.DefaultTypedControllerRateLimiter[any]()
 		rateLimitEnabled = false
 	}
 
 	tc := &Controller{
-		nodeInformer:      nodeInformer,
-		kubeClient:        kubeClient,
-		cloud:             awsCloud,
-		tags:              tags,
-		resources:         resources,
-		workqueue:         workqueue.NewNamedRateLimitingQueue(rateLimiter, TaggingControllerClientName),
+		nodeInformer: nodeInformer,
+		kubeClient:   kubeClient,
+		cloud:        awsCloud,
+		tags:         tags,
+		resources:    resources,
+		workqueue: workqueue.NewTypedRateLimitingQueueWithConfig[any](rateLimiter, workqueue.TypedRateLimitingQueueConfig[any]{
+			Name: TaggingControllerClientName,
+		}),
 		nodesSynced:       nodeInformer.Informer().HasSynced,
 		nodeMonitorPeriod: nodeMonitorPeriod,
 		rateLimitEnabled:  rateLimitEnabled,
+		workerCount:       workerCount,
+		batchingEnabled:   batchingEnabled,
 	}
 
 	// Use shared informer to listen to add/update/delete of nodes. Note that any nodes
@@ -148,7 +162,7 @@ func NewTaggingController(
 	tc.nodeInformer.Informer().AddEventHandler(cache.ResourceEventHandlerFuncs{
 		AddFunc: func(obj interface{}) {
 			node := obj.(*v1.Node)
-			tc.enqueueNode(node, tc.tagNodesResources)
+			tc.enqueueNode(node, addTag)
 		},
 		UpdateFunc: func(oldObj, newObj interface{}) {
 			node := newObj.(*v1.Node)
@@ -161,11 +175,11 @@ func NewTaggingController(
 				return
 			}
 
-			tc.enqueueNode(node, tc.tagNodesResources)
+			tc.enqueueNode(node, addTag)
 		},
 		DeleteFunc: func(obj interface{}) {
 			node := obj.(*v1.Node)
-			tc.enqueueNode(node, tc.untagNodeResources)
+			tc.enqueueNode(node, deleteTag)
 		},
 	})
 
@@ -174,33 +188,35 @@ func NewTaggingController(
 
 // Run will start the controller to tag resources attached to the cluster
 // and untag resources detached from the cluster.
-func (tc *Controller) Run(stopCh <-chan struct{}) {
+func (tc *Controller) Run(ctx context.Context) {
 	defer utilruntime.HandleCrash()
 	defer tc.workqueue.ShutDown()
 
 	// Wait for the caches to be synced before starting workers
 	klog.Info("Waiting for informer caches to sync")
-	if ok := cache.WaitForCacheSync(stopCh, tc.nodesSynced); !ok {
+	if ok := cache.WaitForCacheSync(ctx.Done(), tc.nodesSynced); !ok {
 		klog.Errorf("failed to wait for caches to sync")
 		return
 	}
 
 	klog.Infof("Starting the tagging controller")
-	go wait.Until(tc.work, tc.nodeMonitorPeriod, stopCh)
+	for i := 0; i < tc.workerCount; i++ {
+		go wait.UntilWithContext(ctx, func(ctx context.Context) { tc.work(ctx) }, tc.nodeMonitorPeriod)
+	}
 
-	<-stopCh
+	<-ctx.Done()
 }
 
 // work is a long-running function that continuously
 // call process() for each message on the workqueue
-func (tc *Controller) work() {
-	for tc.process() {
+func (tc *Controller) work(ctx context.Context) {
+	for tc.process(ctx) {
 	}
 }
 
 // process reads each message in the queue and performs either
 // tag or untag function on the Node object
-func (tc *Controller) process() bool {
+func (tc *Controller) process(ctx context.Context) bool {
 	obj, shutdown := tc.workqueue.Get()
 	if shutdown {
 		return false
@@ -211,7 +227,7 @@ func (tc *Controller) process() bool {
 	err := func(obj interface{}) error {
 		defer tc.workqueue.Done(obj)
 
-		workItem, ok := obj.(*workItem)
+		workItem, ok := obj.(workItem)
 		if !ok {
 			tc.workqueue.Forget(obj)
 			err := fmt.Errorf("expected workItem in workqueue but got %s", obj)
@@ -219,43 +235,45 @@ func (tc *Controller) process() bool {
 			return nil
 		}
 
-		timeTaken := time.Since(workItem.enqueueTime).Seconds()
-		recordWorkItemLatencyMetrics(workItemDequeuingTimeWorkItemMetric, timeTaken)
-		klog.Infof("Dequeuing latency %f seconds", timeTaken)
-
-		instanceID, err := awsv1.KubernetesInstanceID(workItem.node.Spec.ProviderID).MapToAWSInstanceID()
+		instanceID, err := awsv1.KubernetesInstanceID(workItem.providerID).MapToAWSInstanceID()
 		if err != nil {
-			err = fmt.Errorf("Error in getting instanceID for node %s, error: %v", workItem.node.GetName(), err)
+			err = fmt.Errorf("error in getting instanceID for node %s, error: %v", workItem.name, err)
 			utilruntime.HandleError(err)
 			return nil
 		}
 		klog.Infof("Instance ID of work item %s is %s", workItem, instanceID)
 
-		if awsv1.IsFargateNode(string(instanceID)) {
-			klog.Infof("Skip processing the node %s since it is a Fargate node", instanceID)
+		if variant.IsVariantNode(string(instanceID)) {
+			klog.Infof("Skip processing the node %s since it is a %s node",
+				instanceID, variant.NodeType(string(instanceID)))
 			tc.workqueue.Forget(obj)
 			return nil
 		}
-
-		err = workItem.action(workItem.node)
-
+		if workItem.action == addTag {
+			err = tc.tagNodesResources(ctx, &taggingControllerNode{
+				name:       workItem.name,
+				providerID: workItem.providerID,
+			})
+		} else {
+			err = tc.untagNodeResources(ctx, &taggingControllerNode{
+				name:       workItem.name,
+				providerID: workItem.providerID,
+			})
+		}
 		if err != nil {
-			if workItem.requeuingCount < maxRequeuingCount {
+			numRetries := tc.workqueue.NumRequeues(workItem)
+			if numRetries < maxRequeuingCount {
 				// Put the item back on the workqueue to handle any transient errors.
-				workItem.requeuingCount++
 				tc.workqueue.AddRateLimited(workItem)
 
 				recordWorkItemErrorMetrics(totalErrorsWorkItemErrorMetric, string(instanceID))
-				return fmt.Errorf("error processing work item '%v': %s, requeuing count %d", workItem, err.Error(), workItem.requeuingCount)
+				return fmt.Errorf("error processing work item '%v': %s, requeuing count %d", workItem, err.Error(), numRetries)
 			}
 
 			klog.Errorf("error processing work item %s: %s, requeuing count exceeded", workItem, err.Error())
 			recordWorkItemErrorMetrics(errorsAfterRetriesExhaustedWorkItemErrorMetric, string(instanceID))
 		} else {
 			klog.Infof("Finished processing %s", workItem)
-			timeTaken = time.Since(workItem.enqueueTime).Seconds()
-			recordWorkItemLatencyMetrics(workItemProcessingTimeWorkItemMetric, timeTaken)
-			klog.Infof("Processing latency %f seconds", timeTaken)
 		}
 
 		tc.workqueue.Forget(obj)
@@ -272,11 +290,19 @@ func (tc *Controller) process() bool {
 
 // tagNodesResources tag node resources
 // If we want to tag more resources, modify this function appropriately
-func (tc *Controller) tagNodesResources(node *v1.Node) error {
+func (tc *Controller) tagNodesResources(ctx context.Context, node *taggingControllerNode) error {
 	for _, resource := range tc.resources {
 		switch resource {
 		case opt.Instance:
-			err := tc.tagEc2Instance(node)
+			v1node, err := tc.nodeInformer.Lister().Get(node.name)
+			if err != nil {
+				// If node not found, just ignore it as its okay to not add tags when the node object is deleted.
+				if apierrors.IsNotFound(err) {
+					return nil
+				}
+				return err
+			}
+			err = tc.tagEc2Instance(ctx, v1node)
 			if err != nil {
 				return err
 			}
@@ -288,15 +314,18 @@ func (tc *Controller) tagNodesResources(node *v1.Node) error {
 
 // tagEc2Instances applies the provided tags to each EC2 instance in
 // the cluster.
-func (tc *Controller) tagEc2Instance(node *v1.Node) error {
+func (tc *Controller) tagEc2Instance(ctx context.Context, node *v1.Node) error {
 	if !tc.isTaggingRequired(node) {
 		klog.Infof("Skip tagging node %s since it was already tagged earlier.", node.GetName())
 		return nil
 	}
-
+	var err error
 	instanceID, _ := awsv1.KubernetesInstanceID(node.Spec.ProviderID).MapToAWSInstanceID()
-
-	err := tc.cloud.TagResource(string(instanceID), tc.tags)
+	if tc.batchingEnabled {
+		err = tc.cloud.TagResourceBatch(ctx, string(instanceID), tc.tags)
+	} else {
+		err = tc.cloud.TagResource(ctx, string(instanceID), tc.tags)
+	}
 
 	if err != nil {
 		if awsv1.IsAWSErrorInstanceNotFound(err) {
@@ -324,16 +353,20 @@ func (tc *Controller) tagEc2Instance(node *v1.Node) error {
 
 	klog.Infof("Successfully labeled node %s with %v.", node.GetName(), labels)
 
+	if tc.isInitialTag(node) {
+		initialNodeTaggingDelay.Observe(time.Since(node.CreationTimestamp.Time).Seconds())
+	}
+
 	return nil
 }
 
 // untagNodeResources untag node resources
 // If we want to untag more resources, modify this function appropriately
-func (tc *Controller) untagNodeResources(node *v1.Node) error {
+func (tc *Controller) untagNodeResources(ctx context.Context, node *taggingControllerNode) error {
 	for _, resource := range tc.resources {
 		switch resource {
 		case opt.Instance:
-			err := tc.untagEc2Instance(node)
+			err := tc.untagEc2Instance(ctx, node)
 			if err != nil {
 				return err
 			}
@@ -345,13 +378,18 @@ func (tc *Controller) untagNodeResources(node *v1.Node) error {
 
 // untagEc2Instances deletes the provided tags to each EC2 instances in
 // the cluster.
-func (tc *Controller) untagEc2Instance(node *v1.Node) error {
-	instanceID, _ := awsv1.KubernetesInstanceID(node.Spec.ProviderID).MapToAWSInstanceID()
+func (tc *Controller) untagEc2Instance(ctx context.Context, node *taggingControllerNode) error {
+	instanceID, _ := awsv1.KubernetesInstanceID(node.providerID).MapToAWSInstanceID()
 
-	err := tc.cloud.UntagResource(string(instanceID), tc.tags)
+	var err error
+	if tc.batchingEnabled {
+		err = tc.cloud.UntagResourceBatch(context.TODO(), string(instanceID), tc.tags)
+	} else {
+		err = tc.cloud.UntagResource(ctx, string(instanceID), tc.tags)
+	}
 
 	if err != nil {
-		klog.Errorf("Error in untagging EC2 instance %s for node %s, error: %v", instanceID, node.GetName(), err)
+		klog.Errorf("Error in untagging EC2 instance %s for node %s, error: %v", instanceID, node.name, err)
 		return err
 	}
 
@@ -362,12 +400,13 @@ func (tc *Controller) untagEc2Instance(node *v1.Node) error {
 
 // enqueueNode takes in the object and an
 // action for the object for a workitem and enqueue to the workqueue
-func (tc *Controller) enqueueNode(node *v1.Node, action func(node *v1.Node) error) {
-	item := &workItem{
-		node:           node,
-		action:         action,
-		requeuingCount: 0,
-		enqueueTime:    time.Now(),
+func (tc *Controller) enqueueNode(node *v1.Node, action string) {
+	// if the struct has fields which are all comparable then the workqueue add will handle make sure multiple adds of the same object
+	// will only have one item in the workqueue.
+	item := workItem{
+		name:       node.GetName(),
+		providerID: node.Spec.ProviderID,
+		action:     action,
 	}
 
 	if tc.rateLimitEnabled {
@@ -377,6 +416,11 @@ func (tc *Controller) enqueueNode(node *v1.Node, action func(node *v1.Node) erro
 		tc.workqueue.Add(item)
 		klog.Infof("Added %s to the workqueue (without any rate-limit)", item)
 	}
+}
+
+func (tc *Controller) isInitialTag(node *v1.Node) bool {
+	_, ok := node.Labels[taggingControllerLabelKey]
+	return !ok
 }
 
 func (tc *Controller) isTaggingRequired(node *v1.Node) bool {

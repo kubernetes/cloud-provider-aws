@@ -3,6 +3,7 @@ docs_dir: ./docs
 site_description: Documentation for AWS Cloud Provider for Kubernetes
 repo_name: kubernetes/cloud-provider-aws/
 repo_url: https://github.com/kubernetes/cloud-provider-aws/
+trademark: https://www.linuxfoundation.org/legal/trademark-usage
 nav:
   - 'Home': README.md
   - 'Components':
@@ -18,6 +19,7 @@ nav:
 
 theme:
   name: material
+  custom_dir: docs/overrides
   features:
     - navigation.tabs
     - navigation.sections

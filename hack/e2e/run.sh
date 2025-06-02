@@ -128,10 +128,10 @@ if [[ "${UP}" = "yes" ]]; then
       --run-id="${test_run_id}" \
       --cloud-provider=aws \
       --cluster-name="${CLUSTER_NAME}" \
-      --create-args="--dns=none --zones=${ZONES} --node-size=m5.large --master-size=m5.large --override=cluster.spec.cloudControllerManager.cloudProvider=aws --override=cluster.spec.cloudControllerManager.image=${IMAGE_NAME}:${IMAGE_TAG}" \
+      --create-args="--dns=none --zones=${ZONES} --node-size=m5.large --control-plane-size=m5.large --set=cluster.spec.cloudControllerManager.cloudProvider=aws --set=cluster.spec.cloudControllerManager.image=${IMAGE_NAME}:${IMAGE_TAG}" \
       --admin-access="0.0.0.0/0" \
       --kubernetes-version="${KUBERNETES_VERSION}" \
-      --kops-version-marker=https://storage.googleapis.com/kops-ci/bin/latest-ci-updown-green.txt \
+      --kops-version-marker=https://storage.googleapis.com/k8s-staging-kops/kops/releases/markers/master/latest-ci-updown-green.txt \
 
       # Use the kops tester once we have a way of consuming an arbitrary e2e.test binary.
       #--test=kops \

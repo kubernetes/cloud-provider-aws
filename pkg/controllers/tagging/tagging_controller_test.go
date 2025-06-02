@@ -22,6 +22,7 @@ import (
 	"testing"
 	"time"
 
+	"golang.org/x/time/rate"
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/informers"
@@ -29,6 +30,7 @@ import (
 	"k8s.io/client-go/kubernetes/fake"
 	"k8s.io/client-go/util/workqueue"
 	awsv1 "k8s.io/cloud-provider-aws/pkg/providers/v1"
+	"k8s.io/cloud-provider-aws/pkg/providers/v1/config"
 	"k8s.io/klog/v2"
 )
 
@@ -133,7 +135,7 @@ func Test_NodesJoiningAndLeaving(t *testing.T) {
 				},
 			},
 			toBeTagged:       true,
-			expectedMessages: []string{"Skip processing the node fargate-ip-10-0-55-27.us-west-2.compute.internal since it is a Fargate node"},
+			expectedMessages: []string{"Skip processing the node fargate-ip-10-0-55-27.us-west-2.compute.internal since it is a fargate node"},
 		},
 		{
 			name: "node0 leaves the cluster, failed to untag.",
@@ -194,70 +196,146 @@ func Test_NodesJoiningAndLeaving(t *testing.T) {
 	}
 
 	awsServices := awsv1.NewFakeAWSServices(TestClusterID)
-	fakeAws, _ := awsv1.NewAWSCloud(awsv1.CloudConfig{}, awsServices)
-
+	fakeAws, _ := awsv1.NewAWSCloud(config.CloudConfig{}, awsServices)
+	batching := [2]bool{true, false}
 	for _, testcase := range testcases {
-		t.Run(testcase.name, func(t *testing.T) {
-			var logBuf bytes.Buffer
-			klog.SetOutput(&logBuf)
-			defer func() {
-				klog.SetOutput(os.Stderr)
-			}()
+		var logBuf bytes.Buffer
+		klog.SetOutput(&logBuf)
+		defer func() {
+			klog.SetOutput(os.Stderr)
+		}()
+		for _, batchingEnabled := range batching {
+			t.Run(testcase.name, func(t *testing.T) {
 
-			clientset := fake.NewSimpleClientset(testcase.currNode)
-			informer := informers.NewSharedInformerFactory(clientset, time.Second)
-			nodeInformer := informer.Core().V1().Nodes()
+				clientset := fake.NewSimpleClientset(testcase.currNode)
+				informer := informers.NewSharedInformerFactory(clientset, time.Second)
+				nodeInformer := informer.Core().V1().Nodes()
 
-			if err := syncNodeStore(nodeInformer, clientset); err != nil {
-				t.Errorf("unexpected error: %v", err)
-			}
-
-			//eventBroadcaster := record.NewBroadcaster()
-			tc := &Controller{
-				nodeInformer:      nodeInformer,
-				kubeClient:        clientset,
-				cloud:             fakeAws,
-				nodeMonitorPeriod: 1 * time.Second,
-				tags:              map[string]string{"key2": "value2", "key1": "value1"},
-				resources:         []string{"instance"},
-				workqueue:         workqueue.NewNamedRateLimitingQueue(workqueue.DefaultControllerRateLimiter(), "Tagging"),
-				rateLimitEnabled:  testcase.rateLimited,
-			}
-
-			if testcase.toBeTagged {
-				tc.enqueueNode(testcase.currNode, tc.tagNodesResources)
-			} else {
-				tc.enqueueNode(testcase.currNode, tc.untagNodeResources)
-			}
-
-			if tc.rateLimitEnabled {
-				// If rate limit is enabled, sleep for 10 ms to wait for the item to be added to the queue since the base delay is 5 ms.
-				time.Sleep(10 * time.Millisecond)
-			}
-
-			for tc.workqueue.Len() > 0 {
-				tc.process()
-
-				// sleep briefly because of exponential backoff when requeueing failed workitem
-				// resulting in workqueue to be empty if checked immediately
-				time.Sleep(1500 * time.Millisecond)
-			}
-
-			for _, msg := range testcase.expectedMessages {
-				if !strings.Contains(logBuf.String(), msg) {
-					t.Errorf("\nMsg %q not found in log: \n%v\n", msg, logBuf.String())
+				if err := syncNodeStore(nodeInformer, clientset); err != nil {
+					t.Errorf("unexpected error: %v", err)
 				}
-				if strings.Contains(logBuf.String(), "Unable to tag") || strings.Contains(logBuf.String(), "Unable to untag") {
-					if !strings.Contains(logBuf.String(), ", requeuing count ") {
-						t.Errorf("\nFailed to tag or untag but logs did not requeue: \n%v\n", logBuf.String())
-					}
 
-					if !strings.Contains(logBuf.String(), "requeuing count exceeded") {
-						t.Errorf("\nExceeded requeue count but did not stop: \n%v\n", logBuf.String())
+				//eventBroadcaster := record.NewBroadcaster()
+				tc := &Controller{
+					nodeInformer:      nodeInformer,
+					kubeClient:        clientset,
+					cloud:             fakeAws,
+					nodeMonitorPeriod: 1 * time.Second,
+					tags:              map[string]string{"key2": "value2", "key1": "value1"},
+					resources:         []string{"instance"},
+					workqueue: workqueue.NewNamedRateLimitingQueue(workqueue.NewTypedMaxOfRateLimiter(
+						workqueue.NewTypedItemExponentialFailureRateLimiter[any](1*time.Millisecond, 5*time.Millisecond),
+						// 10 qps, 100 bucket size.  This is only for retry speed and its only the overall factor (not per item)
+						&workqueue.TypedBucketRateLimiter[any]{Limiter: rate.NewLimiter(rate.Limit(10), 100)},
+					), "Tagging"),
+					rateLimitEnabled: testcase.rateLimited,
+					batchingEnabled:  batchingEnabled,
+				}
+
+				if testcase.toBeTagged {
+					tc.enqueueNode(testcase.currNode, addTag)
+				} else {
+					tc.enqueueNode(testcase.currNode, deleteTag)
+				}
+
+				if tc.rateLimitEnabled {
+					// If rate limit is enabled, sleep for 10 ms to wait for the item to be added to the queue since the base delay is 5 ms.
+					time.Sleep(10 * time.Millisecond)
+				}
+
+				cnt := 0
+				for tc.workqueue.Len() > 0 {
+					tc.process(context.TODO())
+					cnt++
+					// sleep briefly because of exponential backoff when requeueing failed workitem
+					// resulting in workqueue to be empty if checked immediately
+					time.Sleep(7 * time.Millisecond)
+				}
+
+				for _, msg := range testcase.expectedMessages {
+					if !strings.Contains(logBuf.String(), msg) {
+						t.Errorf("\nMsg %q not found in log: \n%v\n", msg, logBuf.String())
+					}
+					if strings.Contains(logBuf.String(), "Unable to tag") || strings.Contains(logBuf.String(), "Unable to untag") {
+						if !strings.Contains(logBuf.String(), ", requeuing count ") {
+							t.Errorf("\nFailed to tag or untag but logs did not requeue: \n%v\n", logBuf.String())
+						}
+
+						if !strings.Contains(logBuf.String(), "requeuing count exceeded") {
+							t.Errorf("\nExceeded requeue count but did not stop: \n%v\n", logBuf.String())
+						}
+						if cnt != maxRequeuingCount+1 {
+							t.Errorf("the node got requeued %d, more than the max requeuing count of %d", cnt, maxRequeuingCount)
+						}
 					}
 				}
-			}
-		})
+			})
+		}
+	}
+}
+
+func TestMultipleEnqueues(t *testing.T) {
+	awsServices := awsv1.NewFakeAWSServices(TestClusterID)
+	fakeAws, _ := awsv1.NewAWSCloud(config.CloudConfig{}, awsServices)
+
+	testNode := &v1.Node{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:              "node0",
+			CreationTimestamp: metav1.Date(2012, 1, 1, 0, 0, 0, 0, time.UTC),
+		},
+		Spec: v1.NodeSpec{
+			ProviderID: "i-0001",
+		},
+	}
+	testNode1 := &v1.Node{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:              "node1",
+			CreationTimestamp: metav1.Date(2012, 1, 1, 0, 0, 0, 0, time.UTC),
+		},
+		Spec: v1.NodeSpec{
+			ProviderID: "i-0002",
+		},
+	}
+	clientset := fake.NewSimpleClientset(testNode, testNode1)
+	informer := informers.NewSharedInformerFactory(clientset, time.Second)
+	nodeInformer := informer.Core().V1().Nodes()
+
+	if err := syncNodeStore(nodeInformer, clientset); err != nil {
+		t.Errorf("unexpected error: %v", err)
+	}
+
+	tc, err := NewTaggingController(nodeInformer, clientset, fakeAws, time.Second, nil, []string{}, 0, 0, 10, false)
+	if err != nil {
+		t.Errorf("unexpected error: %v", err)
+	}
+	tc.enqueueNode(testNode, addTag)
+	if tc.workqueue.Len() != 1 {
+		t.Errorf("invalid work queue length, expected 1, got %d", tc.workqueue.Len())
+	}
+	// adding the same node with similar operation shouldn't add to the workqueue
+	tc.enqueueNode(testNode, addTag)
+	if tc.workqueue.Len() != 1 {
+		t.Errorf("invalid work queue length, expected 1, got %d", tc.workqueue.Len())
+	}
+	// adding the same node with different operation should add to the workqueue
+	tc.enqueueNode(testNode, deleteTag)
+	if tc.workqueue.Len() != 2 {
+		t.Errorf("invalid work queue length, expected 2, got %d", tc.workqueue.Len())
+	}
+	// adding the different node should add to the workqueue
+	tc.enqueueNode(testNode1, addTag)
+	if tc.workqueue.Len() != 3 {
+		t.Errorf("invalid work queue length, expected 3, got %d", tc.workqueue.Len())
+	}
+	// should handle the add tag properly
+	tc.process(context.TODO())
+	if tc.workqueue.Len() != 2 {
+		t.Errorf("invalid work queue length, expected 1, got %d", tc.workqueue.Len())
+	}
+	// should handle the delete tag properly
+	tc.process(context.TODO())
+	if tc.workqueue.Len() != 1 {
+		t.Errorf("invalid work queue length, expected 1, got %d", tc.workqueue.Len())
 	}
 }
 
@@ -271,4 +349,70 @@ func syncNodeStore(nodeinformer coreinformers.NodeInformer, f *fake.Clientset) e
 		newElems = append(newElems, &nodes.Items[i])
 	}
 	return nodeinformer.Informer().GetStore().Replace(newElems, "newRV")
+}
+
+func Test_isInitialTag(t *testing.T) {
+	testcases := []struct {
+		name          string
+		node          *v1.Node
+		expectedValue bool
+	}{
+		{
+			name: "node0 is recently created with no labels and will be tagged for the first time",
+			node: &v1.Node{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "node0",
+				},
+			},
+			expectedValue: true,
+		},
+		{
+			name: "node0 has other labels but no taggingControllerLabelKey and will be tagged for the first time",
+			node: &v1.Node{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "node0",
+					Labels: map[string]string{
+						"some-other-label": "value",
+					},
+				},
+			},
+			expectedValue: true,
+		},
+		{
+			name: "node0 with taggingControllerLabelKey implies that the node was already tagged",
+			node: &v1.Node{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "node0",
+					Labels: map[string]string{
+						taggingControllerLabelKey: "9767c4972ba72e87ab553bad2afde741", // MD5 for key1=value1
+					},
+				},
+			},
+			expectedValue: false,
+		},
+		{
+			name: "node0 with taggingControllerLabelKey and other labels should not be initial tag",
+			node: &v1.Node{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "node0",
+					Labels: map[string]string{
+						taggingControllerLabelKey: "9767c4972ba72e87ab553bad2afde741", // MD5 for key1=value1
+						"some-other-label":        "value",
+					},
+				},
+			},
+			expectedValue: false,
+		},
+	}
+
+	tc := &Controller{}
+
+	for _, testcase := range testcases {
+		t.Run(testcase.name, func(t *testing.T) {
+			result := tc.isInitialTag(testcase.node)
+			if result != testcase.expectedValue {
+				t.Errorf("isInitialTag() = %v, want %v", result, testcase.expectedValue)
+			}
+		})
+	}
 }

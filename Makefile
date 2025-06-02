@@ -18,7 +18,7 @@ SHELL := /bin/bash
 GOOS ?= $(shell go env GOOS)
 GOARCH ?= $(shell go env GOARCH)
 GOPROXY ?= $(shell go env GOPROXY)
-GIT_VERSION := $(shell git describe --dirty --tags --match='v*')
+GIT_VERSION ?= $(shell git describe --dirty --tags --match='v*')
 VERSION ?= $(GIT_VERSION)
 IMAGE_REPOSITORY ?= provider-aws/cloud-controller-manager
 IMAGE ?= $(IMAGE_REPOSITORY):$(VERSION)
@@ -110,7 +110,7 @@ ko-build-tar: ko
 
 .PHONY: ko-build-local
 ko-build-local: ko
-	KO_DOCKER_REPO="$(IMAGE_REPOSITORY)" GOFLAGS="-ldflags=-X=k8s.io/component-base/version.gitVersion=$(VERSION)" ko build --tags ${VERSION} --platform=linux/amd64 --bare ./cmd/aws-cloud-controller-manager/ --push=false --local
+	KO_DOCKER_REPO="ko.local" GOFLAGS="-ldflags=-X=k8s.io/component-base/version.gitVersion=$(VERSION)" ko build --tags ${VERSION} --platform=linux/amd64 --bare ./cmd/aws-cloud-controller-manager/ --push=false --local
 	docker tag ko.local:${VERSION} $(IMAGE)
 
 .PHONY: e2e.test
@@ -121,6 +121,9 @@ e2e.test:
 
 .PHONY: check
 check: verify-fmt verify-lint vet
+
+.PHONY: develop
+develop: aws-cloud-controller-manager test update-fmt check
 
 .PHONY: test
 test:

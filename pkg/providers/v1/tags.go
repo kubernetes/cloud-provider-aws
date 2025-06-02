@@ -17,14 +17,18 @@ limitations under the License.
 package aws
 
 import (
+	"context"
 	"fmt"
 	"strings"
 
+	"github.com/aws/aws-sdk-go-v2/service/ec2"
+	ec2types "github.com/aws/aws-sdk-go-v2/service/ec2/types"
 	"github.com/aws/aws-sdk-go/aws"
-	"github.com/aws/aws-sdk-go/service/ec2"
 	"k8s.io/klog/v2"
 
 	"k8s.io/apimachinery/pkg/util/wait"
+
+	"k8s.io/cloud-provider-aws/pkg/providers/v1/iface"
 )
 
 // TagNameKubernetesClusterPrefix is the tag name we use to differentiate multiple
@@ -85,7 +89,7 @@ func (t *awsTagging) init(legacyClusterID string, clusterID string) error {
 // Extracts a clusterID from the given tags, if one is present
 // If no clusterID is found, returns "", nil
 // If multiple (different) clusterIDs are found, returns an error
-func (t *awsTagging) initFromTags(tags []*ec2.Tag) error {
+func (t *awsTagging) initFromTags(tags []ec2types.Tag) error {
 	legacyClusterID, newClusterID, err := findClusterIDs(tags)
 	if err != nil {
 		return err
@@ -100,7 +104,7 @@ func (t *awsTagging) initFromTags(tags []*ec2.Tag) error {
 
 // Extracts the legacy & new cluster ids from the given tags, if they are present
 // If duplicate tags are found, returns an error
-func findClusterIDs(tags []*ec2.Tag) (string, string, error) {
+func findClusterIDs(tags []ec2types.Tag) (string, string, error) {
 	legacyClusterID := ""
 	newClusterID := ""
 
@@ -130,7 +134,7 @@ func (t *awsTagging) clusterTagKey() string {
 	return TagNameKubernetesClusterPrefix + t.ClusterID
 }
 
-func (t *awsTagging) hasClusterTag(tags []*ec2.Tag) bool {
+func (t *awsTagging) hasClusterTag(tags []ec2types.Tag) bool {
 	// if the clusterID is not configured -- we consider all instances.
 	if len(t.ClusterID) == 0 {
 		return true
@@ -150,7 +154,7 @@ func (t *awsTagging) hasClusterTag(tags []*ec2.Tag) bool {
 	return false
 }
 
-func (t *awsTagging) hasNoClusterPrefixTag(tags []*ec2.Tag) bool {
+func (t *awsTagging) hasNoClusterPrefixTag(tags []ec2types.Tag) bool {
 	for _, tag := range tags {
 		if strings.HasPrefix(aws.StringValue(tag.Key), TagNameKubernetesClusterPrefix) {
 			return false
@@ -162,7 +166,7 @@ func (t *awsTagging) hasNoClusterPrefixTag(tags []*ec2.Tag) bool {
 // Ensure that a resource has the correct tags
 // If it has no tags, we assume that this was a problem caused by an error in between creation and tagging,
 // and we add the tags.  If it has a different cluster's tags, that is an error.
-func (t *awsTagging) readRepairClusterTags(client EC2, resourceID string, lifecycle ResourceLifecycle, additionalTags map[string]string, observedTags []*ec2.Tag) error {
+func (t *awsTagging) readRepairClusterTags(ctx context.Context, client iface.EC2, resourceID string, lifecycle ResourceLifecycle, additionalTags map[string]string, observedTags []ec2types.Tag) error {
 	actualTagMap := make(map[string]string)
 	for _, tag := range observedTags {
 		actualTagMap[aws.StringValue(tag.Key)] = aws.StringValue(tag.Value)
@@ -188,7 +192,7 @@ func (t *awsTagging) readRepairClusterTags(client EC2, resourceID string, lifecy
 		return nil
 	}
 
-	if err := t.createTags(client, resourceID, lifecycle, addTags); err != nil {
+	if err := t.createTags(ctx, client, resourceID, lifecycle, addTags); err != nil {
 		return fmt.Errorf("error adding missing tags to resource %q: %q", resourceID, err)
 	}
 
@@ -198,16 +202,16 @@ func (t *awsTagging) readRepairClusterTags(client EC2, resourceID string, lifecy
 // createTags calls EC2 CreateTags, but adds retry-on-failure logic
 // We retry mainly because if we create an object, we cannot tag it until it is "fully created" (eventual consistency)
 // The error code varies though (depending on what we are tagging), so we simply retry on all errors
-func (t *awsTagging) createTags(client EC2, resourceID string, lifecycle ResourceLifecycle, additionalTags map[string]string) error {
+func (t *awsTagging) createTags(ctx context.Context, client iface.EC2, resourceID string, lifecycle ResourceLifecycle, additionalTags map[string]string) error {
 	tags := t.buildTags(lifecycle, additionalTags)
 
 	if tags == nil || len(tags) == 0 {
 		return nil
 	}
 
-	var awsTags []*ec2.Tag
+	var awsTags []ec2types.Tag
 	for k, v := range tags {
-		tag := &ec2.Tag{
+		tag := ec2types.Tag{
 			Key:   aws.String(k),
 			Value: aws.String(v),
 		}
@@ -220,12 +224,12 @@ func (t *awsTagging) createTags(client EC2, resourceID string, lifecycle Resourc
 		Steps:    createTagSteps,
 	}
 	request := &ec2.CreateTagsInput{}
-	request.Resources = []*string{&resourceID}
+	request.Resources = []string{resourceID}
 	request.Tags = awsTags
 
 	var lastErr error
 	err := wait.ExponentialBackoff(backoff, func() (bool, error) {
-		_, err := client.CreateTags(request)
+		_, err := client.CreateTags(ctx, request)
 		if err == nil {
 			return true, nil
 		}
@@ -245,7 +249,7 @@ func (t *awsTagging) createTags(client EC2, resourceID string, lifecycle Resourc
 
 // Add additional filters, to match on our tags
 // This lets us run multiple k8s clusters in a single EC2 AZ
-func (t *awsTagging) addFilters(filters []*ec2.Filter) []*ec2.Filter {
+func (t *awsTagging) addFilters(filters []*ec2types.Filter) []*ec2types.Filter {
 	// if there are no clusterID configured - no filtering by special tag names
 	// should be applied to revert to legacy behaviour.
 	if len(t.ClusterID) == 0 {
@@ -258,7 +262,7 @@ func (t *awsTagging) addFilters(filters []*ec2.Filter) []*ec2.Filter {
 	}
 
 	f := newEc2Filter("tag-key", t.clusterTagKey())
-	filters = append(filters, f)
+	filters = append(filters, &f)
 	return filters
 }
 
@@ -266,7 +270,7 @@ func (t *awsTagging) addFilters(filters []*ec2.Filter) []*ec2.Filter {
 // 1.5 -> 1.6 clusters and exists for backwards compatibility
 //
 // This lets us run multiple k8s clusters in a single EC2 AZ
-func (t *awsTagging) addLegacyFilters(filters []*ec2.Filter) []*ec2.Filter {
+func (t *awsTagging) addLegacyFilters(filters []*ec2types.Filter) []*ec2types.Filter {
 	// if there are no clusterID configured - no filtering by special tag names
 	// should be applied to revert to legacy behaviour.
 	if len(t.ClusterID) == 0 {
@@ -282,7 +286,7 @@ func (t *awsTagging) addLegacyFilters(filters []*ec2.Filter) []*ec2.Filter {
 
 	// We can't pass a zero-length Filters to AWS (it's an error)
 	// So if we end up with no filters; we need to return nil
-	filters = append(filters, f)
+	filters = append(filters, &f)
 	return filters
 }
 
@@ -313,13 +317,13 @@ func (t *awsTagging) clusterID() string {
 
 // TagResource calls EC2 and tag the resource associated to resourceID
 // with the supplied tags
-func (c *Cloud) TagResource(resourceID string, tags map[string]string) error {
+func (c *Cloud) TagResource(ctx context.Context, resourceID string, tags map[string]string) error {
 	request := &ec2.CreateTagsInput{
-		Resources: []*string{aws.String(resourceID)},
+		Resources: []string{resourceID},
 		Tags:      buildAwsTags(tags),
 	}
 
-	output, err := c.ec2.CreateTags(request)
+	output, err := c.ec2.CreateTags(ctx, request)
 
 	if err != nil {
 		klog.Errorf("Error occurred trying to tag resources, %v", err)
@@ -331,15 +335,35 @@ func (c *Cloud) TagResource(resourceID string, tags map[string]string) error {
 	return nil
 }
 
-// UntagResource calls EC2 and tag the resource associated to resourceID
-// with the supplied tags
-func (c *Cloud) UntagResource(resourceID string, tags map[string]string) error {
-	request := &ec2.DeleteTagsInput{
-		Resources: []*string{aws.String(resourceID)},
+// TagResourceBatch calls EC2 and tag the resource associated to resourceID with the supplied tags
+// calls are batched based on batcher configuration.
+func (c *Cloud) TagResourceBatch(ctx context.Context, resourceID string, tags map[string]string) error {
+	request := &ec2.CreateTagsInput{
+		Resources: []string{resourceID},
 		Tags:      buildAwsTags(tags),
 	}
 
-	output, err := c.ec2.DeleteTags(request)
+	output, err := c.createTagsBatcher.createTags(ctx, request)
+
+	if err != nil {
+		klog.Errorf("Error occurred trying to tag resources, %v", err)
+		return err
+	}
+
+	klog.Infof("Done calling create-tags to EC2: %v", *output)
+
+	return nil
+}
+
+// UntagResource calls EC2 and tag the resource associated to resourceID
+// with the supplied tags
+func (c *Cloud) UntagResource(ctx context.Context, resourceID string, tags map[string]string) error {
+	request := &ec2.DeleteTagsInput{
+		Resources: []string{resourceID},
+		Tags:      buildAwsTags(tags),
+	}
+
+	output, err := c.ec2.DeleteTags(ctx, request)
 
 	if err != nil {
 		// An instance not found should not fail the untagging workflow as it
@@ -357,10 +381,36 @@ func (c *Cloud) UntagResource(resourceID string, tags map[string]string) error {
 	return nil
 }
 
-func buildAwsTags(tags map[string]string) []*ec2.Tag {
-	var awsTags []*ec2.Tag
+// UntagResourceBatch calls EC2 and tag the resource associated to resourceID with the supplied tags
+// calls are batched based on batcher configuration.
+func (c *Cloud) UntagResourceBatch(ctx context.Context, resourceID string, tags map[string]string) error {
+	request := &ec2.DeleteTagsInput{
+		Resources: []string{resourceID},
+		Tags:      buildAwsTags(tags),
+	}
+
+	output, err := c.deleteTagsBatcher.deleteTags(ctx, request)
+
+	if err != nil {
+		// An instance not found should not fail the untagging workflow as it
+		// would for tagging, since the target state is already reached.
+		if IsAWSErrorInstanceNotFound(err) {
+			klog.Infof("Couldn't find resource when trying to untag it hence skipping it, %v", err)
+			return nil
+		}
+		klog.Errorf("Error occurred trying to untag resources, %v", err)
+		return err
+	}
+
+	klog.Infof("Done calling delete-tags to EC2: %v", output)
+
+	return nil
+}
+
+func buildAwsTags(tags map[string]string) []ec2types.Tag {
+	var awsTags []ec2types.Tag
 	for k, v := range tags {
-		newTag := &ec2.Tag{
+		newTag := ec2types.Tag{
 			Key:   aws.String(k),
 			Value: aws.String(v),
 		}

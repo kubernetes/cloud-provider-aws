@@ -24,24 +24,50 @@ import (
 	"testing"
 	"time"
 
-	"github.com/aws/aws-sdk-go/aws"
-	"github.com/aws/aws-sdk-go/service/ecr"
-	"github.com/aws/aws-sdk-go/service/ecrpublic"
-	"github.com/golang/mock/gomock"
+	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/service/ecr"
+	"github.com/aws/aws-sdk-go-v2/service/ecr/types"
+	"github.com/aws/aws-sdk-go-v2/service/ecrpublic"
+	publictypes "github.com/aws/aws-sdk-go-v2/service/ecrpublic/types"
+	"github.com/stretchr/testify/mock"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/cloud-provider-aws/pkg/mocks"
 	v1 "k8s.io/kubelet/pkg/apis/credentialprovider/v1"
 )
 
+type MockedECR struct {
+	mock.Mock
+}
+
+func (m *MockedECR) GetAuthorizationToken(ctx context.Context, params *ecr.GetAuthorizationTokenInput, optFns ...func(*ecr.Options)) (*ecr.GetAuthorizationTokenOutput, error) {
+	args := m.Called(ctx, params)
+	if args.Get(1) != nil {
+		return args.Get(0).(*ecr.GetAuthorizationTokenOutput), args.Get(1).(error)
+	}
+	return args.Get(0).(*ecr.GetAuthorizationTokenOutput), nil
+}
+
+// ECRPublic abstracts the calls we make to aws-sdk for testing purposes
+type MockedECRPublic struct {
+	mock.Mock
+}
+
+func (m *MockedECRPublic) GetAuthorizationToken(ctx context.Context, params *ecrpublic.GetAuthorizationTokenInput, optFns ...func(*ecrpublic.Options)) (*ecrpublic.GetAuthorizationTokenOutput, error) {
+	args := m.Called(ctx, params)
+	if args.Get(1) != nil {
+		return args.Get(0).(*ecrpublic.GetAuthorizationTokenOutput), args.Get(1).(error)
+	}
+	return args.Get(0).(*ecrpublic.GetAuthorizationTokenOutput), nil
+}
+
 func generatePrivateGetAuthorizationTokenOutput(user string, password string, proxy string, expiration *time.Time) *ecr.GetAuthorizationTokenOutput {
 	creds := []byte(fmt.Sprintf("%s:%s", user, password))
-	data := &ecr.AuthorizationData{
+	data := types.AuthorizationData{
 		AuthorizationToken: aws.String(base64.StdEncoding.EncodeToString(creds)),
 		ExpiresAt:          expiration,
 		ProxyEndpoint:      aws.String(proxy),
 	}
 	output := &ecr.GetAuthorizationTokenOutput{
-		AuthorizationData: []*ecr.AuthorizationData{data},
+		AuthorizationData: []types.AuthorizationData{data},
 	}
 	return output
 }
@@ -60,11 +86,6 @@ func generateResponse(registry string, username string, password string) *v1.Cre
 }
 
 func Test_GetCredentials_Private(t *testing.T) {
-	ctrl := gomock.NewController(t)
-	defer ctrl.Finish()
-
-	mockECR := mocks.NewMockECR(ctrl)
-
 	testcases := []struct {
 		name                        string
 		image                       string
@@ -109,7 +130,7 @@ func Test_GetCredentials_Private(t *testing.T) {
 		{
 			name:                        "empty authorization token",
 			image:                       "123456789123.dkr.ecr.us-west-2.amazonaws.com",
-			getAuthorizationTokenOutput: &ecr.GetAuthorizationTokenOutput{AuthorizationData: []*ecr.AuthorizationData{{}}},
+			getAuthorizationTokenOutput: &ecr.GetAuthorizationTokenOutput{AuthorizationData: []types.AuthorizationData{{}}},
 			getAuthorizationTokenError:  nil,
 			expectedError:               errors.New("authorization token in response was nil"),
 		},
@@ -124,19 +145,19 @@ func Test_GetCredentials_Private(t *testing.T) {
 			name:  "invalid authorization token",
 			image: "123456789123.dkr.ecr.us-west-2.amazonaws.com",
 			getAuthorizationTokenOutput: &ecr.GetAuthorizationTokenOutput{
-				AuthorizationData: []*ecr.AuthorizationData{
-					{AuthorizationToken: aws.String(base64.StdEncoding.EncodeToString([]byte(fmt.Sprint("foo"))))},
+				AuthorizationData: []types.AuthorizationData{
+					{AuthorizationToken: aws.String(base64.StdEncoding.EncodeToString([]byte("foo")))},
 				},
 			},
 			getAuthorizationTokenError: nil,
 			expectedError:              errors.New("error parsing username and password from authorization token"),
 		},
 	}
-
 	for _, testcase := range testcases {
 		t.Run(testcase.name, func(t *testing.T) {
-			p := &ecrPlugin{ecr: mockECR}
-			mockECR.EXPECT().GetAuthorizationToken(gomock.Any()).Return(testcase.getAuthorizationTokenOutput, testcase.getAuthorizationTokenError)
+			mockECR := MockedECR{}
+			p := &ecrPlugin{ecr: &mockECR}
+			mockECR.On("GetAuthorizationToken", mock.Anything, mock.Anything).Return(testcase.getAuthorizationTokenOutput, testcase.getAuthorizationTokenError)
 
 			creds, err := p.GetCredentials(context.TODO(), testcase.image, testcase.args)
 
@@ -163,7 +184,7 @@ func Test_GetCredentials_Private(t *testing.T) {
 
 func generatePublicGetAuthorizationTokenOutput(user string, password string, proxy string, expiration *time.Time) *ecrpublic.GetAuthorizationTokenOutput {
 	creds := []byte(fmt.Sprintf("%s:%s", user, password))
-	data := &ecrpublic.AuthorizationData{
+	data := &publictypes.AuthorizationData{
 		AuthorizationToken: aws.String(base64.StdEncoding.EncodeToString(creds)),
 		ExpiresAt:          expiration,
 	}
@@ -174,11 +195,6 @@ func generatePublicGetAuthorizationTokenOutput(user string, password string, pro
 }
 
 func Test_GetCredentials_Public(t *testing.T) {
-	ctrl := gomock.NewController(t)
-	defer ctrl.Finish()
-
-	mockECRPublic := mocks.NewMockECRPublic(ctrl)
-
 	testcases := []struct {
 		name                        string
 		image                       string
@@ -211,7 +227,7 @@ func Test_GetCredentials_Public(t *testing.T) {
 		{
 			name:                        "empty authorization token",
 			image:                       "public.ecr.aws",
-			getAuthorizationTokenOutput: &ecrpublic.GetAuthorizationTokenOutput{AuthorizationData: &ecrpublic.AuthorizationData{}},
+			getAuthorizationTokenOutput: &ecrpublic.GetAuthorizationTokenOutput{AuthorizationData: &publictypes.AuthorizationData{}},
 			getAuthorizationTokenError:  nil,
 			expectedError:               errors.New("authorization token in response was nil"),
 		},
@@ -226,8 +242,8 @@ func Test_GetCredentials_Public(t *testing.T) {
 			name:  "invalid authorization token",
 			image: "public.ecr.aws",
 			getAuthorizationTokenOutput: &ecrpublic.GetAuthorizationTokenOutput{
-				AuthorizationData: &ecrpublic.AuthorizationData{
-					AuthorizationToken: aws.String(base64.StdEncoding.EncodeToString([]byte(fmt.Sprint("foo")))),
+				AuthorizationData: &publictypes.AuthorizationData{
+					AuthorizationToken: aws.String(base64.StdEncoding.EncodeToString([]byte("foo"))),
 				},
 			},
 			getAuthorizationTokenError: nil,
@@ -237,8 +253,9 @@ func Test_GetCredentials_Public(t *testing.T) {
 
 	for _, testcase := range testcases {
 		t.Run(testcase.name, func(t *testing.T) {
-			p := &ecrPlugin{ecrPublic: mockECRPublic}
-			mockECRPublic.EXPECT().GetAuthorizationToken(gomock.Any()).Return(testcase.getAuthorizationTokenOutput, testcase.getAuthorizationTokenError)
+			mockECRPublic := MockedECRPublic{}
+			p := &ecrPlugin{ecrPublic: &mockECRPublic}
+			mockECRPublic.On("GetAuthorizationToken", mock.Anything, mock.Anything).Return(testcase.getAuthorizationTokenOutput, testcase.getAuthorizationTokenError)
 
 			creds, err := p.GetCredentials(context.TODO(), testcase.image, testcase.args)
 
@@ -311,11 +328,61 @@ func Test_parseRegionFromECRPrivateHost(t *testing.T) {
 		host   string
 		region string
 	}{
+		// us-west-2
 		{
 			name:   "success",
 			host:   "123456789123.dkr.ecr.us-west-2.amazonaws.com",
 			region: "us-west-2",
 		},
+		// CN region
+		{
+			name:   "success",
+			host:   "123456789123.dkr.ecr.cn-north-1.amazonaws.com.cn",
+			region: "cn-north-1",
+		},
+		// GovCloud
+		{
+			name:   "success",
+			host:   "123456789123.dkr.ecr.us-gov-east-1.amazonaws.com",
+			region: "us-gov-east-1",
+		},
+		// ISO
+		{
+			name:   "success",
+			host:   "123456789123.dkr.ecr.us-iso-east-1.c2s.ic.gov",
+			region: "us-iso-east-1",
+		},
+		// Dual-Stack
+		{
+			name:   "success",
+			host:   "123456789123.dkr-ecr.us-west-2.on.aws",
+			region: "us-west-2",
+		},
+		// Dual-Stack FIPS
+		{
+			name:   "success",
+			host:   "123456789123.dkr-ecr-fips.us-west-2.on.aws",
+			region: "us-west-2",
+		},
+		// IPv6 CN
+		{
+			name:   "success",
+			host:   "123456789123.dkr-ecr.cn-north-1.on.amazonwebservices.com.cn",
+			region: "cn-north-1",
+		},
+		// IPv6 GovCloud
+		{
+			name:   "success",
+			host:   "123456789123.dkr-ecr.us-gov-east-1.on.aws",
+			region: "us-gov-east-1",
+		},
+		// IPv6 GovCloud FIPS
+		{
+			name:   "success",
+			host:   "123456789123.dkr-ecr-fips.us-gov-east-1.on.aws",
+			region: "us-gov-east-1",
+		},
+		// Invalid name
 		{
 			name:   "invalid registry",
 			host:   "foobar",
@@ -368,6 +435,22 @@ func TestRegistryPatternMatch(t *testing.T) {
 		{"123456789012.dkr.cat.lala-land-1.awsamazon.com", false},
 		// too short
 		{"123456789012.lala-land-1.amazonaws.com", false},
+		// iso
+		{"123456789012.dkr.ecr.us-iso-east-1.c2s.ic.gov", true},
+		// iso-b
+		{"123456789012.dkr.ecr.us-isob-east-1.sc2s.sgov.gov", true},
+		// iso-e
+		{"123456789012.dkr.ecr.eu-isoe-west-1.cloud.adc-e.uk", true},
+		// iso-f
+		{"123456789012.dkr.ecr.us-isof-east-1.csp.hci.ic.gov", true},
+		// invalid gov endpoint
+		{"123456789012.dkr.ecr.us-iso-east-1.amazonaws.gov", false},
+		//IPv6 dual stack endpoint
+		{"123456789012.dkr-ecr.lala-land-1.on.aws", true},
+		//IPv6 dual stack endpoint fips
+		{"123456789012.dkr-ecr-fips.lala-land-1.on.aws", true},
+		//IPv6 dual stack endpoint .cn
+		{"123456789012.dkr-ecr.lala-land-1.on.amazonwebservices.com.cn", true},
 	}
 	for _, g := range grid {
 		actual := ecrPrivateHostPattern.MatchString(g.Registry)

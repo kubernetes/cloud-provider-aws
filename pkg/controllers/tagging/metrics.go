@@ -14,23 +14,19 @@ limitations under the License.
 package tagging
 
 import (
+	"sync"
+
 	"k8s.io/component-base/metrics"
 	"k8s.io/component-base/metrics/legacyregistry"
-	"sync"
+)
+
+const (
+	metricsSubsystem = "tagging_controller"
 )
 
 var register sync.Once
 
 var (
-	workItemDuration = metrics.NewHistogramVec(
-		&metrics.HistogramOpts{
-			Name:           "cloudprovider_aws_tagging_controller_work_item_duration_seconds",
-			Help:           "workitem latency of workitem being in the queue and time it takes to process",
-			StabilityLevel: metrics.ALPHA,
-			Buckets:        metrics.ExponentialBuckets(0.5, 1.5, 20),
-		},
-		[]string{"latency_type"})
-
 	workItemError = metrics.NewCounterVec(
 		&metrics.CounterOpts{
 			Name:           "cloudprovider_aws_tagging_controller_work_item_errors_total",
@@ -38,18 +34,24 @@ var (
 			StabilityLevel: metrics.ALPHA,
 		},
 		[]string{"error_type", "instance_id"})
+
+	initialNodeTaggingDelay = metrics.NewHistogram(
+		&metrics.HistogramOpts{
+			Subsystem:      metricsSubsystem,
+			Name:           "inital_node_tagging_delay_seconds",
+			Help:           "Latency (in seconds) between node creation and its first successful tagging by TaggingController.",
+			Buckets:        metrics.ExponentialBuckets(1, 4, 6), // 1s -> ~17m
+			StabilityLevel: metrics.ALPHA,
+		},
+	)
 )
 
 // registerMetrics registers tagging-controller metrics.
 func registerMetrics() {
 	register.Do(func() {
-		legacyregistry.MustRegister(workItemDuration)
 		legacyregistry.MustRegister(workItemError)
+		legacyregistry.MustRegister(initialNodeTaggingDelay)
 	})
-}
-
-func recordWorkItemLatencyMetrics(latencyType string, timeTaken float64) {
-	workItemDuration.With(metrics.Labels{"latency_type": latencyType}).Observe(timeTaken)
 }
 
 func recordWorkItemErrorMetrics(errorType string, instanceID string) {

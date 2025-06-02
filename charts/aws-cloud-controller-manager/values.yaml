@@ -8,6 +8,9 @@ image:
     repository: registry.k8s.io/provider-aws/cloud-controller-manager
     tag: v1.27.1
 
+# Specify image pull secrets
+imagePullSecrets: []
+
 # nameOverride overrides `cloud-controller-manager.fullname`
 nameOverride: "aws-cloud-controller-manager"
 
@@ -95,6 +98,18 @@ clusterRoleRules:
   - serviceaccounts/token
   verbs:
   - create
+- apiGroups:
+    - authentication.k8s.io
+  resources:
+    - tokenreviews
+  verbs:
+    - create
+- apiGroups:
+    - authorization.k8s.io
+  resources:
+    - subjectaccessreviews
+  verbs:
+    - create
 
 # resources -- Pod resource requests and limits.
 resources:

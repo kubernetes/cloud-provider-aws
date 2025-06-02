@@ -17,15 +17,29 @@ limitations under the License.
 package aws
 
 import (
+	"context"
+	"errors"
 	"math"
+	"strings"
 	"sync"
 	"time"
 
+	awsv2 "github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/awserr"
 	"github.com/aws/aws-sdk-go/aws/request"
+	"github.com/aws/smithy-go"
+	"github.com/aws/smithy-go/middleware"
+	"github.com/aws/smithy-go/transport/http"
 	"k8s.io/klog/v2"
 )
+
+// nonRetryableError is the code for errors coming from API requests that should not be retried. This
+// exists to replicate behavior from AWS SDK Go V1, where requests were marked as non-retryable
+// in certain cases.
+// In AWS SDK Go V2, an error with this error code is thrown in those same cases, and then
+// caught during the IsErrorRetryable check by customRetryer.
+var nonRetryableError = "non-retryable error"
 
 const (
 	decayIntervalSeconds = 20
@@ -170,6 +184,107 @@ func (b *Backoff) ComputeDelayForRequest(now time.Time) time.Duration {
 func (b *Backoff) ReportError() {
 	b.mutex.Lock()
 	defer b.mutex.Unlock()
-
 	b.countErrorsRequestLimit += 1.0
+}
+
+// Standard retry implementation, except that it doesn't retry NON_RETRYABLE_ERROR errors.
+// This works in tandem with (l *delayPrerequest) HandleFinalize, which will throw the error
+// in certain cases as part of the middleware.
+type customRetryer struct {
+	awsv2.Retryer
+}
+
+func (r customRetryer) IsErrorRetryable(err error) bool {
+	if strings.Contains(err.Error(), nonRetryableError) {
+		return false
+	}
+	return r.Retryer.IsErrorRetryable(err)
+}
+
+// Middleware for AWS SDK Go V2 clients
+// middleware replica of CrossRequestRetryDelay.BeforeSign()
+// Throws nonRetryableError if the request context was canceled, to preserve behavior from AWS
+// SDK Go V1, where requests were marked as non-retryable under the same conditions.
+// This works in tandem with customRetryer, which will not retry nonRetryableErrors.
+func delayPreSign(delayer *CrossRequestRetryDelay) middleware.FinalizeMiddleware {
+	return middleware.FinalizeMiddlewareFunc(
+		"k8s/delay-presign",
+		func(ctx context.Context, in middleware.FinalizeInput, next middleware.FinalizeHandler) (
+			out middleware.FinalizeOutput, metadata middleware.Metadata, err error,
+		) {
+			now := time.Now()
+			delay := delayer.backoff.ComputeDelayForRequest(now)
+
+			if delay > 0 {
+				klog.Warningf("Inserting delay before AWS request (%s) to avoid RequestLimitExceeded: %s",
+					describeRequestV2(ctx), delay.String())
+
+				if err := sleepWithContext(ctx, delay); err != nil {
+					return middleware.FinalizeOutput{}, middleware.Metadata{}, errors.New(nonRetryableError)
+				}
+			}
+
+			service, name := awsServiceAndNameV2(ctx)
+			request, ok := in.Request.(*http.Request)
+			if ok {
+				klog.V(4).Infof("AWS API Send: %s %s %s %s", service, name, request.Request.Method, request.Request.URL.Path)
+			}
+			return next.HandleFinalize(ctx, in)
+		},
+	)
+}
+
+// middleware replica of CrossRequestRetryDelay.AfterRetry()
+func delayAfterRetry(delayer *CrossRequestRetryDelay) middleware.FinalizeMiddleware {
+	return middleware.FinalizeMiddlewareFunc(
+		"k8s/delay-afterretry",
+		func(ctx context.Context, in middleware.FinalizeInput, next middleware.FinalizeHandler) (
+			out middleware.FinalizeOutput, metadata middleware.Metadata, err error,
+		) {
+			finOutput, finMetadata, finErr := next.HandleFinalize(ctx, in)
+			if finErr == nil {
+				return finOutput, finMetadata, finErr
+			}
+
+			var ae smithy.APIError
+			if errors.As(finErr, &ae) && strings.Contains(ae.Error(), "RequestLimitExceeded") {
+				delayer.backoff.ReportError()
+				recordAWSThrottlesMetric(operationNameV2(ctx))
+				klog.Warningf("Got RequestLimitExceeded error on AWS request (%s)",
+					describeRequestV2(ctx))
+			}
+			return finOutput, finMetadata, finErr
+		},
+	)
+}
+
+// Return the operation name, for use in log messages and metrics
+func operationNameV2(ctx context.Context) string {
+	name := "?"
+	if opName := middleware.GetOperationName(ctx); opName != "" {
+		name = opName
+	}
+	return name
+}
+
+// Return a user-friendly string describing the request, for use in log messages.
+// Used by AWS SDK Go V2 clients in place of operationName()
+func describeRequestV2(ctx context.Context) string {
+	service := middleware.GetServiceID(ctx)
+
+	return service + "::" + operationNameV2(ctx)
+}
+
+func sleepWithContext(ctx context.Context, dur time.Duration) error {
+	t := time.NewTimer(dur)
+	defer t.Stop()
+
+	select {
+	case <-t.C:
+		break
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+
+	return nil
 }

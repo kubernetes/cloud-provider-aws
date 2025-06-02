@@ -14,7 +14,7 @@
 ##                               BUILD ARGS                                   ##
 ################################################################################
 # This build arg allows the specification of a custom Golang image.
-ARG GOLANG_IMAGE=golang:1.21.5
+ARG GOLANG_IMAGE=golang:1.24.0
 
 # Datadog's base docker image
 ARG BASE_IMAGE

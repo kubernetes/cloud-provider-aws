@@ -1,26 +1,22 @@
 approvers:
 - dims
-- justinsb
 - nckturner
-- M00nF1sh
-- andrewsykim
-- wongma7
-- olemarkus
-- hakman
-- kishorj
-- cartermckinnon
-reviewers:
-- dims
-- justinsb
-- nckturner
-- M00nF1sh
-- andrewsykim
-- wongma7
 - olemarkus
 - hakman
 - kishorj
 - cartermckinnon
 - mmerkes
+- wongma7
+- kmala
+reviewers:
+- dims
+- nckturner
+- olemarkus
+- hakman
+- kishorj
+- cartermckinnon
+- mmerkes
+- kmala
 emeritus_approvers:
 - zmerlynn
 - gnufied
@@ -32,3 +28,6 @@ emeritus_approvers:
 - leakingtapan
 - ayberk
 - jaypipes
+- M00nF1sh
+- andrewsykim
+- justinsb

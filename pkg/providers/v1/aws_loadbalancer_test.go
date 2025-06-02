@@ -17,6 +17,7 @@ limitations under the License.
 package aws
 
 import (
+	"context"
 	"fmt"
 	"reflect"
 	"testing"
@@ -26,11 +27,13 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 
+	ec2types "github.com/aws/aws-sdk-go-v2/service/ec2/types"
 	"github.com/aws/aws-sdk-go/aws"
-	"github.com/aws/aws-sdk-go/service/ec2"
 	"github.com/aws/aws-sdk-go/service/elb"
 	"github.com/aws/aws-sdk-go/service/elbv2"
 	"github.com/stretchr/testify/assert"
+
+	"k8s.io/cloud-provider-aws/pkg/providers/v1/config"
 )
 
 func TestElbProtocolsAreEqual(t *testing.T) {
@@ -545,11 +548,11 @@ func TestFilterTargetNodes(t *testing.T) {
 	}
 }
 
-func makeNodeInstancePair(offset int) (*v1.Node, *ec2.Instance) {
+func makeNodeInstancePair(offset int) (*v1.Node, *ec2types.Instance) {
 	instanceID := fmt.Sprintf("i-%x", int64(0x03bcc3496da09f78e)+int64(offset))
-	instance := &ec2.Instance{
+	instance := &ec2types.Instance{
 		InstanceId: aws.String(instanceID),
-		Placement: &ec2.Placement{
+		Placement: &ec2types.Placement{
 			AvailabilityZone: aws.String("us-east-1b"),
 		},
 		PrivateDnsName:   aws.String(fmt.Sprintf("ip-192-168-32-%d.ec2.internal", 101+offset)),
@@ -557,10 +560,10 @@ func makeNodeInstancePair(offset int) (*v1.Node, *ec2.Instance) {
 		PublicIpAddress:  aws.String(fmt.Sprintf("1.2.3.%d", 1+offset)),
 	}
 
-	var tag ec2.Tag
+	var tag ec2types.Tag
 	tag.Key = aws.String(fmt.Sprintf("%s%s", TagNameKubernetesClusterPrefix, TestClusterID))
 	tag.Value = aws.String("owned")
-	instance.Tags = []*ec2.Tag{&tag}
+	instance.Tags = []ec2types.Tag{tag}
 
 	node := &v1.Node{
 		ObjectMeta: metav1.ObjectMeta{
@@ -584,32 +587,32 @@ func TestCloud_findInstancesForELB(t *testing.T) {
 	}
 	newNode, newInstance := makeNodeInstancePair(1)
 	awsServices := NewFakeAWSServices(TestClusterID)
-	c, err := newAWSCloud(CloudConfig{}, awsServices)
+	c, err := newAWSCloud(config.CloudConfig{}, awsServices)
 	if err != nil {
 		t.Errorf("Error building aws cloud: %v", err)
 		return
 	}
 
-	want := map[InstanceID]*ec2.Instance{
+	want := map[InstanceID]*ec2types.Instance{
 		"i-self": awsServices.selfInstance,
 	}
-	got, err := c.findInstancesForELB([]*v1.Node{defaultNode}, nil)
+	got, err := c.findInstancesForELB(context.TODO(), []*v1.Node{defaultNode}, nil)
 	assert.NoError(t, err)
 	assert.True(t, reflect.DeepEqual(want, got))
 
 	// Add a new EC2 instance
 	awsServices.instances = append(awsServices.instances, newInstance)
-	want = map[InstanceID]*ec2.Instance{
+	want = map[InstanceID]*ec2types.Instance{
 		"i-self": awsServices.selfInstance,
 		InstanceID(aws.StringValue(newInstance.InstanceId)): newInstance,
 	}
-	got, err = c.findInstancesForELB([]*v1.Node{defaultNode, newNode}, nil)
+	got, err = c.findInstancesForELB(context.TODO(), []*v1.Node{defaultNode, newNode}, nil)
 	assert.NoError(t, err)
 	assert.True(t, reflect.DeepEqual(want, got))
 
 	// Verify existing instance cache gets used
 	cacheExpiryOld := c.instanceCache.snapshot.timestamp
-	got, err = c.findInstancesForELB([]*v1.Node{defaultNode, newNode}, nil)
+	got, err = c.findInstancesForELB(context.TODO(), []*v1.Node{defaultNode, newNode}, nil)
 	assert.NoError(t, err)
 	assert.True(t, reflect.DeepEqual(want, got))
 	cacheExpiryNew := c.instanceCache.snapshot.timestamp
@@ -618,7 +621,7 @@ func TestCloud_findInstancesForELB(t *testing.T) {
 	// Force cache expiry and verify cache gets updated with new timestamp
 	cacheExpiryOld = c.instanceCache.snapshot.timestamp
 	c.instanceCache.snapshot.timestamp = c.instanceCache.snapshot.timestamp.Add(-(defaultEC2InstanceCacheMaxAge + 1*time.Second))
-	got, err = c.findInstancesForELB([]*v1.Node{defaultNode, newNode}, nil)
+	got, err = c.findInstancesForELB(context.TODO(), []*v1.Node{defaultNode, newNode}, nil)
 	assert.NoError(t, err)
 	assert.True(t, reflect.DeepEqual(want, got))
 	cacheExpiryNew = c.instanceCache.snapshot.timestamp
