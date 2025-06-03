@@ -44,6 +44,8 @@ var _ = gingko.Describe("[cloud-provider-aws-e2e] ecr", func() {
 								Drop: []v1.Capability{"ALL"},
 							},
 							RunAsNonRoot: &[]bool{true}[0],
+							RunAsUser:    &[]int64{1000}[0],
+							RunAsGroup:   &[]int64{1000}[0],
 							SeccompProfile: &v1.SeccompProfile{
 								Type: v1.SeccompProfileTypeRuntimeDefault,
 							},
