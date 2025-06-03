@@ -38,6 +38,16 @@ var _ = gingko.Describe("[cloud-provider-aws-e2e] ecr", func() {
 			Spec: v1.PodSpec{
 				Containers: []v1.Container{
 					{
+						SecurityContext: &v1.SecurityContext{
+							AllowPrivilegeEscalation: &[]bool{false}[0],
+							Capabilities: &v1.Capabilities{
+								Drop: []v1.Capability{"ALL"},
+							},
+							RunAsNonRoot: &[]bool{true}[0],
+							SeccompProfile: &v1.SeccompProfile{
+								Type: v1.SeccompProfileTypeRuntimeDefault,
+							},
+						},
 						Name:  "test",
 						Image: "public.ecr.aws/nginx/nginx:latest",
 					},
