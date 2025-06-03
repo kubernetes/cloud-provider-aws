@@ -30,8 +30,9 @@ var _ = gingko.Describe("[cloud-provider-aws-e2e] ecr", func() {
 	f := framework.NewDefaultFramework("cloud-provider-aws")
 
 	gingko.It("should start pod using public ecr image", func(ctx context.Context) {
+		gingko.By("creating a pod")
 		podclient := e2epod.NewPodClient(f)
-		pod := podclient.Create(&v1.Pod{
+		podclient.CreateSync(&v1.Pod{
 			ObjectMeta: metav1.ObjectMeta{
 				Name: "ecr-test-pod",
 			},
@@ -56,12 +57,5 @@ var _ = gingko.Describe("[cloud-provider-aws-e2e] ecr", func() {
 				},
 			},
 		})
-
-		event, err := podclient.WaitForErrorEventOrSuccess(pod)
-		framework.ExpectNoError(err)
-
-		if event != nil {
-			framework.Failf("got error event: %v", event)
-		}
 	})
 })
