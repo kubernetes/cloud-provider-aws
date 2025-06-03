@@ -21,6 +21,7 @@ import (
 
 	gingko "github.com/onsi/ginkgo/v2"
 	v1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/kubernetes/test/e2e/framework"
 	e2epod "k8s.io/kubernetes/test/e2e/framework/pod"
 )
@@ -31,6 +32,9 @@ var _ = gingko.Describe("[cloud-provider-aws-e2e] ecr", func() {
 	gingko.It("should start pod using public ecr image", func(ctx context.Context) {
 		podclient := e2epod.NewPodClient(f)
 		pod := podclient.Create(&v1.Pod{
+			ObjectMeta: metav1.ObjectMeta{
+				Name: "ecr-test-pod",
+			},
 			Spec: v1.PodSpec{
 				Containers: []v1.Container{
 					{

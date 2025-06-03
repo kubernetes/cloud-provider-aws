@@ -299,7 +299,7 @@ func Test_GetCredentials_PrivateForServiceAccount(t *testing.T) {
 	}
 }
 
-func generatePublicGetAuthorizationTokenOutput(user string, password string, proxy string, expiration *time.Time) *ecrpublic.GetAuthorizationTokenOutput {
+func generatePublicGetAuthorizationTokenOutput(user string, password string, expiration *time.Time) *ecrpublic.GetAuthorizationTokenOutput {
 	creds := []byte(fmt.Sprintf("%s:%s", user, password))
 	data := &publictypes.AuthorizationData{
 		AuthorizationToken: aws.String(base64.StdEncoding.EncodeToString(creds)),
@@ -324,7 +324,7 @@ func Test_GetCredentials_Public(t *testing.T) {
 		{
 			name:                        "success",
 			image:                       "public.ecr.aws",
-			getAuthorizationTokenOutput: generatePublicGetAuthorizationTokenOutput("user", "pass", "", nil),
+			getAuthorizationTokenOutput: generatePublicGetAuthorizationTokenOutput("user", "pass", nil),
 			response:                    generateResponse("public.ecr.aws", "user", "pass"),
 		},
 		{

@@ -55,7 +55,7 @@ type ECRPublic interface {
 	GetAuthorizationToken(ctx context.Context, params *ecrpublic.GetAuthorizationTokenInput, optFns ...func(*ecrpublic.Options)) (*ecrpublic.GetAuthorizationTokenOutput, error)
 }
 
-// For abstracting in tests.
+// STS abstracts the calls we make to aws-sdk for testing purposes
 type STS interface {
 	AssumeRoleWithWebIdentity(context.Context, *sts.AssumeRoleWithWebIdentityInput, ...func(*sts.Options)) (*sts.AssumeRoleWithWebIdentityOutput, error)
 }
