@@ -52,7 +52,7 @@ var _ = gingko.Describe("[cloud-provider-aws-e2e] ecr", func() {
 							},
 						},
 						Name:  "test",
-						Image: "public.ecr.aws/eks-distro/kubernetes/pause:latest",
+						Image: "public.ecr.aws/nginx/nginx-unprivileged:latest",
 					},
 				},
 			},
