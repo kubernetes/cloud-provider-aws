@@ -121,7 +121,7 @@ type credsData struct {
 	expiresAt *time.Time
 }
 
-func (e *ecrPlugin) getPublicCredsData(ctx context.Context) (*credsData, error) {
+func (e *ecrPlugin) getPublicCredsData(ctx context.Context, optFns ...func(*ecrpublic.Options)) (*credsData, error) {
 	klog.Infof("Getting creds for public registry")
 	var err error
 
@@ -132,7 +132,7 @@ func (e *ecrPlugin) getPublicCredsData(ctx context.Context) (*credsData, error) 
 		return nil, err
 	}
 
-	output, err := e.ecrPublic.GetAuthorizationToken(ctx, &ecrpublic.GetAuthorizationTokenInput{})
+	output, err := e.ecrPublic.GetAuthorizationToken(ctx, &ecrpublic.GetAuthorizationTokenInput{}, optFns...)
 	if err != nil {
 		return nil, err
 	}
@@ -151,7 +151,7 @@ func (e *ecrPlugin) getPublicCredsData(ctx context.Context) (*credsData, error) 
 	}, nil
 }
 
-func (e *ecrPlugin) getPrivateCredsData(ctx context.Context, imageHost string, image string, optFn func(*ecr.Options)) (*credsData, error) {
+func (e *ecrPlugin) getPrivateCredsData(ctx context.Context, imageHost string, image string, optFns ...func(*ecr.Options)) (*credsData, error) {
 	klog.Infof("Getting creds for private image %s", image)
 	var err error
 
@@ -162,7 +162,8 @@ func (e *ecrPlugin) getPrivateCredsData(ctx context.Context, imageHost string, i
 			return nil, err
 		}
 	}
-	output, err := e.ecr.GetAuthorizationToken(ctx, &ecr.GetAuthorizationTokenInput{}, optFn)
+
+	output, err := e.ecr.GetAuthorizationToken(ctx, &ecr.GetAuthorizationTokenInput{}, optFns...)
 	if err != nil {
 		return nil, err
 	}
@@ -178,6 +179,46 @@ func (e *ecrPlugin) getPrivateCredsData(ctx context.Context, imageHost string, i
 	}, nil
 }
 
+func (e *ecrPlugin) buildCredentialsProvider(ctx context.Context, request *v1.CredentialProviderRequest, imageHost string) (aws.CredentialsProvider, error) {
+	var err error
+
+	arn, ok := request.ServiceAccountAnnotations["eks.amazonaws.com/ecr-role-arn"]
+	if !ok {
+		arn = os.Getenv("AWS_ECR_ROLE_ARN")
+	}
+	if arn == "" {
+		return nil, errors.New("no arn provided, cannot assume role using ServiceAccountToken")
+	}
+
+	if e.sts == nil {
+		region := ""
+		if imageHost != ecrPublicHost {
+			region = parseRegionFromECRPrivateHost(imageHost)
+		}
+		e.sts, err = stsProvider(ctx, region)
+	}
+	if err != nil {
+		return nil, err
+	}
+
+	return aws.CredentialsProviderFunc(func(ctx context.Context) (aws.Credentials, error) {
+			assumeOutput, err := e.sts.AssumeRoleWithWebIdentity(ctx, &sts.AssumeRoleWithWebIdentityInput{
+				RoleArn:          aws.String(arn),
+				RoleSessionName:  aws.String("ecr-credential-provider"),
+				WebIdentityToken: aws.String(request.ServiceAccountToken),
+			})
+			if err != nil {
+				return aws.Credentials{}, fmt.Errorf("failed to assume role: %w", err)
+			}
+			return aws.Credentials{
+				AccessKeyID:     *assumeOutput.Credentials.AccessKeyId,
+				SecretAccessKey: *assumeOutput.Credentials.SecretAccessKey,
+				SessionToken:    *assumeOutput.Credentials.SessionToken,
+			}, nil
+		}),
+		nil
+}
+
 func (e *ecrPlugin) GetCredentials(ctx context.Context, request *v1.CredentialProviderRequest, args []string) (*v1.CredentialProviderResponse, error) {
 	var creds *credsData
 	var err error
@@ -191,53 +232,30 @@ func (e *ecrPlugin) GetCredentials(ctx context.Context, request *v1.CredentialPr
 		return nil, err
 	}
 
+	var credentialsProvider aws.CredentialsProvider = nil
+	if request.ServiceAccountToken != "" {
+		credentialsProvider, err = e.buildCredentialsProvider(ctx, request, imageHost)
+		if err != nil {
+			return nil, err
+		}
+	}
+
 	if imageHost == ecrPublicHost {
-		if request.ServiceAccountToken != "" {
-			klog.Warningf("Ignoring provided service account token for public ECR")
-		}
-		creds, err = e.getPublicCredsData(ctx)
-	} else {
-		var credentialProvider aws.CredentialsProvider = nil
-		if request.ServiceAccountToken != "" {
-			if e.sts == nil {
-				region := parseRegionFromECRPrivateHost(imageHost)
-				e.sts, err = stsProvider(ctx, region)
-			}
-			if err != nil {
-				return nil, err
-			}
-
-			arn, ok := request.ServiceAccountAnnotations["eks.amazonaws.com/ecr-role-arn"]
-			if !ok {
-				arn = os.Getenv("AWS_ECR_ROLE_ARN")
-			}
-			if arn == "" {
-				return nil, errors.New("no arn provided, cannot assume role using ServiceAccountToken")
-			}
-
-			credentialProvider = aws.CredentialsProviderFunc(func(ctx context.Context) (aws.Credentials, error) {
-				assumeOutput, err := e.sts.AssumeRoleWithWebIdentity(ctx, &sts.AssumeRoleWithWebIdentityInput{
-					RoleArn:          aws.String(arn),
-					RoleSessionName:  aws.String("ecr-credential-provider"),
-					WebIdentityToken: aws.String(request.ServiceAccountToken),
-				})
-				if err != nil {
-					return aws.Credentials{}, fmt.Errorf("failed to assume role: %w", err)
-				}
-				return aws.Credentials{
-					AccessKeyID:     *assumeOutput.Credentials.AccessKeyId,
-					SecretAccessKey: *assumeOutput.Credentials.SecretAccessKey,
-					SessionToken:    *assumeOutput.Credentials.SessionToken,
-				}, nil
+		var optFns = []func(*ecrpublic.Options){}
+		if credentialsProvider != nil {
+			optFns = append(optFns, func(o *ecrpublic.Options) {
+				o.Credentials = credentialsProvider
 			})
-
 		}
-
-		creds, err = e.getPrivateCredsData(ctx, imageHost, request.Image, func(options *ecr.Options) {
-			if credentialProvider != nil {
-				options.Credentials = credentialProvider
-			}
-		})
+		creds, err = e.getPublicCredsData(ctx, optFns...)
+	} else {
+		var optFns = []func(*ecr.Options){}
+		if credentialsProvider != nil {
+			optFns = append(optFns, func(o *ecr.Options) {
+				o.Credentials = credentialsProvider
+			})
+		}
+		creds, err = e.getPrivateCredsData(ctx, imageHost, request.Image, optFns...)
 	}
 
 	if err != nil {
