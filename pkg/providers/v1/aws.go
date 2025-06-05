@@ -1132,12 +1132,15 @@ func (c *Cloud) describeLoadBalancer(name string) (*elbtypes.LoadBalancerDescrip
 	request.LoadBalancerNames = []string{name}
 
 	response, err := c.elb.DescribeLoadBalancers(context.Background(), request)
+
 	if err != nil {
-		if awsError, ok := err.(awserr.Error); ok {
-			if awsError.Code() == "LoadBalancerNotFound" {
+		var ae smithy.APIError
+		if errors.As(err, &ae) {
+			if ae.ErrorCode() == "LoadBalancerNotFound" {
 				return nil, nil
 			}
 		}
+
 		return nil, err
 	}
 
@@ -3034,12 +3037,14 @@ func (c *Cloud) EnsureLoadBalancerDeleted(ctx context.Context, clusterName strin
 					delete(securityGroupIDs, securityGroupID)
 				} else {
 					ignore := false
-					if awsError, ok := err.(awserr.Error); ok {
-						if awsError.Code() == "DependencyViolation" {
+					var ae smithy.APIError
+					if errors.As(err, &ae) {
+						if ae.ErrorCode() == "DependencyViolation" {
 							klog.V(2).Infof("Ignoring DependencyViolation while deleting load-balancer security group (%s), assuming because LB is in process of deleting", securityGroupID)
 							ignore = true
 						}
 					}
+
 					if !ignore {
 						return fmt.Errorf("error while deleting load balancer security group (%s): %q", securityGroupID, err)
 					}
