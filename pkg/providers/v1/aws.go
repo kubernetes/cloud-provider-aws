@@ -3020,7 +3020,7 @@ func (c *Cloud) EnsureLoadBalancerDeleted(ctx context.Context, clusterName strin
 		request := &elb.DeleteLoadBalancerInput{}
 		request.LoadBalancerName = lb.LoadBalancerName
 
-		_, err = c.elb.DeleteLoadBalancer(context.Background(), request)
+		_, err = c.elb.DeleteLoadBalancer(ctx, request)
 		if err != nil {
 			// TODO: Check if error was because load balancer was concurrently deleted
 			klog.Errorf("Error deleting load balancer: %q", err)
@@ -3048,7 +3048,6 @@ func (c *Cloud) EnsureLoadBalancerDeleted(ctx context.Context, clusterName strin
 							ignore = true
 						}
 					}
-
 					if !ignore {
 						return fmt.Errorf("error while deleting load balancer security group (%s): %q", securityGroupID, err)
 					}
