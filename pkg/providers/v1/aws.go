@@ -239,6 +239,7 @@ const ServiceAnnotationLoadBalancerSubnets = "service.beta.kubernetes.io/aws-loa
 
 const headerSourceArn = "x-amz-source-arn"
 const headerSourceAccount = "x-amz-source-account"
+const securityGroupPrefix = "k8s-elb-"
 
 const (
 	// createTag* is configuration of exponential backoff for CreateTag call. We
@@ -1532,6 +1533,14 @@ func (c *Cloud) ensureSecurityGroup(ctx context.Context, name string, descriptio
 		createRequest.GroupName = &name
 		createRequest.Description = &description
 		tags := c.tagging.buildTags(ResourceLifecycleOwned, additionalTags)
+		if _, ok := tags["Name"]; !ok {
+			tags["Name"] = name
+		}
+		// Create a tag to prevent Security Group leak on Service deletion when NLBSecurityGroupMode was changed from managed.
+		// Question: is there a standard tag or alternative of this approach?
+		if c.cfg.Global.NLBSecurityGroupMode == config.NLBSecurityGroupModeManaged {
+			tags[config.TagKeyNLBSecurityGroupMode] = c.cfg.Global.NLBSecurityGroupMode
+		}
 		var awsTags []ec2types.Tag
 		for k, v := range tags {
 			tag := ec2types.Tag{
@@ -1899,6 +1908,20 @@ func getSGListFromAnnotation(annotatedSG string) []string {
 	return sgList
 }
 
+// createSecurityGroup creates security group on AWS returning it's ID.
+func (c *Cloud) createSecurityGroup(ctx context.Context, sgName string, sgDescription string, additionalTags map[string]string) (string, error) {
+	if len(sgName) == 0 {
+		return "", fmt.Errorf("security group Name cannot be empty")
+	}
+	klog.V(4).Infof("Creating load balancer security group: %s", sgName)
+	securityGroupID, err := c.ensureSecurityGroup(ctx, sgName, sgDescription, additionalTags)
+	if err != nil {
+		klog.Errorf("Error creating load balancer security group: %q", err)
+		return "", err
+	}
+	return securityGroupID, nil
+}
+
 // buildELBSecurityGroupList returns list of SecurityGroups which should be
 // attached to ELB created by a service. List always consist of at least
 // 1 member which is an SG created for this service or a SG from the Global config.
@@ -1906,8 +1929,6 @@ func getSGListFromAnnotation(annotatedSG string) []string {
 // new groups. The annotation "ServiceAnnotationLoadBalancerSecurityGroups" allows for
 // setting the security groups specified.
 func (c *Cloud) buildELBSecurityGroupList(ctx context.Context, serviceName types.NamespacedName, loadBalancerName string, annotations map[string]string) ([]string, bool, error) {
-	var err error
-	var securityGroupID string
 	// We do not want to make changes to a Global defined SG
 	var setupSg = false
 
@@ -1919,9 +1940,9 @@ func (c *Cloud) buildELBSecurityGroupList(ctx context.Context, serviceName types
 			sgList = append(sgList, c.cfg.Global.ElbSecurityGroup)
 		} else {
 			// Create a security group for the load balancer
-			sgName := "k8s-elb-" + loadBalancerName
+			sgName := securityGroupPrefix + loadBalancerName
 			sgDescription := fmt.Sprintf("Security group for Kubernetes ELB %s (%v)", loadBalancerName, serviceName)
-			securityGroupID, err = c.ensureSecurityGroup(ctx, sgName, sgDescription, getKeyValuePropertiesFromAnnotation(annotations, ServiceAnnotationLoadBalancerAdditionalTags))
+			securityGroupID, err := c.createSecurityGroup(ctx, sgName, sgDescription, getKeyValuePropertiesFromAnnotation(annotations, ServiceAnnotationLoadBalancerAdditionalTags))
 			if err != nil {
 				klog.Errorf("Error creating load balancer security group: %q", err)
 				return nil, setupSg, err
@@ -1935,6 +1956,36 @@ func (c *Cloud) buildELBSecurityGroupList(ctx context.Context, serviceName types
 	sgList = append(sgList, extraSGList...)
 
 	return sgList, setupSg, nil
+}
+
+// createSecurityGroupRules appends required rules from a given set of rules to create the security group.
+//
+// Parameters:
+//   - sgID: The ID of the security group to configure.
+//   - rules: An existing permission set of rules to be added to the security group.
+//   - ec2SourceRanges: A slice of *ec2.IpRange objects specifying the source IP ranges for the rules.
+//
+// Returns:
+//   - error: An error if any issue occurs while creating or applying the security group rules.
+func (c *Cloud) createSecurityGroupRules(ctx context.Context, sgID string, rules IPPermissionSet, ec2SourceRanges []ec2types.IpRange) error {
+	if len(sgID) == 0 {
+		return fmt.Errorf("security group ID cannot be empty")
+	}
+	// Allow ICMP fragmentation packets, important for MTU discovery
+	permission := ec2types.IpPermission{
+		IpProtocol: aws.String("icmp"),
+		FromPort:   aws.Int32(3),
+		ToPort:     aws.Int32(4),
+		IpRanges:   ec2SourceRanges,
+	}
+	rules.Insert(permission)
+
+	// Setup ingress rules
+	if _, err := c.setSecurityGroupIngress(ctx, sgID, rules); err != nil {
+		return fmt.Errorf("creating ingress rules for security group %q: %w", sgID, err)
+	}
+
+	return nil
 }
 
 // sortELBSecurityGroupList returns a list of sorted securityGroupIDs based on the original order
@@ -2144,8 +2195,14 @@ func (c *Cloud) EnsureLoadBalancer(ctx context.Context, clusterName string, apiS
 	if isLBExternal(annotations) {
 		return nil, cloudprovider.ImplementedElsewhere
 	}
-	klog.V(2).Infof("EnsureLoadBalancer(%v, %v, %v, %v, %v, %v, %v)",
-		clusterName, apiService.Namespace, apiService.Name, c.region, apiService.Spec.LoadBalancerIP, apiService.Spec.Ports, annotations)
+	klog.V(2).Infof("EnsureLoadBalancer(%s=%v, %s=%v, %s=%v/%v, %s=%v, %s=%v, %s=%v, %s=%v)",
+		"region", c.region,
+		"cluster", clusterName,
+		"service", apiService.Namespace, apiService.Name,
+		"IP", apiService.Spec.LoadBalancerIP,
+		"ports", apiService.Spec.Ports,
+		"annotations", annotations,
+		"ConfigNLBSecurityGroupMode", c.cfg.Global.NLBSecurityGroupMode)
 
 	if apiService.Spec.SessionAffinity != v1.ServiceAffinityNone {
 		// ELB supports sticky sessions, but only when configured for HTTP/HTTPS
@@ -2161,6 +2218,16 @@ func (c *Cloud) EnsureLoadBalancer(ctx context.Context, clusterName string, apiS
 	// Figure out what mappings we want on the load balancer
 	listeners := []elbtypes.Listener{}
 	v2Mappings := []nlbPortMapping{}
+
+	// Get source ranges to build permission list
+	sourceRanges, err := servicehelpers.GetLoadBalancerSourceRanges(apiService)
+	if err != nil {
+		return nil, err
+	}
+	ec2SourceRanges := []ec2types.IpRange{}
+	for _, srcRange := range sourceRanges.StringSlice() {
+		ec2SourceRanges = append(ec2SourceRanges, ec2types.IpRange{CidrIp: aws.String(srcRange)})
+	}
 
 	sslPorts := getPortSets(annotations[ServiceAnnotationLoadBalancerSSLPorts])
 	for _, port := range apiService.Spec.Ports {
@@ -2215,11 +2282,6 @@ func (c *Cloud) EnsureLoadBalancer(ctx context.Context, clusterName string, apiS
 		return nil, err
 	}
 
-	sourceRanges, err := servicehelpers.GetLoadBalancerSourceRanges(apiService)
-	if err != nil {
-		return nil, err
-	}
-
 	// Determine if this is tagged as an Internal ELB
 	internalELB := false
 	internalAnnotation := apiService.Annotations[ServiceAnnotationLoadBalancerInternal]
@@ -2249,6 +2311,38 @@ func (c *Cloud) EnsureLoadBalancer(ctx context.Context, clusterName string, apiS
 			instanceIDs = append(instanceIDs, string(id))
 		}
 
+		// Create NLB with security group support when the configuration is added.
+		securityGroups := []*string{}
+		if c.cfg.Global.NLBSecurityGroupMode == config.NLBSecurityGroupModeManaged {
+			sgName := securityGroupPrefix + loadBalancerName
+
+			klog.V(4).Infof("Creating load balancer security group: %s", sgName)
+			securityGroupID, err := c.createSecurityGroup(
+				ctx, sgName,
+				fmt.Sprintf("Security group for Kubernetes NLB %s (%v)", loadBalancerName, serviceName),
+				getKeyValuePropertiesFromAnnotation(annotations, ServiceAnnotationLoadBalancerAdditionalTags),
+			)
+			if err != nil {
+				return nil, fmt.Errorf("unable to create security group for NLB: %w", err)
+			}
+			securityGroups = append(securityGroups, aws.String(securityGroupID))
+
+			// Create frontend ingress rules based in the LoadBalancer listeners.
+			ingressRules := NewIPPermissionSet()
+			for _, mapping := range v2Mappings {
+				// create ingress permissions: iteract over Load Balancer Listener mappings to create ingress rules
+				ingressRules.Insert(ec2types.IpPermission{
+					FromPort:   aws.Int32(int32(mapping.FrontendPort)),
+					ToPort:     aws.Int32(int32(mapping.FrontendPort)),
+					IpProtocol: aws.String(strings.ToLower(string((mapping.FrontendProtocol)))),
+					IpRanges:   ec2SourceRanges,
+				})
+			}
+			if err := c.createSecurityGroupRules(ctx, securityGroupID, ingressRules, ec2SourceRanges); err != nil {
+				return nil, fmt.Errorf("error while updating rules to security group %q: %w", securityGroupID, err)
+			}
+		}
+
 		v2LoadBalancer, err := c.ensureLoadBalancerv2(ctx,
 			serviceName,
 			loadBalancerName,
@@ -2257,6 +2351,7 @@ func (c *Cloud) EnsureLoadBalancer(ctx context.Context, clusterName string, apiS
 			discoveredSubnetIDs,
 			internalELB,
 			annotations,
+			securityGroups,
 		)
 		if err != nil {
 			return nil, err
@@ -2429,11 +2524,6 @@ func (c *Cloud) EnsureLoadBalancer(ctx context.Context, clusterName string, apiS
 	}
 
 	if setupSg {
-		ec2SourceRanges := []ec2types.IpRange{}
-		for _, sourceRange := range sourceRanges.StringSlice() {
-			ec2SourceRanges = append(ec2SourceRanges, ec2types.IpRange{CidrIp: aws.String(sourceRange)})
-		}
-
 		permissions := NewIPPermissionSet()
 		for _, port := range apiService.Spec.Ports {
 			protocol := strings.ToLower(string(port.Protocol))
@@ -2447,19 +2537,7 @@ func (c *Cloud) EnsureLoadBalancer(ctx context.Context, clusterName string, apiS
 			permissions.Insert(permission)
 		}
 
-		// Allow ICMP fragmentation packets, important for MTU discovery
-		{
-			permission := ec2types.IpPermission{
-				IpProtocol: aws.String("icmp"),
-				FromPort:   aws.Int32(3),
-				ToPort:     aws.Int32(4),
-				IpRanges:   ec2SourceRanges,
-			}
-
-			permissions.Insert(permission)
-		}
-		_, err = c.setSecurityGroupIngress(ctx, securityGroupIDs[0], permissions)
-		if err != nil {
+		if err = c.createSecurityGroupRules(ctx, securityGroupIDs[0], permissions, ec2SourceRanges); err != nil {
 			return nil, err
 		}
 	}
@@ -2959,6 +3037,25 @@ func (c *Cloud) buildSecurityGroupsToDelete(ctx context.Context, service *v1.Ser
 			taggedLBSecurityGroups[sgID] = struct{}{}
 		}
 
+		// Extra checks for NLB with SGs
+		if isNLB(service.Annotations) {
+			sgCreatedInManagedMode := false
+			for _, tag := range sg.Tags {
+				if aws.StringValue(tag.Key) == config.TagKeyNLBSecurityGroupMode && aws.StringValue(tag.Value) == config.NLBSecurityGroupModeManaged {
+					sgCreatedInManagedMode = true
+				}
+			}
+			// Validate if SG has been created in Managed mode.
+			if c.cfg.Global.NLBSecurityGroupMode != config.NLBSecurityGroupModeManaged {
+				// Do we need to always check it or only when current mode is not managed?
+				if !sgCreatedInManagedMode {
+					klog.V(3).Infof("Skipping security group %q delettion as not managed by CCM", aws.StringValue(sg.GroupId))
+					continue
+				}
+				klog.V(3).Infof("Deleting managed security group %q in NLBSecurityGroupMode %q", aws.StringValue(sg.GroupId), c.cfg.Global.NLBSecurityGroupMode)
+			}
+		}
+
 		// This is an extra protection of deletion of non provisioned Security Group which is annotated with `service.beta.kubernetes.io/aws-load-balancer-security-groups`.
 		if _, ok := annotatedSgSet[sgID]; ok {
 			klog.Warningf("Ignoring security group with annotation `service.beta.kubernetes.io/aws-load-balancer-security-groups` or service.beta.kubernetes.io/aws-load-balancer-extra-security-groups in %s", service.Name)
@@ -2977,6 +3074,8 @@ func (c *Cloud) EnsureLoadBalancerDeleted(ctx context.Context, clusterName strin
 		return nil
 	}
 	loadBalancerName := c.GetLoadBalancerName(ctx, clusterName, service)
+	securityGroupIDs := map[string]struct{}{}
+	taggedLBSecurityGroups := map[string]struct{}{}
 
 	if isNLB(service.Annotations) {
 		lb, err := c.describeLoadBalancerv2(ctx, loadBalancerName)
@@ -2998,13 +3097,20 @@ func (c *Cloud) EnsureLoadBalancerDeleted(ctx context.Context, clusterName strin
 		// * Delete Load Balancer
 		// * Delete target groups
 		// * Clean up SecurityGroupRules
+		// * Clean up Security Groups
+		var securityGroupIDs map[string]struct{}
 		{
-
 			targetGroups, err := c.elbv2.DescribeTargetGroups(ctx,
 				&elbv2.DescribeTargetGroupsInput{LoadBalancerArn: lb.LoadBalancerArn},
 			)
 			if err != nil {
 				return fmt.Errorf("error listing target groups before deleting load balancer: %q", err)
+			}
+
+			if len(lb.SecurityGroups) > 0 {
+				if securityGroupIDs, _, err = c.buildSecurityGroupsToDelete(ctx, service, aws.StringValueSlice(lb.SecurityGroups)); err != nil {
+					return fmt.Errorf("unable to build security group list: %q", err)
+				}
 			}
 
 			_, err = c.elbv2.DeleteLoadBalancer(ctx,
@@ -3024,7 +3130,11 @@ func (c *Cloud) EnsureLoadBalancerDeleted(ctx context.Context, clusterName strin
 			}
 		}
 
-		return c.updateInstanceSecurityGroupsForNLB(ctx, loadBalancerName, nil, nil, nil, nil)
+		if err = c.updateInstanceSecurityGroupsForNLB(ctx, loadBalancerName, nil, nil, nil, nil); err != nil {
+			return fmt.Errorf("error deleting instance security group rules: %w", err)
+		}
+
+		return c.deleteSecurityGroupsWithBackoff(ctx, service.Name, securityGroupIDs)
 	}
 
 	lb, err := c.describeLoadBalancer(ctx, loadBalancerName)
