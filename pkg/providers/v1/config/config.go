@@ -25,6 +25,12 @@ const (
 
 	// ClusterServiceLoadBalancerHealthProbeModeServiceNodePort is the service node port health probe mode for cluster service load balancer.
 	ClusterServiceLoadBalancerHealthProbeModeServiceNodePort = "ServiceNodePort"
+
+	// NLBSecurityGroupModeManaged indicates the controller should automatically create and manage
+	// security groups for Network Load Balancer (NLB) services. When this mode is enabled,
+	// the controller creates a dedicated security group for each NLB service and configures
+	// ingress rules based on the service's port mappings and source ranges.
+	NLBSecurityGroupModeManaged = "Managed"
 )
 
 // CloudConfig wraps the settings for the AWS cloud provider.
@@ -99,6 +105,10 @@ type CloudConfig struct {
 		//
 		// WARNING: Updating the default behavior and corresponding unit tests would be a much safer option.
 		SupportedTopologyInstanceTypePattern string `json:"supportedTopologyInstanceTypePattern,omitempty" yaml:"supportedTopologyInstanceTypePattern,omitempty"`
+
+		// NLBSecurityGroupMode determines if the controller manages, creates, and attaches the security group when a service of type LoadBalancer (NLB) is created.
+		// Supported value is `Managed`.
+		NLBSecurityGroupMode string `json:"nlbSecurityGroupMode,omitempty" yaml:"nlbSecurityGroupMode,omitempty"`
 	}
 	// [ServiceOverride "1"]
 	//  Service = s3
@@ -207,6 +217,22 @@ func (cfg *CloudConfig) GetCustomEC2Resolver() ec2.EndpointResolverV2 {
 		Resolver: ec2.NewDefaultEndpointResolverV2(),
 		Cfg:      cfg,
 	}
+}
+
+// IsNLBSecurityGroupModeManaged checks if the NLBSecurityGroupMode is set to "Managed",
+// returning an error if the mode is invalid.
+//
+// Returns:
+//   - bool: true if the mode is "Managed", otherwise false
+//   - error: nil if the mode is "Managed" or empty, otherwise an error is returned
+func (cfg *CloudConfig) IsNLBSecurityGroupModeManaged() (bool, error) {
+	if len(cfg.Global.NLBSecurityGroupMode) == 0 {
+		return false, nil
+	}
+	if cfg.Global.NLBSecurityGroupMode == NLBSecurityGroupModeManaged {
+		return true, nil
+	}
+	return false, fmt.Errorf("invalid NLB security group mode: %q. Expected: %q", cfg.Global.NLBSecurityGroupMode, NLBSecurityGroupModeManaged)
 }
 
 // EC2Resolver overrides the endpoint for an AWS SDK Go V2 EC2 Client,
