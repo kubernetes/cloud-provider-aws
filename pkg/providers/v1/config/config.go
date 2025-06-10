@@ -25,6 +25,15 @@ const (
 
 	// ClusterServiceLoadBalancerHealthProbeModeServiceNodePort is the service node port health probe mode for cluster service load balancer.
 	ClusterServiceLoadBalancerHealthProbeModeServiceNodePort = "ServiceNodePort"
+
+	// NLBSecurityGroupModeManaged indicates the controller should automatically create and manage
+	// security groups for Network Load Balancer (NLB) services. When this mode is enabled,
+	// the controller creates a dedicated security group for each NLB service and configures
+	// ingress rules based on the service's port mappings and source ranges.
+	NLBSecurityGroupModeManaged = "Managed"
+
+	// TagKeyNLBSecurityGroupMode is the SecurityGroup resource tag indicating which mode it was created.
+	TagKeyNLBSecurityGroupMode = "kubernetes.io/cloud-provider-aws/NLBSecurityGroupMode"
 )
 
 // CloudConfig wraps the settings for the AWS cloud provider.
@@ -99,6 +108,10 @@ type CloudConfig struct {
 		//
 		// WARNING: Updating the default behavior and corresponding unit tests would be a much safer option.
 		SupportedTopologyInstanceTypePattern string `json:"supportedTopologyInstanceTypePattern,omitempty" yaml:"supportedTopologyInstanceTypePattern,omitempty"`
+
+		// NLBSecurityGroupMode determines if the controller manages, creates, and attaches the security group when a service of type LoadBalancer (NLB) is created.
+		// Supported value is `Managed`.
+		NLBSecurityGroupMode string `json:"nlbSecurityGroupMode,omitempty" yaml:"nlbSecurityGroupMode,omitempty"`
 	}
 	// [ServiceOverride "1"]
 	//  Service = s3
@@ -207,6 +220,20 @@ func (cfg *CloudConfig) GetCustomEC2Resolver() ec2.EndpointResolverV2 {
 		Resolver: ec2.NewDefaultEndpointResolverV2(),
 		Cfg:      cfg,
 	}
+}
+
+// IsNLBSecurityGroupModeManaged returns true if the NLBSecurityGroupMode is set to "Managed".
+//
+// This function is used to determine if the AWS cloud provider should automatically
+// create and manage security groups for Network Load Balancers (NLBs). When enabled,
+// the controller will create a dedicated security group for each NLB service and
+// configure ingress rules based on the service's port mappings and source ranges.
+//
+// Returns:
+//   - true: When NLBSecurityGroupMode is exactly "Managed" (case-sensitive)
+//   - false: For any other value including empty string, "disabled", or other modes
+func (cfg *CloudConfig) IsNLBSecurityGroupModeManaged() bool {
+	return cfg.Global.NLBSecurityGroupMode == NLBSecurityGroupModeManaged
 }
 
 // EC2Resolver overrides the endpoint for an AWS SDK Go V2 EC2 Client,
