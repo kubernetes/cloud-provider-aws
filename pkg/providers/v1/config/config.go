@@ -23,6 +23,15 @@ const (
 
 	// ClusterServiceLoadBalancerHealthProbeModeServiceNodePort is the service node port health probe mode for cluster service load balancer.
 	ClusterServiceLoadBalancerHealthProbeModeServiceNodePort = "ServiceNodePort"
+
+	// NLBSecurityGroupModeManaged indicates the controller is managing security groups on service type loadbalancer NLB.
+	NLBSecurityGroupModeManaged = "Managed"
+
+	// NLBSecurityGroupModeUnmanaged indicates the controller is not managing security groups on service type loadbalancer NLB.
+	NLBSecurityGroupModeUnmanaged = "Unmanaged"
+
+	// TagKeyNLBSecurityGroupMode is the SecurityGroup resource tag indicating which mode it was created.
+	TagKeyNLBSecurityGroupMode = "kubernetes.io/cloud-provider-aws/NLBSecurityGroupMode"
 )
 
 // CloudConfig wraps the settings for the AWS cloud provider.
@@ -97,6 +106,10 @@ type CloudConfig struct {
 		//
 		// WARNING: Updating the default behavior and corresponding unit tests would be a much safer option.
 		SupportedTopologyInstanceTypePattern string `json:"supportedTopologyInstanceTypePattern,omitempty" yaml:"supportedTopologyInstanceTypePattern,omitempty"`
+
+		// NLBSecurityGroupMode determines if the controller manage, creates and attaches, the security group when the service type
+		// loadbalancer NLB is created.
+		NLBSecurityGroupMode string `json:"nlbSecurityGroupMode,omitempty" yaml:"nlbSecurityGroupMode,omitempty"`
 	}
 	// [ServiceOverride "1"]
 	//  Service = s3
