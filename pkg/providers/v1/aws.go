@@ -2312,7 +2312,7 @@ func (c *Cloud) EnsureLoadBalancer(ctx context.Context, clusterName string, apiS
 		}
 
 		// Create NLB with security group support when the configuration is added.
-		securityGroups := []*string{}
+		securityGroups := []string{}
 		if c.cfg.Global.NLBSecurityGroupMode == config.NLBSecurityGroupModeManaged {
 			sgName := securityGroupPrefix + loadBalancerName
 
@@ -2325,7 +2325,7 @@ func (c *Cloud) EnsureLoadBalancer(ctx context.Context, clusterName string, apiS
 			if err != nil {
 				return nil, fmt.Errorf("unable to create security group for NLB: %w", err)
 			}
-			securityGroups = append(securityGroups, aws.String(securityGroupID))
+			securityGroups = append(securityGroups, securityGroupID)
 
 			// Create frontend ingress rules based in the LoadBalancer listeners.
 			ingressRules := NewIPPermissionSet()
@@ -3074,6 +3074,10 @@ func (c *Cloud) EnsureLoadBalancerDeleted(ctx context.Context, clusterName strin
 		return nil
 	}
 	loadBalancerName := c.GetLoadBalancerName(ctx, clusterName, service)
+
+	// Collect the security groups to delete.
+	// We need to know this ahead of time so that we can check
+	// if the load balancer security group is being deleted.
 	securityGroupIDs := map[string]struct{}{}
 	taggedLBSecurityGroups := map[string]struct{}{}
 
@@ -3108,7 +3112,7 @@ func (c *Cloud) EnsureLoadBalancerDeleted(ctx context.Context, clusterName strin
 			}
 
 			if len(lb.SecurityGroups) > 0 {
-				if securityGroupIDs, _, err = c.buildSecurityGroupsToDelete(ctx, service, aws.StringValueSlice(lb.SecurityGroups)); err != nil {
+				if securityGroupIDs, _, err = c.buildSecurityGroupsToDelete(ctx, service, lb.SecurityGroups); err != nil {
 					return fmt.Errorf("unable to build security group list: %q", err)
 				}
 			}
@@ -3146,12 +3150,6 @@ func (c *Cloud) EnsureLoadBalancerDeleted(ctx context.Context, clusterName strin
 		klog.Info("Load balancer already deleted: ", loadBalancerName)
 		return nil
 	}
-
-	// Collect the security groups to delete.
-	// We need to know this ahead of time so that we can check
-	// if the load balancer security group is being deleted.
-	securityGroupIDs := map[string]struct{}{}
-	taggedLBSecurityGroups := map[string]struct{}{}
 
 	// Delete the security group(s) for the load balancer
 	// Note that this is annoying: the load balancer disappears from the API immediately, but it is still
