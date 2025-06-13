@@ -44,6 +44,7 @@ import (
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
+	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/client-go/informers"
 	informercorev1 "k8s.io/client-go/informers/core/v1"
 	clientset "k8s.io/client-go/kubernetes"
@@ -2837,6 +2838,139 @@ func (c *Cloud) updateInstanceSecurityGroupsForLoadBalancer(ctx context.Context,
 	return nil
 }
 
+// deleteSecurityGroupsWithBackoff deletes a list of security group IDs with retries and exponential backoff.
+// The function attempts to delete each security group in the provided list, handling potential dependency violations
+// caused by resources still being associated with the security groups (e.g., load balancers in the process of deletion).
+//
+// Parameters:
+// - `ctx`: The context for the operation.
+// - `svcName`: The name of the service associated with the security groups.
+// - `securityGroupIDs`: A map of security group IDs to be deleted.
+//
+// Behavior:
+// - If the list of security group IDs is empty, the function returns immediately.
+// - The function retries deletion for up to 10 minutes, with an initial backoff of 5 seconds that doubles with each retry.
+// - Dependency violations are logged and ignored, allowing retries until the timeout is reached.
+// - If all security groups are successfully deleted, the function exits.
+// - If the timeout is reached and some security groups remain, an error is returned.
+//
+// Returns:
+// - `error`: An error if any security groups could not be deleted within the timeout period.
+func (c *Cloud) deleteSecurityGroupsWithBackoff(ctx context.Context, svcName string, securityGroupIDs map[string]struct{}) error {
+	if len(securityGroupIDs) == 0 {
+		return nil
+	}
+	err := wait.PollUntilContextTimeout(ctx, 5*time.Second, 10*time.Minute, true, func(ctx context.Context) (bool, error) {
+		for securityGroupID := range securityGroupIDs {
+			_, err := c.ec2.DeleteSecurityGroup(ctx, &ec2.DeleteSecurityGroupInput{
+				GroupId: &securityGroupID,
+			})
+			if err == nil {
+				delete(securityGroupIDs, securityGroupID)
+				continue
+			}
+			ignore := false
+			var ae smithy.APIError
+			if errors.As(err, &ae) {
+				if ae.ErrorCode() == "DependencyViolation" {
+					klog.V(2).Infof("Ignoring DependencyViolation while deleting load-balancer security group (%s), assuming because LB is in process of deleting", securityGroupID)
+					ignore = true
+				}
+			}
+			if !ignore {
+				return true, fmt.Errorf("error while deleting load balancer security group (%s): %q", securityGroupID, err)
+			}
+		}
+
+		if len(securityGroupIDs) == 0 {
+			klog.V(2).Info("Deleted all security groups for load balancer: ", svcName)
+			return true, nil
+		}
+
+		klog.V(2).Infof("Waiting for load-balancer %q to delete so we can delete security groups: %v", svcName, securityGroupIDs)
+		return false, nil
+	})
+	if err != nil {
+		ids := []string{}
+		for id := range securityGroupIDs {
+			ids = append(ids, id)
+		}
+		return fmt.Errorf("could not delete security groups %v for Load Balancer %q: %w", strings.Join(ids, ","), svcName, err)
+	}
+	return nil
+}
+
+// buildSecurityGroupsToDelete evaluates all deletion criteria and creates a list of valid security group IDs to be deleted.
+// It returns two maps:
+// - `securityGroupIDs`: A map of security group IDs that are eligible for deletion.
+// - `taggedLBSecurityGroups`: A map of security group IDs that are tagged and associated with the load balancer.
+// The function filters security groups based on the following criteria:
+//   - Excludes security groups defined in the Cloud Configuration.
+//   - Excludes security groups with no cluster tags.
+//   - Excludes security groups annotated with `service.beta.kubernetes.io/aws-load-balancer-security-groups` or
+//     `service.beta.kubernetes.io/aws-load-balancer-extra-security-groups`.
+//
+// Parameters:
+// - `ctx`: The context for the operation.
+// - `service`: The Kubernetes service object.
+// - `lbSecurityGroups`: A list of security group IDs associated with the load balancer.
+// Returns:
+// - `securityGroupIDs`: A map of security group IDs to be deleted.
+// - `taggedLBSecurityGroups`: A map of tagged security group IDs.
+// - `error`: An error if the operation fails.
+func (c *Cloud) buildSecurityGroupsToDelete(ctx context.Context, service *v1.Service, lbSecurityGroups []string) (map[string]struct{}, map[string]struct{}, error) {
+	securityGroupIDs := map[string]struct{}{}
+	taggedLBSecurityGroups := map[string]struct{}{}
+
+	describeRequest := &ec2.DescribeSecurityGroupsInput{}
+	describeRequest.Filters = []ec2types.Filter{
+		newEc2Filter("group-id", lbSecurityGroups...),
+	}
+	response, err := c.ec2.DescribeSecurityGroups(ctx, describeRequest)
+	if err != nil {
+		return nil, nil, fmt.Errorf("error querying security groups for ELB: %q", err)
+	}
+
+	annotatedSgSet := map[string]bool{}
+	annotatedSgsList := getSGListFromAnnotation(service.Annotations[ServiceAnnotationLoadBalancerSecurityGroups])
+	annotatedExtraSgsList := getSGListFromAnnotation(service.Annotations[ServiceAnnotationLoadBalancerExtraSecurityGroups])
+	annotatedSgsList = append(annotatedSgsList, annotatedExtraSgsList...)
+
+	for _, sg := range annotatedSgsList {
+		annotatedSgSet[sg] = true
+	}
+
+	for _, sg := range response {
+		sgID := aws.ToString(sg.GroupId)
+
+		if sgID == c.cfg.Global.ElbSecurityGroup {
+			//We don't want to delete a security group that was defined in the Cloud Configuration.
+			continue
+		}
+		if sgID == "" {
+			klog.Warningf("Ignoring empty security group in %s", service.Name)
+			continue
+		}
+
+		if !c.tagging.hasClusterTag(sg.Tags) {
+			klog.Warningf("Ignoring security group with no cluster tag in %s", service.Name)
+			continue
+		} else {
+			taggedLBSecurityGroups[sgID] = struct{}{}
+		}
+
+		// This is an extra protection of deletion of non provisioned Security Group which is annotated with `service.beta.kubernetes.io/aws-load-balancer-security-groups`.
+		if _, ok := annotatedSgSet[sgID]; ok {
+			klog.Warningf("Ignoring security group with annotation `service.beta.kubernetes.io/aws-load-balancer-security-groups` or service.beta.kubernetes.io/aws-load-balancer-extra-security-groups in %s", service.Name)
+			continue
+		}
+
+		securityGroupIDs[sgID] = struct{}{}
+	}
+
+	return securityGroupIDs, taggedLBSecurityGroups, nil
+}
+
 // EnsureLoadBalancerDeleted implements LoadBalancer.EnsureLoadBalancerDeleted.
 func (c *Cloud) EnsureLoadBalancerDeleted(ctx context.Context, clusterName string, service *v1.Service) error {
 	if isLBExternal(service.Annotations) {
@@ -2908,57 +3042,13 @@ func (c *Cloud) EnsureLoadBalancerDeleted(ctx context.Context, clusterName strin
 	// if the load balancer security group is being deleted.
 	securityGroupIDs := map[string]struct{}{}
 	taggedLBSecurityGroups := map[string]struct{}{}
-	{
-		// Delete the security group(s) for the load balancer
-		// Note that this is annoying: the load balancer disappears from the API immediately, but it is still
-		// deleting in the background.  We get a DependencyViolation until the load balancer has deleted itself
 
-		var loadBalancerSGs = lb.SecurityGroups
-
-		describeRequest := &ec2.DescribeSecurityGroupsInput{}
-		describeRequest.Filters = []ec2types.Filter{
-			newEc2Filter("group-id", loadBalancerSGs...),
-		}
-		response, err := c.ec2.DescribeSecurityGroups(ctx, describeRequest)
-		if err != nil {
-			return fmt.Errorf("error querying security groups for ELB: %q", err)
-		}
-		annotatedSgSet := map[string]bool{}
-		annotatedSgsList := getSGListFromAnnotation(service.Annotations[ServiceAnnotationLoadBalancerSecurityGroups])
-		annotatedExtraSgsList := getSGListFromAnnotation(service.Annotations[ServiceAnnotationLoadBalancerExtraSecurityGroups])
-		annotatedSgsList = append(annotatedSgsList, annotatedExtraSgsList...)
-
-		for _, sg := range annotatedSgsList {
-			annotatedSgSet[sg] = true
-		}
-
-		for _, sg := range response {
-			sgID := aws.ToString(sg.GroupId)
-
-			if sgID == c.cfg.Global.ElbSecurityGroup {
-				//We don't want to delete a security group that was defined in the Cloud Configuration.
-				continue
-			}
-			if sgID == "" {
-				klog.Warningf("Ignoring empty security group in %s", service.Name)
-				continue
-			}
-
-			if !c.tagging.hasClusterTag(sg.Tags) {
-				klog.Warningf("Ignoring security group with no cluster tag in %s", service.Name)
-				continue
-			} else {
-				taggedLBSecurityGroups[sgID] = struct{}{}
-			}
-
-			// This is an extra protection of deletion of non provisioned Security Group which is annotated with `service.beta.kubernetes.io/aws-load-balancer-security-groups`.
-			if _, ok := annotatedSgSet[sgID]; ok {
-				klog.Warningf("Ignoring security group with annotation `service.beta.kubernetes.io/aws-load-balancer-security-groups` or service.beta.kubernetes.io/aws-load-balancer-extra-security-groups in %s", service.Name)
-				continue
-			}
-
-			securityGroupIDs[sgID] = struct{}{}
-		}
+	// Delete the security group(s) for the load balancer
+	// Note that this is annoying: the load balancer disappears from the API immediately, but it is still
+	// deleting in the background.  We get a DependencyViolation until the load balancer has deleted itself
+	securityGroupIDs, taggedLBSecurityGroups, err = c.buildSecurityGroupsToDelete(ctx, service, lb.SecurityGroups)
+	if err != nil {
+		return fmt.Errorf("unable to build security groups to delete: %w", err)
 	}
 
 	{
@@ -2993,53 +3083,7 @@ func (c *Cloud) EnsureLoadBalancerDeleted(ctx context.Context, clusterName strin
 		}
 	}
 
-	{
-
-		// Loop through and try to delete them
-		timeoutAt := time.Now().Add(time.Second * 600)
-		for {
-			for securityGroupID := range securityGroupIDs {
-				request := &ec2.DeleteSecurityGroupInput{}
-				request.GroupId = &securityGroupID
-				_, err := c.ec2.DeleteSecurityGroup(ctx, request)
-				if err == nil {
-					delete(securityGroupIDs, securityGroupID)
-				} else {
-					ignore := false
-					var ae smithy.APIError
-					if errors.As(err, &ae) {
-						if ae.ErrorCode() == "DependencyViolation" {
-							klog.V(2).Infof("Ignoring DependencyViolation while deleting load-balancer security group (%s), assuming because LB is in process of deleting", securityGroupID)
-							ignore = true
-						}
-					}
-					if !ignore {
-						return fmt.Errorf("error while deleting load balancer security group (%s): %q", securityGroupID, err)
-					}
-				}
-			}
-
-			if len(securityGroupIDs) == 0 {
-				klog.V(2).Info("Deleted all security groups for load balancer: ", service.Name)
-				break
-			}
-
-			if time.Now().After(timeoutAt) {
-				ids := []string{}
-				for id := range securityGroupIDs {
-					ids = append(ids, id)
-				}
-
-				return fmt.Errorf("timed out deleting ELB: %s. Could not delete security groups %v", service.Name, strings.Join(ids, ","))
-			}
-
-			klog.V(2).Info("Waiting for load-balancer to delete so we can delete security groups: ", service.Name)
-
-			time.Sleep(10 * time.Second)
-		}
-	}
-
-	return nil
+	return c.deleteSecurityGroupsWithBackoff(ctx, service.Name, securityGroupIDs)
 }
 
 // UpdateLoadBalancer implements LoadBalancer.UpdateLoadBalancer
