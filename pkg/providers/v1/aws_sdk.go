@@ -27,13 +27,14 @@ import (
 	awsConfig "github.com/aws/aws-sdk-go-v2/config"
 	stscredsv2 "github.com/aws/aws-sdk-go-v2/credentials/stscreds"
 	"github.com/aws/aws-sdk-go-v2/service/ec2"
+	elb "github.com/aws/aws-sdk-go-v2/service/elasticloadbalancing"
+	elbv2 "github.com/aws/aws-sdk-go-v2/service/elasticloadbalancingv2"
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/credentials"
 	"github.com/aws/aws-sdk-go/aws/ec2metadata"
 	"github.com/aws/aws-sdk-go/aws/request"
 	"github.com/aws/aws-sdk-go/aws/session"
-	"github.com/aws/aws-sdk-go/service/elb"
-	"github.com/aws/aws-sdk-go/service/elbv2"
+
 	"github.com/aws/aws-sdk-go/service/kms"
 
 	smithymiddleware "github.com/aws/smithy-go/middleware"
@@ -174,10 +175,9 @@ func (p *awsSDKProvider) Compute(ctx context.Context, regionName string, assumeR
 		o.Retryer = &customRetryer{
 			retry.NewStandard(),
 		}
-	})
-	opts = append(opts, func(o *ec2.Options) {
 		o.EndpointResolverV2 = p.cfg.GetCustomEC2Resolver()
 	})
+
 	ec2Client := ec2.NewFromConfig(cfg, opts...)
 
 	ec2 := &awsSdkEC2{
@@ -186,45 +186,54 @@ func (p *awsSDKProvider) Compute(ctx context.Context, regionName string, assumeR
 	return ec2, nil
 }
 
-func (p *awsSDKProvider) LoadBalancing(regionName string) (ELB, error) {
-	awsConfig := &aws.Config{
-		Region:      &regionName,
-		Credentials: p.creds,
+func (p *awsSDKProvider) LoadBalancing(ctx context.Context, regionName string, assumeRoleProvider *stscredsv2.AssumeRoleProvider) (ELB, error) {
+	cfg, err := awsConfig.LoadDefaultConfig(ctx, awsConfig.WithDefaultsMode(awsv2.DefaultsModeInRegion),
+		awsConfig.WithRegion(regionName),
+	)
+	if assumeRoleProvider != nil {
+		cfg.Credentials = awsv2.NewCredentialsCache(assumeRoleProvider)
 	}
-	awsConfig = awsConfig.WithCredentialsChainVerboseErrors(true).
-		WithEndpointResolver(p.cfg.GetResolver())
-	sess, err := session.NewSessionWithOptions(session.Options{
-		Config:            *awsConfig,
-		SharedConfigState: session.SharedConfigEnable,
-	})
 	if err != nil {
-		return nil, fmt.Errorf("unable to initialize AWS session: %v", err)
+		return nil, fmt.Errorf("unable to initialize AWS config: %v", err)
 	}
-	elbClient := elb.New(sess)
-	p.AddHandlers(regionName, &elbClient.Handlers)
+
+	p.AddHandlersV2(ctx, regionName, &cfg)
+	var opts []func(*elb.Options) = p.cfg.GetELBEndpointOpts(regionName)
+	opts = append(opts, func(o *elb.Options) {
+		o.Retryer = &customRetryer{
+			retry.NewStandard(),
+		}
+		o.EndpointResolverV2 = p.cfg.GetCustomELBResolver()
+	})
+
+	elbClient := elb.NewFromConfig(cfg, opts...)
 
 	return elbClient, nil
 }
 
-func (p *awsSDKProvider) LoadBalancingV2(regionName string) (ELBV2, error) {
-	awsConfig := &aws.Config{
-		Region:      &regionName,
-		Credentials: p.creds,
+func (p *awsSDKProvider) LoadBalancingV2(ctx context.Context, regionName string, assumeRoleProvider *stscredsv2.AssumeRoleProvider) (ELBV2, error) {
+	cfg, err := awsConfig.LoadDefaultConfig(ctx, awsConfig.WithDefaultsMode(awsv2.DefaultsModeInRegion),
+		awsConfig.WithRegion(regionName),
+	)
+	if assumeRoleProvider != nil {
+		cfg.Credentials = awsv2.NewCredentialsCache(assumeRoleProvider)
 	}
-	awsConfig = awsConfig.WithCredentialsChainVerboseErrors(true).
-		WithEndpointResolver(p.cfg.GetResolver())
-	sess, err := session.NewSessionWithOptions(session.Options{
-		Config:            *awsConfig,
-		SharedConfigState: session.SharedConfigEnable,
-	})
 	if err != nil {
-		return nil, fmt.Errorf("unable to initialize AWS session: %v", err)
+		return nil, fmt.Errorf("unable to initialize AWS config: %v", err)
 	}
-	elbClient := elbv2.New(sess)
 
-	p.AddHandlers(regionName, &elbClient.Handlers)
+	p.AddHandlersV2(ctx, regionName, &cfg)
+	var opts []func(*elbv2.Options) = p.cfg.GetELBV2EndpointOpts(regionName)
+	opts = append(opts, func(o *elbv2.Options) {
+		o.Retryer = &customRetryer{
+			retry.NewStandard(),
+		}
+		o.EndpointResolverV2 = p.cfg.GetCustomELBV2Resolver()
+	})
 
-	return elbClient, nil
+	elbv2Client := elbv2.NewFromConfig(cfg, opts...)
+
+	return elbv2Client, nil
 }
 
 func (p *awsSDKProvider) Metadata() (config.EC2Metadata, error) {
