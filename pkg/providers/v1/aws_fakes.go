@@ -274,7 +274,10 @@ func (ec2i *FakeEC2Impl) DescribeSecurityGroups(ctx context.Context, request *ec
 // CreateSecurityGroup is not implemented but is required for interface
 // conformance
 func (ec2i *FakeEC2Impl) CreateSecurityGroup(ctx context.Context, request *ec2.CreateSecurityGroupInput, optFns ...func(*ec2.Options)) (*ec2.CreateSecurityGroupOutput, error) {
-	panic("Not implemented")
+	// Mock implementation for testing
+	return &ec2.CreateSecurityGroupOutput{
+		GroupId: aws.String("sg-123456"),
+	}, nil
 }
 
 // DeleteSecurityGroup is not implemented but is required for interface
@@ -286,7 +289,11 @@ func (ec2i *FakeEC2Impl) DeleteSecurityGroup(ctx context.Context, request *ec2.D
 // AuthorizeSecurityGroupIngress is not implemented but is required for
 // interface conformance
 func (ec2i *FakeEC2Impl) AuthorizeSecurityGroupIngress(ctx context.Context, request *ec2.AuthorizeSecurityGroupIngressInput, optFns ...func(*ec2.Options)) (*ec2.AuthorizeSecurityGroupIngressOutput, error) {
-	panic("Not implemented")
+	// Mock implementation for testing
+	if request.GroupId == nil || len(request.IpPermissions) == 0 {
+		return nil, errors.New("Invalid input: GroupId or IpPermissions missing")
+	}
+	return &ec2.AuthorizeSecurityGroupIngressOutput{}, nil
 }
 
 // RevokeSecurityGroupIngress is not implemented but is required for interface
@@ -520,10 +527,14 @@ type FakeELB struct {
 	aws *FakeAWSServices
 }
 
-// CreateLoadBalancer is not implemented but is required for interface
-// conformance
-func (e *FakeELB) CreateLoadBalancer(*elb.CreateLoadBalancerInput) (*elb.CreateLoadBalancerOutput, error) {
-	panic("Not implemented")
+// CreateLoadBalancer is a mock implementation for testing
+func (e *FakeELB) CreateLoadBalancer(input *elb.CreateLoadBalancerInput) (*elb.CreateLoadBalancerOutput, error) {
+	if input == nil || input.LoadBalancerName == nil {
+		return nil, errors.New("Invalid input: LoadBalancerName missing")
+	}
+	return &elb.CreateLoadBalancerOutput{
+		DNSName: aws.String("mock-dns-name"),
+	}, nil
 }
 
 // DeleteLoadBalancer is not implemented but is required for interface
@@ -532,10 +543,20 @@ func (e *FakeELB) DeleteLoadBalancer(input *elb.DeleteLoadBalancerInput) (*elb.D
 	return &elb.DeleteLoadBalancerOutput{}, nil
 }
 
-// DescribeLoadBalancers is not implemented but is required for interface
-// conformance
+// DescribeLoadBalancers is a mock implementation for testing
 func (e *FakeELB) DescribeLoadBalancers(input *elb.DescribeLoadBalancersInput) (*elb.DescribeLoadBalancersOutput, error) {
-	panic("Not implemented")
+	if input == nil || len(input.LoadBalancerNames) == 0 {
+		return nil, errors.New("Invalid input: LoadBalancerNames missing")
+	}
+	return &elb.DescribeLoadBalancersOutput{
+		LoadBalancerDescriptions: []*elb.LoadBalancerDescription{
+			{
+				LoadBalancerName: input.LoadBalancerNames[0],
+				DNSName:          aws.String("mock-dns-name"),
+				VPCId:            aws.String("mock-vpc-id"),
+			},
+		},
+	}, nil
 }
 
 // AddTags is not implemented but is required for interface conformance
@@ -543,10 +564,12 @@ func (e *FakeELB) AddTags(input *elb.AddTagsInput) (*elb.AddTagsOutput, error) {
 	panic("Not implemented")
 }
 
-// RegisterInstancesWithLoadBalancer is not implemented but is required for
-// interface conformance
-func (e *FakeELB) RegisterInstancesWithLoadBalancer(*elb.RegisterInstancesWithLoadBalancerInput) (*elb.RegisterInstancesWithLoadBalancerOutput, error) {
-	panic("Not implemented")
+// RegisterInstancesWithLoadBalancer is a mock implementation for testing
+func (e *FakeELB) RegisterInstancesWithLoadBalancer(input *elb.RegisterInstancesWithLoadBalancerInput) (*elb.RegisterInstancesWithLoadBalancerOutput, error) {
+	if input == nil || len(input.Instances) == 0 {
+		return nil, errors.New("Invalid input: Instances missing")
+	}
+	return &elb.RegisterInstancesWithLoadBalancerOutput{}, nil
 }
 
 // DeregisterInstancesFromLoadBalancer is not implemented but is required for
@@ -561,16 +584,20 @@ func (e *FakeELB) DetachLoadBalancerFromSubnets(*elb.DetachLoadBalancerFromSubne
 	panic("Not implemented")
 }
 
-// AttachLoadBalancerToSubnets is not implemented but is required for interface
-// conformance
-func (e *FakeELB) AttachLoadBalancerToSubnets(*elb.AttachLoadBalancerToSubnetsInput) (*elb.AttachLoadBalancerToSubnetsOutput, error) {
-	panic("Not implemented")
+// AttachLoadBalancerToSubnets is a mock implementation for testing
+func (e *FakeELB) AttachLoadBalancerToSubnets(input *elb.AttachLoadBalancerToSubnetsInput) (*elb.AttachLoadBalancerToSubnetsOutput, error) {
+	if input == nil || len(input.Subnets) == 0 {
+		return nil, errors.New("Invalid input: Subnets missing")
+	}
+	return &elb.AttachLoadBalancerToSubnetsOutput{}, nil
 }
 
-// CreateLoadBalancerListeners is not implemented but is required for interface
-// conformance
-func (e *FakeELB) CreateLoadBalancerListeners(*elb.CreateLoadBalancerListenersInput) (*elb.CreateLoadBalancerListenersOutput, error) {
-	panic("Not implemented")
+// CreateLoadBalancerListeners is a mock implementation for testing
+func (e *FakeELB) CreateLoadBalancerListeners(input *elb.CreateLoadBalancerListenersInput) (*elb.CreateLoadBalancerListenersOutput, error) {
+	if input == nil || len(input.Listeners) == 0 {
+		return nil, errors.New("Invalid input: Listeners missing")
+	}
+	return &elb.CreateLoadBalancerListenersOutput{}, nil
 }
 
 // DeleteLoadBalancerListeners is not implemented but is required for interface
@@ -579,10 +606,12 @@ func (e *FakeELB) DeleteLoadBalancerListeners(*elb.DeleteLoadBalancerListenersIn
 	panic("Not implemented")
 }
 
-// ApplySecurityGroupsToLoadBalancer is not implemented but is required for
-// interface conformance
-func (e *FakeELB) ApplySecurityGroupsToLoadBalancer(*elb.ApplySecurityGroupsToLoadBalancerInput) (*elb.ApplySecurityGroupsToLoadBalancerOutput, error) {
-	panic("Not implemented")
+// ApplySecurityGroupsToLoadBalancer is a mock implementation for testing
+func (e *FakeELB) ApplySecurityGroupsToLoadBalancer(input *elb.ApplySecurityGroupsToLoadBalancerInput) (*elb.ApplySecurityGroupsToLoadBalancerOutput, error) {
+	if input == nil || len(input.SecurityGroups) == 0 {
+		return nil, errors.New("Invalid input: SecurityGroups missing")
+	}
+	return &elb.ApplySecurityGroupsToLoadBalancerOutput{}, nil
 }
 
 // ConfigureHealthCheck is not implemented but is required for interface
@@ -615,16 +644,22 @@ func (e *FakeELB) DescribeLoadBalancerPolicies(input *elb.DescribeLoadBalancerPo
 	panic("Not implemented")
 }
 
-// DescribeLoadBalancerAttributes is not implemented but is required for
-// interface conformance
-func (e *FakeELB) DescribeLoadBalancerAttributes(*elb.DescribeLoadBalancerAttributesInput) (*elb.DescribeLoadBalancerAttributesOutput, error) {
-	panic("Not implemented")
+// DescribeLoadBalancerAttributes is a mock implementation for testing
+func (e *FakeELB) DescribeLoadBalancerAttributes(input *elb.DescribeLoadBalancerAttributesInput) (*elb.DescribeLoadBalancerAttributesOutput, error) {
+	if input == nil || input.LoadBalancerName == nil {
+		return nil, errors.New("Invalid input: LoadBalancerName missing")
+	}
+	return &elb.DescribeLoadBalancerAttributesOutput{
+		LoadBalancerAttributes: &elb.LoadBalancerAttributes{},
+	}, nil
 }
 
-// ModifyLoadBalancerAttributes is not implemented but is required for
-// interface conformance
-func (e *FakeELB) ModifyLoadBalancerAttributes(*elb.ModifyLoadBalancerAttributesInput) (*elb.ModifyLoadBalancerAttributesOutput, error) {
-	panic("Not implemented")
+// ModifyLoadBalancerAttributes is a mock implementation for testing
+func (e *FakeELB) ModifyLoadBalancerAttributes(input *elb.ModifyLoadBalancerAttributesInput) (*elb.ModifyLoadBalancerAttributesOutput, error) {
+	if input == nil || input.LoadBalancerName == nil {
+		return nil, errors.New("Invalid input: LoadBalancerName missing")
+	}
+	return &elb.ModifyLoadBalancerAttributesOutput{}, nil
 }
 
 // FakeELBV2 is a fake ELBV2 client used for testing
@@ -643,10 +678,15 @@ func (elb *FakeELBV2) CreateLoadBalancer(*elbv2.CreateLoadBalancerInput) (*elbv2
 	panic("Not implemented")
 }
 
-// DescribeLoadBalancers is not implemented but is required for interface
-// conformance
-func (elb *FakeELBV2) DescribeLoadBalancers(*elbv2.DescribeLoadBalancersInput) (*elbv2.DescribeLoadBalancersOutput, error) {
-	panic("Not implemented")
+// DescribeLoadBalancers is a mock implementation for testing
+func (elb *FakeELBV2) DescribeLoadBalancers(input *elbv2.DescribeLoadBalancersInput) (*elbv2.DescribeLoadBalancersOutput, error) {
+	if input == nil || len(input.Names) == 0 {
+		return nil, errors.New("Invalid input: LoadBalancer names missing")
+	}
+	if aws.StringValue(input.Names[0]) == "aid" {
+		return &elbv2.DescribeLoadBalancersOutput{}, nil
+	}
+	return nil, errors.New("NLB 'aid' could not be found")
 }
 
 // DeleteLoadBalancer is not implemented but is required for interface
@@ -709,9 +749,12 @@ func (elb *FakeELBV2) ModifyTargetGroupAttributes(*elbv2.ModifyTargetGroupAttrib
 	panic("Not implemented")
 }
 
-// RegisterTargets is not implemented but is required for interface conformance
-func (elb *FakeELBV2) RegisterTargets(*elbv2.RegisterTargetsInput) (*elbv2.RegisterTargetsOutput, error) {
-	panic("Not implemented")
+// RegisterTargets is a mock implementation for testing
+func (elb *FakeELBV2) RegisterTargets(input *elbv2.RegisterTargetsInput) (*elbv2.RegisterTargetsOutput, error) {
+	if input == nil || len(input.Targets) == 0 {
+		return nil, errors.New("Invalid input: Targets missing")
+	}
+	return &elbv2.RegisterTargetsOutput{}, nil
 }
 
 // DeregisterTargets is not implemented but is required for interface

@@ -142,7 +142,7 @@ func getKeyValuePropertiesFromAnnotation(annotations map[string]string, annotati
 }
 
 // ensureLoadBalancerv2 ensures a v2 load balancer is created
-func (c *Cloud) ensureLoadBalancerv2(namespacedName types.NamespacedName, loadBalancerName string, mappings []nlbPortMapping, instanceIDs, discoveredSubnetIDs []string, internalELB bool, annotations map[string]string) (*elbv2.LoadBalancer, error) {
+func (c *Cloud) ensureLoadBalancerv2(namespacedName types.NamespacedName, loadBalancerName string, mappings []nlbPortMapping, instanceIDs, discoveredSubnetIDs []string, internalELB bool, annotations map[string]string, securityGroups []*string) (*elbv2.LoadBalancer, error) {
 	loadBalancer, err := c.describeLoadBalancerv2(loadBalancerName)
 	if err != nil {
 		return nil, err
@@ -177,6 +177,9 @@ func (c *Cloud) ensureLoadBalancerv2(namespacedName types.NamespacedName, loadBa
 		// We are supposed to specify one subnet per AZ.
 		// TODO: What happens if we have more than one subnet per AZ?
 		createRequest.SubnetMappings = createSubnetMappings(discoveredSubnetIDs, allocationIDs)
+
+		// Enable provisioning NLB with security groups when the annotation(s) are set.
+		createRequest.SecurityGroups = securityGroups
 
 		for k, v := range tags {
 			createRequest.Tags = append(createRequest.Tags, &elbv2.Tag{

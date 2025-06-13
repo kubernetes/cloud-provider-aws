@@ -92,6 +92,11 @@ func (m *MockedFakeEC2) expectDescribeSecurityGroupsByFilter(clusterID, filterNa
 }
 
 func (m *MockedFakeEC2) DescribeSecurityGroups(ctx context.Context, request *ec2.DescribeSecurityGroupsInput, optFns ...func(*ec2.Options)) ([]ec2types.SecurityGroup, error) {
+
+	if len(request.GroupIds) == 1 && request.GroupIds[0] == "" {
+		// Return an empty slice and no error to avoid the panic.
+		return []ec2types.SecurityGroup{}, nil
+	}
 	args := m.Called(request)
 	return args.Get(0).([]ec2types.SecurityGroup), nil
 }
@@ -2530,6 +2535,9 @@ func informerNotSynced() bool {
 }
 
 type MockedFakeELBV2 struct {
+	*FakeELBV2
+	mock.Mock
+
 	LoadBalancers []*elbv2.LoadBalancer
 	TargetGroups  []*elbv2.TargetGroup
 	Listeners     []*elbv2.Listener
@@ -2568,7 +2576,15 @@ func (m *MockedFakeELBV2) CreateLoadBalancer(request *elbv2.CreateLoadBalancerIn
 				SubnetId: aws.String("subnet-abc123de"),
 			},
 		},
+		DNSName: aws.String("aid.example.com"),
+		State: &elbv2.LoadBalancerState{
+			Code: aws.String(elbv2.LoadBalancerStateEnumActive),
+		},
 	}
+	if len(request.SecurityGroups) > 0 {
+		newLB.SecurityGroups = request.SecurityGroups
+	}
+
 	m.LoadBalancers = append(m.LoadBalancers, newLB)
 
 	return &elbv2.CreateLoadBalancerOutput{
@@ -2617,6 +2633,9 @@ func (m *MockedFakeELBV2) ModifyLoadBalancerAttributes(request *elbv2.ModifyLoad
 
 	if !present {
 		attrMap = make(map[string]string)
+		if len(m.LoadBalancerAttributes) == 0 {
+			m.LoadBalancerAttributes = make(map[string]map[string]string)
+		}
 		m.LoadBalancerAttributes[aws.StringValue(request.LoadBalancerArn)] = attrMap
 	}
 
@@ -2828,6 +2847,9 @@ func (m *MockedFakeELBV2) RegisterTargets(request *elbv2.RegisterTargetsInput) (
 	alreadyExists := make(map[string]bool)
 	for _, targetID := range m.RegisteredInstances[arn] {
 		alreadyExists[targetID] = true
+	}
+	if len(m.RegisteredInstances) == 0 {
+		m.RegisteredInstances = make(map[string][]string)
 	}
 	for _, target := range request.Targets {
 		if !alreadyExists[aws.StringValue(target.Id)] {
@@ -3128,6 +3150,7 @@ func newMockedFakeAWSServices(id string) *FakeAWSServices {
 	s := NewFakeAWSServices(id)
 	s.ec2 = &MockedFakeEC2{FakeEC2Impl: s.ec2.(*FakeEC2Impl)}
 	s.elb = &MockedFakeELB{FakeELB: s.elb.(*FakeELB)}
+	s.elbv2 = &MockedFakeELBV2{FakeELBV2: s.elbv2.(*FakeELBV2)}
 	return s
 }
 
@@ -4016,4 +4039,425 @@ func TestIsAWSErrorInstanceNotFound(t *testing.T) {
 	})
 	_, err = ec2Client.ec2.DescribeInstances(context.Background(), &ec2.DescribeInstancesInput{})
 	assert.False(t, IsAWSErrorInstanceNotFound(nil))
+}
+
+func TestEnsureLoadBalancer(t *testing.T) {
+	fakeSecurityGroupID := "sg-123456"
+	fakeLoadBalancerName := "aid"
+	fakeLoadBalancerDomain := "aid.example.com"
+	fauxService := &v1.Service{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: fakeLoadBalancerName,
+			UID:  "id",
+		},
+		Spec: v1.ServiceSpec{
+			Ports: []v1.ServicePort{
+				{
+					Name:       "http",
+					Port:       8080,
+					NodePort:   31173,
+					TargetPort: intstr.FromInt(31173),
+					Protocol:   v1.ProtocolTCP,
+				},
+			},
+			SessionAffinity: v1.ServiceAffinityNone,
+		},
+	}
+
+	// Test Cases
+	type testCase struct {
+		name           string
+		annotations    map[string]string
+		config         func() config.CloudConfig
+		want           *v1.LoadBalancerStatus
+		wantErr        bool
+		HookPostChecks func(*testCase, *Cloud, *v1.Service)
+	}
+	tests := []testCase{
+		{
+			name:        "ensure CLB defaults",
+			annotations: map[string]string{},
+			want: &v1.LoadBalancerStatus{
+				Ingress: []v1.LoadBalancerIngress{{Hostname: fakeLoadBalancerDomain}},
+			},
+		},
+		{
+			name:        "ensure NLB defaults",
+			annotations: map[string]string{ServiceAnnotationLoadBalancerType: "nlb"},
+			want: &v1.LoadBalancerStatus{
+				Ingress: []v1.LoadBalancerIngress{{Hostname: fakeLoadBalancerDomain}},
+			},
+		},
+		{
+			name:        "ensure NLB with managed security group",
+			annotations: map[string]string{ServiceAnnotationLoadBalancerType: "nlb"},
+			config: func() config.CloudConfig {
+				c := config.CloudConfig{}
+				c.Global.NLBSecurityGroupMode = config.NLBSecurityGroupModeManaged
+				return c
+			},
+			want: &v1.LoadBalancerStatus{
+				Ingress: []v1.LoadBalancerIngress{{Hostname: fakeLoadBalancerDomain}},
+			},
+			HookPostChecks: func(test *testCase, c *Cloud, svc *v1.Service) {
+				if isNLB(svc.Annotations) {
+					loadBalancer, err := c.describeLoadBalancerv2(fakeLoadBalancerName)
+					if test.wantErr {
+						assert.Error(t, err)
+					}
+					assert.Equal(t, len(loadBalancer.SecurityGroups), 1)
+				}
+			},
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			// Mock the calls
+			awsServices := newMockedFakeAWSServices(TestClusterID)
+			awsServices.ec2.(*MockedFakeEC2).On("DescribeSecurityGroups", &ec2.DescribeSecurityGroupsInput{
+				Filters: []ec2types.Filter{
+					{
+						Name:   aws.String("group-name"),
+						Values: []string{"k8s-elb-aid"},
+					},
+					{
+						Name:   aws.String("vpc-id"),
+						Values: []string{""},
+					},
+				},
+			}).Return([]ec2types.SecurityGroup{{GroupId: aws.String(fakeSecurityGroupID)}}, nil)
+
+			awsServices.ec2.(*MockedFakeEC2).On("DescribeSecurityGroups", &ec2.DescribeSecurityGroupsInput{
+				GroupIds: []string{fakeSecurityGroupID},
+			}).Return([]ec2types.SecurityGroup{{GroupId: aws.String(fakeSecurityGroupID)}}, nil)
+
+			awsServices.ec2.(*MockedFakeEC2).On("DescribeSecurityGroups", &ec2.DescribeSecurityGroupsInput{
+				Filters:    nil,
+				GroupIds:   nil,
+				GroupNames: nil,
+				MaxResults: nil,
+				NextToken:  nil,
+			}).Return([]ec2types.SecurityGroup{}, nil)
+
+			awsServices.ec2.(*MockedFakeEC2).On("DescribeSecurityGroups", &ec2.DescribeSecurityGroupsInput{
+				Filters: []ec2types.Filter{
+					{
+						Name:   aws.String("ip-permission.group-id"),
+						Values: []string{fakeSecurityGroupID},
+					},
+				},
+			}).Return([]ec2types.SecurityGroup{{GroupId: aws.String(fakeSecurityGroupID)}}, nil)
+
+			awsServices.elb.(*MockedFakeELB).On("DescribeLoadBalancers", &elb.DescribeLoadBalancersInput{
+				LoadBalancerNames: aws.StringSlice([]string{fakeLoadBalancerName}),
+			}).Return(&elb.DescribeLoadBalancersOutput{
+				LoadBalancerDescriptions: []*elb.LoadBalancerDescription{
+					{
+						LoadBalancerName: aws.String(fakeLoadBalancerName),
+						DNSName:          aws.String(fakeLoadBalancerDomain),
+						SecurityGroups:   []*string{aws.String(fakeSecurityGroupID)},
+						HealthCheck: &elb.HealthCheck{
+							Target:             aws.String("TCP:8080"),
+							Interval:           aws.Int64(30),
+							Timeout:            aws.Int64(5),
+							UnhealthyThreshold: aws.Int64(2),
+							HealthyThreshold:   aws.Int64(2),
+						},
+					},
+				},
+			}, nil)
+			awsServices.elb.(*MockedFakeELB).On("ConfigureHealthCheck", &elb.ConfigureHealthCheckInput{
+				LoadBalancerName: aws.String("aid"),
+				HealthCheck: &elb.HealthCheck{
+					Target:             aws.String("TCP:31173"),
+					Interval:           aws.Int64(10),
+					Timeout:            aws.Int64(5),
+					UnhealthyThreshold: aws.Int64(6),
+					HealthyThreshold:   aws.Int64(2),
+				},
+			}).Return(&elb.ConfigureHealthCheckOutput{}, nil)
+
+			tags := []ec2types.Tag{
+				{Key: aws.String(TagNameKubernetesClusterLegacy), Value: aws.String(TestClusterID)},
+				{Key: aws.String(fmt.Sprintf("%s%s", TagNameKubernetesClusterPrefix, TestClusterID)), Value: aws.String(ResourceLifecycleOwned)},
+			}
+			awsServices.ec2.(*MockedFakeEC2).On("DescribeInstances", &ec2.DescribeInstancesInput{
+				InstanceIds: []string{"i-2bce90670bb0c7ce", "i-2bce90670bb0c7cf"},
+			}).Return([]ec2types.Instance{
+				{
+					InstanceId: aws.String("i-2bce90670bb0c7ce"),
+					SecurityGroups: []ec2types.GroupIdentifier{
+						{GroupId: aws.String(fakeSecurityGroupID)},
+					},
+					Tags: tags,
+				},
+				{
+					InstanceId: aws.String("i-2bce90670bb0c7cf"),
+					SecurityGroups: []ec2types.GroupIdentifier{
+						{GroupId: aws.String(fakeSecurityGroupID)},
+					},
+					Tags: tags,
+				},
+			}, nil)
+
+			awsServices.ec2.(*MockedFakeEC2).On("DescribeSecurityGroups", &ec2.DescribeSecurityGroupsInput{}).Maybe().Return(
+				[]ec2types.SecurityGroup{{GroupId: aws.String(fakeSecurityGroupID), Tags: tags}},
+			)
+
+			// Configure the tests
+			cfg := config.CloudConfig{}
+			if test.config != nil {
+				cfg = test.config()
+			}
+			c, err := newAWSCloud(cfg, awsServices)
+			assert.Nil(t, err, "Error building aws cloud: %v", err)
+
+			awsServices.ec2.(*MockedFakeEC2).Subnets = []ec2types.Subnet{
+				{
+					AvailabilityZone: aws.String("us-west-2a"),
+					SubnetId:         aws.String("subnet-abc123de"),
+					Tags: []ec2types.Tag{
+						{
+							Key:   aws.String(c.tagging.clusterTagKey()),
+							Value: aws.String("owned"),
+						},
+					},
+				},
+			}
+			awsServices.ec2.(*MockedFakeEC2).RouteTables = []ec2types.RouteTable{
+				{
+					Associations: []ec2types.RouteTableAssociation{
+						{
+							Main:                    aws.Bool(true),
+							RouteTableAssociationId: aws.String("rtbassoc-abc123def456abc78"),
+							RouteTableId:            aws.String("rtb-abc123def456abc78"),
+							SubnetId:                aws.String("subnet-abc123de"),
+						},
+					},
+					RouteTableId: aws.String("rtb-abc123def456abc78"),
+					Routes: []ec2types.Route{
+						{
+							DestinationCidrBlock: aws.String("0.0.0.0/0"),
+							GatewayId:            aws.String("igw-abc123def456abc78"),
+							State:                ec2types.RouteStateActive,
+						},
+					},
+				},
+			}
+
+			nodes := []*v1.Node{makeNamedNode(awsServices, 0, "a"), makeNamedNode(awsServices, 1, "b"), makeNamedNode(awsServices, 2, "c")}
+
+			testService := fauxService.DeepCopy()
+			if len(test.annotations) > 0 {
+				testService.Annotations = test.annotations
+			}
+
+			// Test
+			svcStatus, err := c.EnsureLoadBalancer(context.TODO(), TestClusterName, testService, nodes)
+			if test.wantErr {
+				assert.Error(t, err)
+			} else {
+				assert.NoError(t, err)
+				assert.Equal(t, test.want, svcStatus)
+			}
+
+			// Extra post checks
+			if test.HookPostChecks != nil {
+				test.HookPostChecks(&test, c, testService)
+			}
+		})
+	}
+}
+
+func TestCreateSecurityGroupRules(t *testing.T) {
+	awsServices := newMockedFakeAWSServices(TestClusterID)
+	c, _ := newAWSCloud(config.CloudConfig{}, awsServices)
+
+	testCases := []struct {
+		name            string
+		sgID            string
+		rules           IPPermissionSet
+		ec2SourceRanges []ec2types.IpRange
+		expectError     bool
+	}{
+		{
+			name: "successful security group rule creation",
+			sgID: "sg-123456",
+			rules: IPPermissionSet{
+				"tcp-80-80": ec2types.IpPermission{
+					IpProtocol: aws.String("tcp"),
+					FromPort:   aws.Int32(80),
+					ToPort:     aws.Int32(80),
+				},
+			},
+			ec2SourceRanges: []ec2types.IpRange{
+				{
+					CidrIp: aws.String("0.0.0.0/0"),
+				},
+			},
+			expectError: false,
+		},
+		{
+			name: "empty security group ID",
+			sgID: "",
+			rules: IPPermissionSet{
+				"tcp-80-80": ec2types.IpPermission{
+					IpProtocol: aws.String("tcp"),
+					FromPort:   aws.Int32(80),
+					ToPort:     aws.Int32(80),
+				},
+			},
+			ec2SourceRanges: []ec2types.IpRange{
+				{
+					CidrIp: aws.String("0.0.0.0/0"),
+				},
+			},
+			expectError: true,
+		},
+		{
+			name:  "empty rule set",
+			sgID:  "sg-123456",
+			rules: IPPermissionSet{},
+			ec2SourceRanges: []ec2types.IpRange{
+				{
+					CidrIp: aws.String("0.0.0.0/0"),
+				},
+			},
+			expectError: false,
+		},
+		{
+			name:  "internal source",
+			sgID:  "sg-123456",
+			rules: IPPermissionSet{},
+			ec2SourceRanges: []ec2types.IpRange{
+				{
+					CidrIp: aws.String("10.0.0.0/16"),
+				},
+			},
+			expectError: false,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			// Mock the EC2 API calls
+			awsServices.ec2.(*MockedFakeEC2).On("AuthorizeSecurityGroupIngress", mock.Anything).Return(
+				&ec2.AuthorizeSecurityGroupIngressOutput{}, nil,
+			).Maybe()
+
+			awsServices.ec2.(*MockedFakeEC2).On("DescribeSecurityGroups", &ec2.DescribeSecurityGroupsInput{
+				GroupIds: []string{tc.sgID},
+			}).Return(
+				[]ec2types.SecurityGroup{{GroupId: aws.String(tc.sgID)}}, nil,
+			).Maybe()
+
+			// Execute test
+			err := c.createSecurityGroupRules(context.TODO(), tc.sgID, tc.rules, tc.ec2SourceRanges)
+
+			// Verify results
+			if tc.expectError {
+				assert.Error(t, err)
+				return
+			}
+			assert.NoError(t, err)
+
+			// Verify that the rules include the ICMP permission for MTU discovery
+			foundMTURule := false
+			for _, rule := range tc.rules {
+				if aws.StringValue(rule.IpProtocol) == "icmp" &&
+					aws.Int32Value(rule.FromPort) == 3 &&
+					aws.Int32Value(rule.ToPort) == 4 {
+					foundMTURule = true
+					break
+				}
+			}
+			assert.True(t, foundMTURule, "MTU discovery rule should be added")
+
+			// Verify the ec2SourceRanges were properly set
+			for _, rule := range tc.rules {
+				if aws.StringValue(rule.IpProtocol) == "icmp" {
+					assert.Equal(t, tc.ec2SourceRanges, rule.IpRanges)
+				}
+			}
+		})
+	}
+}
+
+func TestCreateSecurityGroup(t *testing.T) {
+	awsServices := newMockedFakeAWSServices(TestClusterID)
+	c, _ := newAWSCloud(config.CloudConfig{}, awsServices)
+
+	testCases := []struct {
+		name           string
+		sgName         string
+		sgDescription  string
+		additionalTags map[string]string
+		expectGroupID  string
+		expectError    bool
+	}{
+		{
+			name:          "successful security group creation",
+			sgName:        "test-sg",
+			sgDescription: "test security group",
+			additionalTags: map[string]string{
+				"key1": "value1",
+				"key2": "value2",
+			},
+			expectGroupID: "sg-123456",
+			expectError:   false,
+		},
+		{
+			name:           "empty security group name",
+			sgName:         "",
+			sgDescription:  "test security group",
+			additionalTags: map[string]string{},
+			expectGroupID:  "",
+			expectError:    true,
+		},
+		{
+			name:           "nil additional tags",
+			sgName:         "test-sg-2",
+			sgDescription:  "test security group 2",
+			additionalTags: nil,
+			expectGroupID:  "sg-123456",
+			expectError:    false,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			// Mock EC2 API call for security group creation
+			awsServices.ec2.(*MockedFakeEC2).On("CreateSecurityGroup", &ec2.CreateSecurityGroupInput{
+				GroupName:   aws.String(tc.sgName),
+				Description: aws.String(tc.sgDescription),
+			}).Return(&ec2.CreateSecurityGroupOutput{
+				GroupId: aws.String(tc.expectGroupID),
+			}, nil).Maybe()
+
+			// Mock DescribeSecurityGroups for ensureSecurityGroup
+			awsServices.ec2.(*MockedFakeEC2).On("DescribeSecurityGroups", &ec2.DescribeSecurityGroupsInput{
+				Filters: []ec2types.Filter{
+					{
+						Name:   aws.String("group-name"),
+						Values: []string{tc.sgName},
+					},
+					{
+						Name:   aws.String("vpc-id"),
+						Values: []string{""},
+					},
+				},
+			}).Return([]ec2types.SecurityGroup{}, nil).Maybe()
+
+			groupID, err := c.createSecurityGroup(context.TODO(), tc.sgName, tc.sgDescription, tc.additionalTags)
+
+			if tc.expectError {
+				assert.Error(t, err)
+				assert.Empty(t, groupID)
+				return
+			}
+			assert.NoError(t, err)
+			assert.Equal(t, tc.expectGroupID, groupID)
+		})
+	}
 }
