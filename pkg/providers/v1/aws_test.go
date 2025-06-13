@@ -3753,7 +3753,7 @@ func TestInstanceExistsByProviderIDWithNodeNameForFargate(t *testing.T) {
 
 func TestInstanceExistsByProviderIDForInstanceNotFound(t *testing.T) {
 	mockedEC2API := newMockedEC2API()
-	c := &Cloud{ec2: &awsSdkEC2{ec2: mockedEC2API}}
+	c := &Cloud{ec2: &awsSdkEC2{ec2: mockedEC2API}, describeInstanceBatcher: newdescribeInstanceBatcher(context.Background(), &awsSdkEC2{ec2: mockedEC2API})}
 
 	mockedEC2API.On("DescribeInstances", mock.Anything).Return(&ec2.DescribeInstancesOutput{}, awserr.New("InvalidInstanceID.NotFound", "Instance not found", nil))
 

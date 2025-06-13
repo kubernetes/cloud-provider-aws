@@ -19,12 +19,14 @@ package aws
 import (
 	"context"
 	"fmt"
+	"sync"
 	"testing"
 
 	awsv2 "github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/ec2"
 	"github.com/aws/aws-sdk-go-v2/service/ec2/types"
 	ec2types "github.com/aws/aws-sdk-go-v2/service/ec2/types"
+	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/awserr"
 
 	"github.com/stretchr/testify/assert"
@@ -103,7 +105,7 @@ func TestInstanceExists(t *testing.T) {
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			c := getCloudWithMockedDescribeInstances(tc.instanceExists, tc.instanceState)
+			c := getCloudWithMockedDescribeInstances(tc.instanceExists, tc.instanceState, "i-abc")
 
 			result, err := c.InstanceExists(context.TODO(), &v1.Node{
 				Spec: v1.NodeSpec{
@@ -148,7 +150,7 @@ func TestInstanceShutdown(t *testing.T) {
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			c := getCloudWithMockedDescribeInstances(tc.instanceExists, tc.instanceState)
+			c := getCloudWithMockedDescribeInstances(tc.instanceExists, tc.instanceState, "i-abc")
 
 			result, err := c.InstanceShutdown(context.TODO(), &v1.Node{
 				Spec: v1.NodeSpec{
@@ -304,9 +306,63 @@ func TestInstanceMetadata(t *testing.T) {
 	})
 }
 
-func getCloudWithMockedDescribeInstances(instanceExists bool, instanceState ec2types.InstanceStateName) *Cloud {
+func TestDescribeInstanceBatching(t *testing.T) {
 	mockedEC2API := newMockedEC2API()
-	c := &Cloud{ec2: &awsSdkEC2{ec2: mockedEC2API}}
+	batcher := newdescribeInstanceBatcher(context.Background(), &awsSdkEC2{ec2: mockedEC2API})
+
+	mockedEC2API.On("DescribeInstances", mock.Anything).Return(&ec2.DescribeInstancesOutput{
+		Reservations: []ec2types.Reservation{
+			{
+				Instances: []ec2types.Instance{
+					{
+						InstanceId: aws.String("Test-1"),
+					},
+					{
+						InstanceId: aws.String("Test-2"),
+					},
+					{
+						InstanceId: aws.String("Test-3"),
+					},
+				},
+			},
+		},
+	}, nil)
+
+	type result struct {
+		input  string
+		output []*ec2types.Instance
+		err    error
+	}
+
+	// Add extra space to channel so that we can ensure there were only 3 responses
+	resCh := make(chan result, 5)
+	helper := func(wg *sync.WaitGroup, input string) {
+		defer wg.Done()
+		res, err := batcher.DescribeInstances(context.Background(), &ec2.DescribeInstancesInput{InstanceIds: []string{input}})
+		resCh <- result{input: input, output: res, err: err}
+	}
+
+	wg := sync.WaitGroup{}
+	wg.Add(3)
+	go helper(&wg, "Test-1")
+	go helper(&wg, "Test-2")
+	go helper(&wg, "Test-3")
+	wg.Wait()
+	close(resCh)
+
+	assert.Len(t, resCh, 3)
+	for res := range resCh {
+		assert.NoError(t, res.err)
+		assert.Len(t, res.output, 1)
+		assert.Equal(t, res.input, *res.output[0].InstanceId)
+	}
+
+	mockedEC2API.AssertNumberOfCalls(t, "DescribeInstances", 1)
+}
+
+func getCloudWithMockedDescribeInstances(instanceExists bool, instanceState ec2types.InstanceStateName, instanceID string) *Cloud {
+	mockedEC2API := newMockedEC2API()
+	c := &Cloud{ec2: &awsSdkEC2{ec2: mockedEC2API}, describeInstanceBatcher: newdescribeInstanceBatcher(context.Background(), &awsSdkEC2{ec2: mockedEC2API})}
 
 	if !instanceExists {
 		mockedEC2API.On("DescribeInstances", mock.Anything).Return(&ec2.DescribeInstancesOutput{}, awserr.New("InvalidInstanceID.NotFound", "Instance not found", nil))
@@ -316,6 +372,7 @@ func getCloudWithMockedDescribeInstances(instanceExists bool, instanceState ec2t
 				{
 					Instances: []ec2types.Instance{
 						{
+							InstanceId: awsv2.String(instanceID),
 							State: &ec2types.InstanceState{
 								Name: instanceState,
 							},
