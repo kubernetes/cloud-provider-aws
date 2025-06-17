@@ -1,0 +1,33 @@
+name: kpromo reminder
+
+on:
+  pull_request:
+    types: [closed]
+    branches:
+      - master
+      - 'release-**'
+    paths:
+      - 'version.txt'
+
+jobs:
+  comment-on-version-change:
+    # Only run if the PR was merged (not just closed)
+    if: github.event.pull_request.merged == true
+    runs-on: ubuntu-latest
+    steps:
+      - name: Comment on PR
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const { owner, repo } = context.repo;
+            const prNumber = context.payload.pull_request.number;
+            const prAuthor = context.payload.pull_request.user.login;
+
+            const commentBody = `🤖 Hey @${prAuthor}, it looks like you may have released a new version! Don't forget to run the image promotion workflow within 60 days if needed.`;
+
+            await github.rest.issues.createComment({
+              owner,
+              repo,
+              issue_number: prNumber,
+              body: commentBody
+            });
