@@ -38,6 +38,7 @@ type EC2API interface {
 	DeleteTags(ctx context.Context, params *ec2.DeleteTagsInput, optFns ...func(*ec2.Options)) (*ec2.DeleteTagsOutput, error)
 	DescribeAvailabilityZones(ctx context.Context, params *ec2.DescribeAvailabilityZonesInput, optFns ...func(*ec2.Options)) (*ec2.DescribeAvailabilityZonesOutput, error)
 	DescribeInstances(ctx context.Context, params *ec2.DescribeInstancesInput, optFuns ...func(*ec2.Options)) (*ec2.DescribeInstancesOutput, error)
+	DescribeInstanceTopology(ctx context.Context, params *ec2.DescribeInstanceTopologyInput, optFns ...func(*ec2.Options)) (*ec2.DescribeInstanceTopologyOutput, error)
 	DescribeNetworkInterfaces(ctx context.Context, params *ec2.DescribeNetworkInterfacesInput, optFns ...func(*ec2.Options)) (*ec2.DescribeNetworkInterfacesOutput, error)
 	DescribeRouteTables(ctx context.Context, params *ec2.DescribeRouteTablesInput, optFns ...func(*ec2.Options)) (*ec2.DescribeRouteTablesOutput, error)
 	DescribeSecurityGroups(ctx context.Context, params *ec2.DescribeSecurityGroupsInput, optFns ...func(*ec2.Options)) (*ec2.DescribeSecurityGroupsOutput, error)
@@ -85,6 +86,21 @@ func (s *awsSdkEC2) DescribeInstances(ctx context.Context, request *ec2.Describe
 	timeTaken := time.Since(requestTime).Seconds()
 	recordAWSMetric("describe_instance", timeTaken, nil)
 	return results, nil
+}
+
+func (s *awsSdkEC2) DescribeInstanceTopology(ctx context.Context, input *ec2.DescribeInstanceTopologyInput, optFns ...func(*ec2.Options)) ([]ec2types.InstanceTopology, error) {
+	var topologies []ec2types.InstanceTopology
+
+	paginator := ec2.NewDescribeInstanceTopologyPaginator(s.ec2, input)
+	for paginator.HasMorePages() {
+		output, err := paginator.NextPage(ctx)
+		if err != nil {
+			return nil, err
+		}
+		topologies = append(topologies, output.Instances...)
+	}
+
+	return topologies, nil
 }
 
 // DescribeNetworkInterfaces describes network interface provided in the input.
