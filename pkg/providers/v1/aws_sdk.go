@@ -41,16 +41,16 @@ import (
 )
 
 type awsSDKProvider struct {
-	credsV2 aws.CredentialsProvider // for use in aws-sdk-go v2 clients
+	creds aws.CredentialsProvider // for use in aws-sdk-go v2 clients
 	cfg     awsCloudConfigProvider
 
 	mutex          sync.Mutex
 	regionDelayers map[string]*CrossRequestRetryDelay
 }
 
-func newAWSSDKProvider(credsV2 aws.CredentialsProvider, cfg *config.CloudConfig) *awsSDKProvider {
+func newAWSSDKProvider(creds aws.CredentialsProvider, cfg *config.CloudConfig) *awsSDKProvider {
 	return &awsSDKProvider{
-		credsV2:        credsV2,
+		creds:        creds,
 		cfg:            cfg,
 		regionDelayers: make(map[string]*CrossRequestRetryDelay),
 	}
@@ -76,11 +76,11 @@ func (p *awsSDKProvider) AddMiddleware(ctx context.Context, regionName string, c
 		)
 	}
 
-	p.addAPILoggingHandlersV2(cfg)
+	p.addAPILoggingMiddleware(cfg)
 }
 
 // Adds logging middleware for AWS SDK Go V2 clients
-func (p *awsSDKProvider) addAPILoggingHandlersV2(cfg *aws.Config) {
+func (p *awsSDKProvider) addAPILoggingMiddleware(cfg *aws.Config) {
 	cfg.APIOptions = append(cfg.APIOptions,
 		func(stack *smithymiddleware.Stack) error {
 			stack.Serialize.Add(awsSendHandlerLoggerMiddleware(), smithymiddleware.After)
@@ -194,7 +194,7 @@ func (p *awsSDKProvider) Metadata() (config.EC2Metadata, error) {
 	if err != nil {
 		return nil, fmt.Errorf("unable to initialize AWS config: %v", err)
 	}
-	p.addAPILoggingHandlersV2(&cfg)
+	p.addAPILoggingMiddleware(&cfg)
 	imdsClient := imds.New(imds.Options{ClientEnableState: imds.ClientEnabled})
 	getInstanceIdentityDocumentOutput, err := imdsClient.GetInstanceIdentityDocument(context.Background(), &imds.GetInstanceIdentityDocumentInput{})
 	identity := getInstanceIdentityDocumentOutput.InstanceIdentityDocument
