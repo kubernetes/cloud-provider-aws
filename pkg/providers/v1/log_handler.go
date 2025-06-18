@@ -33,7 +33,7 @@ func awsHandlerLoggerMiddleware() middleware.FinalizeMiddleware {
 		func(ctx context.Context, in middleware.FinalizeInput, next middleware.FinalizeHandler) (
 			out middleware.FinalizeOutput, metadata middleware.Metadata, err error,
 		) {
-			service, name := awsServiceAndNameV2(ctx)
+			service, name := awsServiceAndName(ctx)
 
 			klog.V(4).Infof("AWS request: %s %s", service, name)
 			return next.HandleFinalize(ctx, in)
@@ -53,7 +53,7 @@ func awsValidateResponseHandlerLoggerMiddleware() middleware.DeserializeMiddlewa
 			if !ok {
 				return out, metadata, &smithy.DeserializationError{Err: fmt.Errorf("unknown transport type %T", out.RawResponse)}
 			}
-			service, name := awsServiceAndNameV2(ctx)
+			service, name := awsServiceAndName(ctx)
 			klog.V(4).Infof("AWS API ValidateResponse: %s %s %d", service, name, response.StatusCode)
 			return out, metadata, err
 		},
@@ -67,7 +67,7 @@ func awsSendHandlerLoggerMiddleware() middleware.SerializeMiddleware {
 		func(ctx context.Context, in middleware.SerializeInput, next middleware.SerializeHandler) (
 			out middleware.SerializeOutput, metadata middleware.Metadata, err error,
 		) {
-			service, name := awsServiceAndNameV2(ctx)
+			service, name := awsServiceAndName(ctx)
 			klog.V(4).Infof("AWS API Send: %s %s %v", service, name, in.Parameters)
 			return next.HandleSerialize(ctx, in)
 		},
@@ -75,7 +75,7 @@ func awsSendHandlerLoggerMiddleware() middleware.SerializeMiddleware {
 }
 
 // Gets the service and operation name from AWS SDK Go V2 client requests.
-func awsServiceAndNameV2(ctx context.Context) (string, string) {
+func awsServiceAndName(ctx context.Context) (string, string) {
 	service := middleware.GetServiceID(ctx)
 
 	name := "?"
