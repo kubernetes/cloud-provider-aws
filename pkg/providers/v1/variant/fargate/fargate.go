@@ -5,10 +5,10 @@ import (
 	"fmt"
 	"strings"
 
+	awsv2 "github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/ec2"
 	ec2types "github.com/aws/aws-sdk-go-v2/service/ec2/types"
 	awssdk "github.com/aws/aws-sdk-go/aws"
-	"github.com/aws/aws-sdk-go/aws/credentials"
 
 	v1 "k8s.io/api/core/v1"
 	cloudprovider "k8s.io/cloud-provider"
@@ -27,11 +27,11 @@ const (
 type fargateVariant struct {
 	cloudConfig *config.CloudConfig
 	ec2API      iface.EC2
-	credentials *credentials.Credentials
+	credentials awsv2.CredentialsProvider
 	provider    config.SDKProvider
 }
 
-func (f *fargateVariant) Initialize(cloudConfig *config.CloudConfig, credentials *credentials.Credentials, provider config.SDKProvider, ec2API iface.EC2, region string) error {
+func (f *fargateVariant) Initialize(cloudConfig *config.CloudConfig, credentials awsv2.CredentialsProvider, provider config.SDKProvider, ec2API iface.EC2, region string) error {
 	f.cloudConfig = cloudConfig
 	f.ec2API = ec2API
 	f.credentials = credentials
