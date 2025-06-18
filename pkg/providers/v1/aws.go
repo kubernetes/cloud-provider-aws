@@ -28,7 +28,7 @@ import (
 	"strings"
 	"time"
 
-	stscredsv2 "github.com/aws/aws-sdk-go-v2/credentials/stscreds"
+	"github.com/aws/aws-sdk-go-v2/credentials/stscreds"
 	"github.com/aws/aws-sdk-go-v2/feature/ec2/imds"
 	"github.com/aws/aws-sdk-go-v2/service/ec2"
 	ec2types "github.com/aws/aws-sdk-go-v2/service/ec2/types"
@@ -61,7 +61,6 @@ import (
 	"k8s.io/cloud-provider-aws/pkg/providers/v1/iface"
 	"k8s.io/cloud-provider-aws/pkg/providers/v1/variant"
 	_ "k8s.io/cloud-provider-aws/pkg/providers/v1/variant/fargate" // ensure the fargate variant gets registered
-	// "k8s.io/cloud-provider-aws/pkg/resourcemanagers"
 	"k8s.io/cloud-provider-aws/pkg/services"
 )
 
@@ -287,11 +286,11 @@ const MaxReadThenCreateRetries = 30
 
 // Services is an abstraction over AWS, to allow mocking/other implementations
 type Services interface {
-	Compute(ctx context.Context, region string, assumeRoleProvider *stscredsv2.AssumeRoleProvider) (iface.EC2, error)
-	LoadBalancing(ctx context.Context, regionName string, assumeRoleProvider *stscredsv2.AssumeRoleProvider) (ELB, error)
-	LoadBalancingV2(ctx context.Context, regionName string, assumeRoleProvider *stscredsv2.AssumeRoleProvider) (ELBV2, error)
+	Compute(ctx context.Context, region string, assumeRoleProvider *stscreds.AssumeRoleProvider) (iface.EC2, error)
+	LoadBalancing(ctx context.Context, regionName string, assumeRoleProvider *stscreds.AssumeRoleProvider) (ELB, error)
+	LoadBalancingV2(ctx context.Context, regionName string, assumeRoleProvider *stscreds.AssumeRoleProvider) (ELBV2, error)
 	Metadata() (config.EC2Metadata, error)
-	KeyManagement(ctx context.Context, regionName string, assumeRoleProvider *stscredsv2.AssumeRoleProvider) (KMS, error)
+	KeyManagement(ctx context.Context, regionName string, assumeRoleProvider *stscreds.AssumeRoleProvider) (KMS, error)
 }
 
 // ELB is a simple pass-through of AWS' ELB client interface, which allows for testing
@@ -485,17 +484,17 @@ func init() {
 			return nil, err
 		}
 
-		var credsV2 *stscredsv2.AssumeRoleProvider
+		var creds *stscreds.AssumeRoleProvider
 		if cfg.Global.RoleARN != "" {
-			stsClientv2, err := services.NewStsV2Client(ctx, regionName, cfg.Global.RoleARN, cfg.Global.SourceARN)
+			stsClient, err := services.NewStsClient(ctx, regionName, cfg.Global.RoleARN, cfg.Global.SourceARN)
 			if err != nil {
 				return nil, fmt.Errorf("unable to create sts v2 client: %v", err)
 			}
-			credsV2 = stscredsv2.NewAssumeRoleProvider(stsClientv2, cfg.Global.RoleARN)
+			creds = stscreds.NewAssumeRoleProvider(stsClient, cfg.Global.RoleARN)
 		}
 
-		aws := newAWSSDKProvider(credsV2, cfg)
-		return newAWSCloud2(*cfg, aws, aws, credsV2)
+		aws := newAWSSDKProvider(creds, cfg)
+		return newAWSCloud2(*cfg, aws, aws, creds)
 	})
 }
 
@@ -536,7 +535,7 @@ func newAWSCloud(cfg config.CloudConfig, awsServices Services) (*Cloud, error) {
 
 // newAWSCloud creates a new instance of AWSCloud.
 // AWSProvider and instanceId are primarily for tests
-func newAWSCloud2(cfg config.CloudConfig, awsServices Services, provider config.SDKProvider, credentialsV2 *stscredsv2.AssumeRoleProvider) (*Cloud, error) {
+func newAWSCloud2(cfg config.CloudConfig, awsServices Services, provider config.SDKProvider, credentials *stscreds.AssumeRoleProvider) (*Cloud, error) {
 	ctx := context.Background()
 	// We have some state in the Cloud object
 	// Log so that if we are building multiple Cloud objects, it is obvious!
@@ -552,27 +551,22 @@ func newAWSCloud2(cfg config.CloudConfig, awsServices Services, provider config.
 		return nil, err
 	}
 
-	ec2, err := awsServices.Compute(ctx, regionName, credentialsV2)
+	ec2, err := awsServices.Compute(ctx, regionName, credentials)
 	if err != nil {
 		return nil, fmt.Errorf("error creating AWS EC2 client: %v", err)
 	}
 
-	// ec2v2, err := services.NewEc2SdkV2(ctx, regionName, credentialsV2)
-	// if err != nil {
-	// 	return nil, fmt.Errorf("error creating AWS EC2v2 client: %v", err)
-	// }
-
-	elb, err := awsServices.LoadBalancing(ctx, regionName, credentialsV2)
+	elb, err := awsServices.LoadBalancing(ctx, regionName, credentials)
 	if err != nil {
 		return nil, fmt.Errorf("error creating AWS ELB client: %v", err)
 	}
 
-	elbv2, err := awsServices.LoadBalancingV2(ctx, regionName, credentialsV2)
+	elbv2, err := awsServices.LoadBalancingV2(ctx, regionName, credentials)
 	if err != nil {
 		return nil, fmt.Errorf("error creating AWS ELBV2 client: %v", err)
 	}
 
-	kms, err := awsServices.KeyManagement(ctx, regionName, credentialsV2)
+	kms, err := awsServices.KeyManagement(ctx, regionName, credentials)
 	if err != nil {
 		return nil, fmt.Errorf("error creating AWS key management client: %v", err)
 	}
@@ -635,7 +629,7 @@ func newAWSCloud2(cfg config.CloudConfig, awsServices Services, provider config.
 
 	variants := variant.GetVariants()
 	for _, v := range variants {
-		if err := v.Initialize(&cfg, credentialsV2, provider, awsCloud.ec2, awsCloud.region); err != nil {
+		if err := v.Initialize(&cfg, credentials, provider, awsCloud.ec2, awsCloud.region); err != nil {
 			return nil, err
 		}
 	}

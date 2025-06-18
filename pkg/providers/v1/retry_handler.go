@@ -166,7 +166,7 @@ func delayPreSign(delayer *CrossRequestRetryDelay) middleware.FinalizeMiddleware
 				}
 			}
 
-			service, name := awsServiceAndNameV2(ctx)
+			service, name := awsServiceAndName(ctx)
 			request, ok := in.Request.(*http.Request)
 			if ok {
 				klog.V(4).Infof("AWS API Send: %s %s %s %s", service, name, request.Request.Method, request.Request.URL.Path)

@@ -27,7 +27,7 @@ type requestInfo struct {
 // Given an override, a custom endpoint should be used when making API requests
 func TestClientsEndpointOverride(t *testing.T) {
 	reqInfo := requestInfo{} // stores information about requests, should be reset between API calls
-	// Dummy server that checks credential headers
+	// Dummy server that sets usedCustomEndpoint when called, and collects information about the request
 	testServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		reqInfo.usedCustomEndpoint = true
 		// Extract credential from auth header
@@ -40,6 +40,7 @@ func TestClientsEndpointOverride(t *testing.T) {
 	}))
 	defer testServer.Close()
 
+	// Clients should be able to have their default signing region and name overridden
 	t.Run("With overriden signing region and name", func(t *testing.T) {
 		cfgWithServiceOverride := config.CloudConfig{
 			ServiceOverride: map[string]*struct {
@@ -137,7 +138,9 @@ func TestClientsEndpointOverride(t *testing.T) {
 		}
 	})
 
-	t.Run("With overridden signing region and default name", func(t *testing.T) {
+	// When the signing name is overridden but not the signing region, the signing name should be
+	// whatever is configured in the override, and the signing region should fall back to the request region.
+	t.Run("With overridden signing name and default region", func(t *testing.T) {
 		cfgWithServiceOverride := config.CloudConfig{
 			ServiceOverride: map[string]*struct {
 				Service       string
@@ -226,8 +229,9 @@ func TestClientsEndpointOverride(t *testing.T) {
 		assert.True(t, strings.Contains(reqInfo.credential, "custom-service"), "KMS: signing name was not properly overridden")
 	})
 
-	// Test whether the request will use the
-	t.Run("With overriden signing name and default region", func(t *testing.T) {
+	// When the signing region is overridden but not the signing name, the signing region should be
+	// whatever is configured in the override, and the signing name should fall back to the client's service name.
+	t.Run("With overriden signing region and default name", func(t *testing.T) {
 		cfgWithServiceOverride := config.CloudConfig{
 			ServiceOverride: map[string]*struct {
 				Service       string
@@ -318,7 +322,10 @@ func TestClientsEndpointOverride(t *testing.T) {
 		assert.True(t, strings.Contains(reqInfo.credential, "custom-region"), "KMS: signing region was not properly overridden")
 	})
 
-	t.Run("With no overrides", func(t *testing.T) {
+	// When only the URL is overridden, and not the signing region or name, the URL should be whatever is configured in
+	// the override, the region should fall back to the request region, and the name should fall back to the client's
+	// service name.
+	t.Run("Only URL override", func(t *testing.T) {
 		cfgWithServiceOverride := config.CloudConfig{
 			ServiceOverride: map[string]*struct {
 				Service       string
