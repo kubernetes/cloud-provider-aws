@@ -46,9 +46,8 @@ import (
 )
 
 type awsSDKProvider struct {
-	creds   *credentials.Credentials
-	credsV2 awsv2.CredentialsProvider // for use in aws-sdk-go v2 clients
-	cfg     awsCloudConfigProvider
+	creds aws.CredentialsProvider // for use in aws-sdk-go v2 clients
+	cfg   awsCloudConfigProvider
 
 	mutex          sync.Mutex
 	regionDelayers map[string]*CrossRequestRetryDelay
@@ -57,7 +56,6 @@ type awsSDKProvider struct {
 func newAWSSDKProvider(creds *credentials.Credentials, credsV2 awsv2.CredentialsProvider, cfg *config.CloudConfig) *awsSDKProvider {
 	return &awsSDKProvider{
 		creds:          creds,
-		credsV2:        credsV2,
 		cfg:            cfg,
 		regionDelayers: make(map[string]*CrossRequestRetryDelay),
 	}
