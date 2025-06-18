@@ -26,7 +26,7 @@ type requestInfo struct {
 
 // Given an override, a custom endpoint should be used when making API requests
 func TestClientsEndpointOverride(t *testing.T) {
-	reqInfo := requestInfo{}
+	reqInfo := requestInfo{} // stores information about requests, should be reset between API calls
 	// Dummy server that checks credential headers
 	testServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		reqInfo.usedCustomEndpoint = true
