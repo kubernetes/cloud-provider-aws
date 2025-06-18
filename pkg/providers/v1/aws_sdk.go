@@ -41,17 +41,8 @@ import (
 )
 
 type awsSDKProvider struct {
-<<<<<<< HEAD
-<<<<<<< HEAD
-	creds aws.CredentialsProvider // for use in aws-sdk-go v2 clients
+	creds aws.CredentialsProvider
 	cfg   awsCloudConfigProvider
-=======
-	credsV2 aws.CredentialsProvider // for use in aws-sdk-go v2 clients
-=======
-	creds aws.CredentialsProvider // for use in aws-sdk-go v2 clients
->>>>>>> db7cfb2 (update naming and comments)
-	cfg     awsCloudConfigProvider
->>>>>>> 9ae336c (bumped kms and imds)
 
 	mutex          sync.Mutex
 	regionDelayers map[string]*CrossRequestRetryDelay
