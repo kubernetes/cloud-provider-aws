@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/feature/ec2/imds"
 	"github.com/aws/aws-sdk-go-v2/service/ec2"
 	elb "github.com/aws/aws-sdk-go-v2/service/elasticloadbalancing"
 	elbv2 "github.com/aws/aws-sdk-go-v2/service/elasticloadbalancingv2"
@@ -41,7 +42,7 @@ func TestClientsEndpointOverride(t *testing.T) {
 	defer testServer.Close()
 
 	// Clients should be able to have their default signing region and name overridden
-	t.Run("With overriden signing region and name", func(t *testing.T) {
+	t.Run("With overridden URL, signing region, and signing name", func(t *testing.T) {
 		cfgWithServiceOverride := config.CloudConfig{
 			ServiceOverride: map[string]*struct {
 				Service       string
@@ -128,14 +129,6 @@ func TestClientsEndpointOverride(t *testing.T) {
 		assert.True(t, reqInfo.usedCustomEndpoint, "KMS: custom endpoint was not used")
 		assert.True(t, strings.Contains(reqInfo.credential, "custom-service"), "KMS: signing name was not properly overridden")
 		assert.True(t, strings.Contains(reqInfo.credential, "custom-region"), "KMS: signing region was not properly overridden")
-
-		// Test Metadata client. Unlike other clients, it doesn't have custom endpoint logic, so this check
-		// just ensures successful client creation
-		reqInfo = requestInfo{}
-		_, err = mockProvider.Metadata()
-		if err != nil {
-			t.Errorf("error creating Metadata client, %v", err)
-		}
 	})
 
 	// When the signing name is overridden but not the signing region, the signing name should be
@@ -363,6 +356,13 @@ func TestClientsEndpointOverride(t *testing.T) {
 					SigningRegion: "",
 					SigningName:   "",
 				},
+				"5": {
+					Service:       imds.ServiceID,
+					Region:        "us-west-2",
+					URL:           testServer.URL,
+					SigningRegion: "",
+					SigningName:   "",
+				},
 			},
 		}
 		mockProvider := &awsSDKProvider{
@@ -413,6 +413,12 @@ func TestClientsEndpointOverride(t *testing.T) {
 		assert.True(t, reqInfo.usedCustomEndpoint, "KMS: custom endpoint was not used")
 		assert.True(t, strings.Contains(reqInfo.credential, strings.ToLower(kms.ServiceID)), "KMS: blank signing name should fall back to request service")
 		assert.True(t, strings.Contains(reqInfo.credential, "us-west-2"), "KMS: blank signing region should fall back to request region")
+
+		// Test Metadata client. This client only supports overriding the URL, not the signing name and region.
+		reqInfo = requestInfo{}
+		// Call Metadata(), which both creates the client and uses it to make a request.
+		mockProvider.Metadata(context.TODO())
+		assert.True(t, reqInfo.usedCustomEndpoint, "IMDS: custom endpoint was not used")
 	})
 }
 

@@ -289,7 +289,7 @@ type Services interface {
 	Compute(ctx context.Context, region string, assumeRoleProvider *stscreds.AssumeRoleProvider) (iface.EC2, error)
 	LoadBalancing(ctx context.Context, regionName string, assumeRoleProvider *stscreds.AssumeRoleProvider) (ELB, error)
 	LoadBalancingV2(ctx context.Context, regionName string, assumeRoleProvider *stscreds.AssumeRoleProvider) (ELBV2, error)
-	Metadata() (config.EC2Metadata, error)
+	Metadata(ctx context.Context) (config.EC2Metadata, error)
 	KeyManagement(ctx context.Context, regionName string, assumeRoleProvider *stscreds.AssumeRoleProvider) (KMS, error)
 }
 
@@ -409,6 +409,7 @@ type awsCloudConfigProvider interface {
 	GetCustomELBV2Resolver() elbv2.EndpointResolverV2
 	GetKMSEndpointOpts(region string) []func(*kms.Options)
 	GetCustomKMSResolver() kms.EndpointResolverV2
+	GetIMDSEndpointOpts() []func(*imds.Options)
 }
 
 // InstanceIDIndexFunc indexes based on a Node's instance ID found in its spec.providerID
@@ -474,7 +475,7 @@ func init() {
 			return nil, fmt.Errorf("unable to validate custom endpoint overrides: %v", err)
 		}
 
-		metadata, err := newAWSSDKProvider(nil, cfg).Metadata()
+		metadata, err := newAWSSDKProvider(nil, cfg).Metadata(ctx)
 		if err != nil {
 			return nil, fmt.Errorf("error creating AWS metadata client: %q", err)
 		}
@@ -541,7 +542,7 @@ func newAWSCloud2(cfg config.CloudConfig, awsServices Services, provider config.
 	// Log so that if we are building multiple Cloud objects, it is obvious!
 	klog.Infof("Building AWS cloudprovider")
 
-	metadata, err := awsServices.Metadata()
+	metadata, err := awsServices.Metadata(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("error creating AWS metadata client: %q", err)
 	}
@@ -1072,7 +1073,7 @@ func (c *Cloud) buildSelfAWSInstance(ctx context.Context) (*awsInstance, error) 
 	// have two code paths.
 	instanceIDBytes, err := io.ReadAll(instanceIDMetadata.Content)
 	if err != nil {
-		panic("unable to parse instance id")
+		return nil, fmt.Errorf("unable to parse instance id: %q", err)
 	}
 	defer instanceIDMetadata.Content.Close()
 

@@ -390,6 +390,19 @@ func (r *KMSResolver) ResolveEndpoint(
 	return r.Resolver.ResolveEndpoint(ctx, params)
 }
 
+// GetIMDSEndpointOpts overrides the endpoint URL for IMDS clients
+func (cfg *CloudConfig) GetIMDSEndpointOpts() []func(*imds.Options) {
+	opts := []func(*imds.Options){}
+	for _, override := range cfg.ServiceOverride {
+		if override.Service == imds.ServiceID {
+			opts = append(opts, func(o *imds.Options) {
+				o.Endpoint = override.URL
+			})
+		}
+	}
+	return opts
+}
+
 // SDKProvider can be used by variants to add their own handlers
 type SDKProvider interface {
 	AddMiddleware(ctx context.Context, regionName string, cfg *aws.Config)

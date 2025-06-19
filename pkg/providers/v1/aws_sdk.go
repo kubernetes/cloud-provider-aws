@@ -189,14 +189,28 @@ func (p *awsSDKProvider) LoadBalancingV2(ctx context.Context, regionName string,
 	return elbv2Client, nil
 }
 
-func (p *awsSDKProvider) Metadata() (config.EC2Metadata, error) {
-	cfg, err := awsConfig.LoadDefaultConfig(context.TODO())
+func (p *awsSDKProvider) Metadata(ctx context.Context) (config.EC2Metadata, error) {
+	cfg, err := awsConfig.LoadDefaultConfig(context.TODO(), awsConfig.WithDefaultsMode(aws.DefaultsModeInRegion))
 	if err != nil {
 		return nil, fmt.Errorf("unable to initialize AWS config: %v", err)
 	}
+
 	p.addAPILoggingMiddleware(&cfg)
-	imdsClient := imds.New(imds.Options{ClientEnableState: imds.ClientEnabled})
-	getInstanceIdentityDocumentOutput, err := imdsClient.GetInstanceIdentityDocument(context.Background(), &imds.GetInstanceIdentityDocumentInput{})
+
+	// Unlike other SDK clients, the IMDS client does not support signing, so any overrides of the signing region and name
+	// from awsSDKProvider.cfg will not be recognized.
+	// Standard SDK clients use SigV4: https://docs.aws.amazon.com/IAM/latest/UserGuide/reference_sigv-create-signed-request.html
+	// But IMDS uses a different request pattern: https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/configuring-instance-metadata-service.html
+	var opts []func(*imds.Options) = p.cfg.GetIMDSEndpointOpts()
+	opts = append(opts, func(o *imds.Options) {
+		o.ClientEnableState = imds.ClientEnabled // enable requests, otherwise the AWS_EC2_METADATA_DISABLED env var will need to be set
+	})
+	imdsClient := imds.NewFromConfig(cfg, opts...)
+
+	getInstanceIdentityDocumentOutput, err := imdsClient.GetInstanceIdentityDocument(ctx, &imds.GetInstanceIdentityDocumentInput{})
+	if err != nil {
+		return nil, fmt.Errorf("unable to retrieve instance identity document: %v", err)
+	}
 	identity := getInstanceIdentityDocumentOutput.InstanceIdentityDocument
 
 	if err == nil {

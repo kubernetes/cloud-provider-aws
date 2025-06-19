@@ -173,7 +173,7 @@ func (s *FakeAWSServices) LoadBalancingV2(ctx context.Context, region string, as
 }
 
 // Metadata returns a fake EC2Metadata client
-func (s *FakeAWSServices) Metadata() (config.EC2Metadata, error) {
+func (s *FakeAWSServices) Metadata(ctx context.Context) (config.EC2Metadata, error) {
 	return s.metadata, nil
 }
 
