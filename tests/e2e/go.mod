@@ -1,6 +1,6 @@
 module k8s.io/cloud-provider-aws/tests/e2e
 
-go 1.24.0
+go 1.24.4
 
 require (
 	github.com/aws/aws-sdk-go-v2 v1.36.3
