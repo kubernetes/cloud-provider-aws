@@ -211,14 +211,14 @@ func (p *awsSDKProvider) Metadata(ctx context.Context) (config.EC2Metadata, erro
 	if err == nil {
 		identity := getInstanceIdentityDocumentOutput.InstanceIdentityDocument
 		klog.InfoS("instance metadata identity",
-		"region", identity.Region,
-		"availability-zone", identity.AvailabilityZone,
-		"instance-type", identity.InstanceType,
-		"architecture", identity.Architecture,
-		"instance-id", identity.InstanceID,
-		"private-ip", identity.PrivateIP,
-		"account-id", identity.AccountID,
-		"image-id", identity.ImageID)
+			"region", identity.Region,
+			"availability-zone", identity.AvailabilityZone,
+			"instance-type", identity.InstanceType,
+			"architecture", identity.Architecture,
+			"instance-id", identity.InstanceID,
+			"private-ip", identity.PrivateIP,
+			"account-id", identity.AccountID,
+			"image-id", identity.ImageID)
 	}
 	return imdsClient, nil
 }
