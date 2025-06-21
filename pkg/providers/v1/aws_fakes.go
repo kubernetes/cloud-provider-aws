@@ -20,19 +20,21 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"sort"
 	"strconv"
 	"strings"
 
 	stscredsv2 "github.com/aws/aws-sdk-go-v2/credentials/stscreds"
+	"github.com/aws/aws-sdk-go-v2/feature/ec2/imds"
+	"github.com/aws/aws-sdk-go-v2/service/autoscaling"
 	"github.com/aws/aws-sdk-go-v2/service/ec2"
 	ec2types "github.com/aws/aws-sdk-go-v2/service/ec2/types"
 	elb "github.com/aws/aws-sdk-go-v2/service/elasticloadbalancing"
 	elbv2 "github.com/aws/aws-sdk-go-v2/service/elasticloadbalancingv2"
+	"github.com/aws/aws-sdk-go-v2/service/kms"
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/awserr"
-	"github.com/aws/aws-sdk-go/service/autoscaling"
-	"github.com/aws/aws-sdk-go/service/kms"
 	"k8s.io/klog/v2"
 
 	"k8s.io/cloud-provider-aws/pkg/providers/v1/config"
@@ -171,12 +173,12 @@ func (s *FakeAWSServices) LoadBalancingV2(ctx context.Context, region string, as
 }
 
 // Metadata returns a fake EC2Metadata client
-func (s *FakeAWSServices) Metadata() (config.EC2Metadata, error) {
+func (s *FakeAWSServices) Metadata(ctx context.Context) (config.EC2Metadata, error) {
 	return s.metadata, nil
 }
 
 // KeyManagement returns a fake KMS client
-func (s *FakeAWSServices) KeyManagement(region string) (KMS, error) {
+func (s *FakeAWSServices) KeyManagement(ctx context.Context, regionName string, assumeRoleProvider *stscredsv2.AssumeRoleProvider) (KMS, error) {
 	return s.kms, nil
 }
 
@@ -238,6 +240,11 @@ func (ec2i *FakeEC2Impl) DescribeInstances(ctx context.Context, request *ec2.Des
 
 	ec2i.aws.countCall("ec2", "DescribeInstances", strings.Join(matchedInstances, ","))
 	return matches, nil
+}
+
+// DescribeInstanceTopology is not implemented but is required for interface conformance
+func (ec2i *FakeEC2Impl) DescribeInstanceTopology(ctx context.Context, request *ec2.DescribeInstanceTopologyInput, optFns ...func(*ec2.Options)) ([]ec2types.InstanceTopology, error) {
+	panic("Not implemented")
 }
 
 // AttachVolume is not implemented but is required for interface conformance
@@ -445,7 +452,8 @@ type FakeMetadata struct {
 }
 
 // GetMetadata returns fake EC2 metadata for testing
-func (m *FakeMetadata) GetMetadata(key string) (string, error) {
+func (m *FakeMetadata) GetMetadata(ctx context.Context, input *imds.GetMetadataInput, optFns ...func(*imds.Options)) (*imds.GetMetadataOutput, error) {
+	key := input.Path
 	networkInterfacesPrefix := "network/interfaces/macs/"
 	i := m.aws.selfInstance
 	if key == "placement/availability-zone" {
@@ -453,17 +461,17 @@ func (m *FakeMetadata) GetMetadata(key string) (string, error) {
 		if i.Placement != nil {
 			az = aws.StringValue(i.Placement.AvailabilityZone)
 		}
-		return az, nil
+		return &imds.GetMetadataOutput{Content: io.NopCloser(strings.NewReader(az))}, nil
 	} else if key == "instance-id" {
-		return aws.StringValue(i.InstanceId), nil
+		return &imds.GetMetadataOutput{Content: io.NopCloser(strings.NewReader(*i.InstanceId))}, nil
 	} else if key == "local-hostname" {
-		return aws.StringValue(i.PrivateDnsName), nil
+		return &imds.GetMetadataOutput{Content: io.NopCloser(strings.NewReader(*i.PrivateDnsName))}, nil
 	} else if key == "public-hostname" {
-		return aws.StringValue(i.PublicDnsName), nil
+		return &imds.GetMetadataOutput{Content: io.NopCloser(strings.NewReader(*i.PublicDnsName))}, nil
 	} else if key == "local-ipv4" {
-		return aws.StringValue(i.PrivateIpAddress), nil
+		return &imds.GetMetadataOutput{Content: io.NopCloser(strings.NewReader(*i.PrivateIpAddress))}, nil
 	} else if key == "public-ipv4" {
-		return aws.StringValue(i.PublicIpAddress), nil
+		return &imds.GetMetadataOutput{Content: io.NopCloser(strings.NewReader(*i.PublicIpAddress))}, nil
 	} else if strings.HasPrefix(key, networkInterfacesPrefix) {
 		if key == networkInterfacesPrefix {
 			// Return the MACs sorted lexically rather than in device-number
@@ -472,7 +480,8 @@ func (m *FakeMetadata) GetMetadata(key string) (string, error) {
 			macs := make([]string, len(m.aws.networkInterfacesMacs))
 			copy(macs, m.aws.networkInterfacesMacs)
 			sort.Strings(macs)
-			return strings.Join(macs, "/\n") + "/\n", nil
+			value := strings.Join(macs, "/\n") + "/\n"
+			return &imds.GetMetadataOutput{Content: io.NopCloser(strings.NewReader(value))}, nil
 		}
 
 		keySplit := strings.Split(key, "/")
@@ -480,7 +489,7 @@ func (m *FakeMetadata) GetMetadata(key string) (string, error) {
 		if len(keySplit) == 5 && keySplit[4] == "vpc-id" {
 			for i, macElem := range m.aws.networkInterfacesMacs {
 				if macParam == macElem {
-					return m.aws.networkInterfacesVpcIDs[i], nil
+					return &imds.GetMetadataOutput{Content: io.NopCloser(strings.NewReader(m.aws.networkInterfacesVpcIDs[i]))}, nil
 				}
 			}
 		}
@@ -492,27 +501,29 @@ func (m *FakeMetadata) GetMetadata(key string) (string, error) {
 						// Introduce an artificial gap, just to test eg: [eth0, eth2]
 						n++
 					}
-					return fmt.Sprintf("%d\n", n), nil
+					value := fmt.Sprintf("%d\n", n)
+					return &imds.GetMetadataOutput{Content: io.NopCloser(strings.NewReader(value))}, nil
 				}
 			}
 		}
 		if len(keySplit) == 5 && keySplit[4] == "local-ipv4s" {
 			for i, macElem := range m.aws.networkInterfacesMacs {
 				if macParam == macElem {
-					return strings.Join(m.aws.networkInterfacesPrivateIPs[i], "/\n"), nil
+					value := strings.Join(m.aws.networkInterfacesPrivateIPs[i], "/\n")
+					return &imds.GetMetadataOutput{Content: io.NopCloser(strings.NewReader(value))}, nil
 				}
 			}
 		}
 
-		return "", nil
+		return &imds.GetMetadataOutput{Content: io.NopCloser(strings.NewReader(""))}, nil
 	}
 
-	return "", nil
+	return &imds.GetMetadataOutput{Content: io.NopCloser(strings.NewReader(""))}, nil
 }
 
-// Region returns AWS region
-func (m *FakeMetadata) Region() (string, error) {
-	return m.aws.region, nil
+// GetRegion returns AWS region
+func (m *FakeMetadata) GetRegion(ctx context.Context, params *imds.GetRegionInput, optFns ...func(*imds.Options)) (*imds.GetRegionOutput, error) {
+	return &imds.GetRegionOutput{Region: m.aws.region}, nil
 }
 
 // FakeELB is a fake ELB client used for testing
@@ -750,7 +761,7 @@ type FakeKMS struct {
 }
 
 // DescribeKey is not implemented but is required for interface conformance
-func (kms *FakeKMS) DescribeKey(*kms.DescribeKeyInput) (*kms.DescribeKeyOutput, error) {
+func (kms *FakeKMS) DescribeKey(ctx context.Context, input *kms.DescribeKeyInput, optFns ...func(*kms.Options)) (*kms.DescribeKeyOutput, error) {
 	panic("Not implemented")
 }
 
