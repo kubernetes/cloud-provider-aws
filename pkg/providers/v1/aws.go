@@ -28,22 +28,17 @@ import (
 	"strings"
 	"time"
 
-	stscredsv2 "github.com/aws/aws-sdk-go-v2/credentials/stscreds"
+	"github.com/aws/aws-sdk-go-v2/credentials/stscreds"
+	"github.com/aws/aws-sdk-go-v2/feature/ec2/imds"
 	"github.com/aws/aws-sdk-go-v2/service/ec2"
 	ec2types "github.com/aws/aws-sdk-go-v2/service/ec2/types"
 	elb "github.com/aws/aws-sdk-go-v2/service/elasticloadbalancing"
 	elbtypes "github.com/aws/aws-sdk-go-v2/service/elasticloadbalancing/types"
 	elbv2 "github.com/aws/aws-sdk-go-v2/service/elasticloadbalancingv2"
 	elbv2types "github.com/aws/aws-sdk-go-v2/service/elasticloadbalancingv2/types"
+	"github.com/aws/aws-sdk-go-v2/service/kms"
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/awserr"
-	"github.com/aws/aws-sdk-go/aws/credentials"
-	"github.com/aws/aws-sdk-go/aws/credentials/stscreds"
-	"github.com/aws/aws-sdk-go/aws/endpoints"
-	"github.com/aws/aws-sdk-go/aws/request"
-	"github.com/aws/aws-sdk-go/aws/session"
-	"github.com/aws/aws-sdk-go/service/kms"
-	"github.com/aws/aws-sdk-go/service/sts"
 	"github.com/aws/smithy-go"
 	"gopkg.in/gcfg.v1"
 
@@ -66,7 +61,6 @@ import (
 	"k8s.io/cloud-provider-aws/pkg/providers/v1/iface"
 	"k8s.io/cloud-provider-aws/pkg/providers/v1/variant"
 	_ "k8s.io/cloud-provider-aws/pkg/providers/v1/variant/fargate" // ensure the fargate variant gets registered
-	"k8s.io/cloud-provider-aws/pkg/resourcemanagers"
 	"k8s.io/cloud-provider-aws/pkg/services"
 )
 
@@ -292,11 +286,11 @@ const MaxReadThenCreateRetries = 30
 
 // Services is an abstraction over AWS, to allow mocking/other implementations
 type Services interface {
-	Compute(ctx context.Context, region string, assumeRoleProvider *stscredsv2.AssumeRoleProvider) (iface.EC2, error)
-	LoadBalancing(ctx context.Context, regionName string, assumeRoleProvider *stscredsv2.AssumeRoleProvider) (ELB, error)
-	LoadBalancingV2(ctx context.Context, regionName string, assumeRoleProvider *stscredsv2.AssumeRoleProvider) (ELBV2, error)
-	Metadata() (config.EC2Metadata, error)
-	KeyManagement(region string) (KMS, error)
+	Compute(ctx context.Context, region string, assumeRoleProvider *stscreds.AssumeRoleProvider) (iface.EC2, error)
+	LoadBalancing(ctx context.Context, regionName string, assumeRoleProvider *stscreds.AssumeRoleProvider) (ELB, error)
+	LoadBalancingV2(ctx context.Context, regionName string, assumeRoleProvider *stscreds.AssumeRoleProvider) (ELBV2, error)
+	Metadata(ctx context.Context) (config.EC2Metadata, error)
+	KeyManagement(ctx context.Context, regionName string, assumeRoleProvider *stscreds.AssumeRoleProvider) (KMS, error)
 }
 
 // ELB is a simple pass-through of AWS' ELB client interface, which allows for testing
@@ -359,7 +353,7 @@ type ELBV2 interface {
 // KMS is a simple pass-through of the Key Management Service client interface,
 // which allows for testing.
 type KMS interface {
-	DescribeKey(*kms.DescribeKeyInput) (*kms.DescribeKeyOutput, error)
+	DescribeKey(ctx context.Context, input *kms.DescribeKeyInput, optFns ...func(*kms.Options)) (*kms.DescribeKeyOutput, error)
 }
 
 var _ cloudprovider.Interface = (*Cloud)(nil)
@@ -387,7 +381,7 @@ type Cloud struct {
 
 	instanceCache           instanceCache
 	zoneCache               zoneCache
-	instanceTopologyManager resourcemanagers.InstanceTopologyManager
+	instanceTopologyManager InstanceTopologyManager
 
 	clientBuilder cloudprovider.ControllerClientBuilder
 	kubeClient    clientset.Interface
@@ -407,13 +401,15 @@ type Cloud struct {
 
 // Interface to make the CloudConfig immutable for awsSDKProvider
 type awsCloudConfigProvider interface {
-	GetResolver() endpoints.ResolverFunc
-	GetEC2EndpointOpts(region string) []func(*ec2.Options)     // for AWS SDK Go V2 EC2 Clients
-	GetCustomEC2Resolver() ec2.EndpointResolverV2              // for AWS SDK Go V2 EC2 Clients
-	GetELBEndpointOpts(region string) []func(*elb.Options)     // for AWS SDK Go V2 ELB Clients
-	GetCustomELBResolver() elb.EndpointResolverV2              // for AWS SDK Go V2 ELB Clients
-	GetELBV2EndpointOpts(region string) []func(*elbv2.Options) // for AWS SDK Go V2 ELBV2 Clients
-	GetCustomELBV2Resolver() elbv2.EndpointResolverV2          // for AWS SDK Go V2 ELBV2 Clients
+	GetEC2EndpointOpts(region string) []func(*ec2.Options)
+	GetCustomEC2Resolver() ec2.EndpointResolverV2
+	GetELBEndpointOpts(region string) []func(*elb.Options)
+	GetCustomELBResolver() elb.EndpointResolverV2
+	GetELBV2EndpointOpts(region string) []func(*elbv2.Options)
+	GetCustomELBV2Resolver() elbv2.EndpointResolverV2
+	GetKMSEndpointOpts(region string) []func(*kms.Options)
+	GetCustomKMSResolver() kms.EndpointResolverV2
+	GetIMDSEndpointOpts() []func(*imds.Options)
 }
 
 // InstanceIDIndexFunc indexes based on a Node's instance ID found in its spec.providerID
@@ -479,70 +475,28 @@ func init() {
 			return nil, fmt.Errorf("unable to validate custom endpoint overrides: %v", err)
 		}
 
-		metadata, err := newAWSSDKProvider(nil, nil, cfg).Metadata()
+		metadata, err := newAWSSDKProvider(nil, cfg).Metadata(ctx)
 		if err != nil {
 			return nil, fmt.Errorf("error creating AWS metadata client: %q", err)
 		}
 
-		regionName, err := getRegionFromMetadata(*cfg, metadata)
+		regionName, err := getRegionFromMetadata(ctx, *cfg, metadata)
 		if err != nil {
 			return nil, err
 		}
 
-		sess, err := session.NewSessionWithOptions(session.Options{
-			Config:            *aws.NewConfig().WithRegion(regionName).WithSTSRegionalEndpoint(endpoints.RegionalSTSEndpoint),
-			SharedConfigState: session.SharedConfigEnable,
-		})
-		if err != nil {
-			return nil, fmt.Errorf("unable to initialize AWS session: %v", err)
-		}
-
-		var creds *credentials.Credentials
-		var credsV2 *stscredsv2.AssumeRoleProvider
+		var creds *stscreds.AssumeRoleProvider
 		if cfg.Global.RoleARN != "" {
-			stsClient, err := getSTSClient(sess, cfg.Global.RoleARN, cfg.Global.SourceARN)
-			if err != nil {
-				return nil, fmt.Errorf("unable to create sts client, %v", err)
-			}
-			creds = credentials.NewChainCredentials(
-				[]credentials.Provider{
-					&credentials.EnvProvider{},
-					assumeRoleProvider(&stscreds.AssumeRoleProvider{
-						Client:  stsClient,
-						RoleARN: cfg.Global.RoleARN,
-					}),
-				})
-
-			stsClientv2, err := services.NewStsV2Client(ctx, regionName, cfg.Global.RoleARN, cfg.Global.SourceARN)
+			stsClient, err := services.NewStsClient(ctx, regionName, cfg.Global.RoleARN, cfg.Global.SourceARN)
 			if err != nil {
 				return nil, fmt.Errorf("unable to create sts v2 client: %v", err)
 			}
-			credsV2 = stscredsv2.NewAssumeRoleProvider(stsClientv2, cfg.Global.RoleARN)
+			creds = stscreds.NewAssumeRoleProvider(stsClient, cfg.Global.RoleARN)
 		}
 
-		aws := newAWSSDKProvider(creds, credsV2, cfg)
-		return newAWSCloud2(*cfg, aws, aws, creds, credsV2)
+		aws := newAWSSDKProvider(creds, cfg)
+		return newAWSCloud2(*cfg, aws, aws, creds)
 	})
-}
-
-func getSTSClient(sess *session.Session, roleARN, sourceARN string) (*sts.STS, error) {
-	klog.Infof("Using AWS assumed role %v", roleARN)
-	stsClient := sts.New(sess)
-	sourceAcct, err := GetSourceAccount(roleARN)
-	if err != nil {
-		return nil, err
-	}
-	reqHeaders := map[string]string{
-		headerSourceAccount: sourceAcct,
-	}
-	if sourceARN != "" {
-		reqHeaders[headerSourceArn] = sourceARN
-	}
-	stsClient.Handlers.Sign.PushFront(func(s *request.Request) {
-		s.ApplyOptions(request.WithSetRequestHeaders(reqHeaders))
-	})
-	klog.V(4).Infof("configuring STS client with extra headers, %v", reqHeaders)
-	return stsClient, nil
 }
 
 // readAWSCloudConfig reads an instance of AWSCloudConfig from config reader.
@@ -577,48 +531,43 @@ func azToRegion(az string) (string, error) {
 }
 
 func newAWSCloud(cfg config.CloudConfig, awsServices Services) (*Cloud, error) {
-	return newAWSCloud2(cfg, awsServices, nil, nil, nil)
+	return newAWSCloud2(cfg, awsServices, nil, nil)
 }
 
 // newAWSCloud creates a new instance of AWSCloud.
 // AWSProvider and instanceId are primarily for tests
-func newAWSCloud2(cfg config.CloudConfig, awsServices Services, provider config.SDKProvider, credentials *credentials.Credentials, credentialsV2 *stscredsv2.AssumeRoleProvider) (*Cloud, error) {
+func newAWSCloud2(cfg config.CloudConfig, awsServices Services, provider config.SDKProvider, credentials *stscreds.AssumeRoleProvider) (*Cloud, error) {
 	ctx := context.Background()
 	// We have some state in the Cloud object
 	// Log so that if we are building multiple Cloud objects, it is obvious!
 	klog.Infof("Building AWS cloudprovider")
 
-	metadata, err := awsServices.Metadata()
+	metadata, err := awsServices.Metadata(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("error creating AWS metadata client: %q", err)
 	}
 
-	regionName, err := getRegionFromMetadata(cfg, metadata)
+	regionName, err := getRegionFromMetadata(ctx, cfg, metadata)
 	if err != nil {
 		return nil, err
 	}
 
-	ec2, err := awsServices.Compute(ctx, regionName, credentialsV2)
+	ec2, err := awsServices.Compute(ctx, regionName, credentials)
 	if err != nil {
 		return nil, fmt.Errorf("error creating AWS EC2 client: %v", err)
 	}
 
-	ec2v2, err := services.NewEc2SdkV2(ctx, regionName, credentialsV2)
-	if err != nil {
-		return nil, fmt.Errorf("error creating AWS EC2v2 client: %v", err)
-	}
-
-	elb, err := awsServices.LoadBalancing(ctx, regionName, credentialsV2)
+	elb, err := awsServices.LoadBalancing(ctx, regionName, credentials)
 	if err != nil {
 		return nil, fmt.Errorf("error creating AWS ELB client: %v", err)
 	}
 
-	elbv2, err := awsServices.LoadBalancingV2(ctx, regionName, credentialsV2)
+	elbv2, err := awsServices.LoadBalancingV2(ctx, regionName, credentials)
 	if err != nil {
 		return nil, fmt.Errorf("error creating AWS ELBV2 client: %v", err)
 	}
 
-	kms, err := awsServices.KeyManagement(regionName)
+	kms, err := awsServices.KeyManagement(ctx, regionName, credentials)
 	if err != nil {
 		return nil, fmt.Errorf("error creating AWS key management client: %v", err)
 	}
@@ -637,7 +586,7 @@ func newAWSCloud2(cfg config.CloudConfig, awsServices Services, provider config.
 	}
 	awsCloud.instanceCache.cloud = awsCloud
 	awsCloud.zoneCache.cloud = awsCloud
-	awsCloud.instanceTopologyManager = resourcemanagers.NewInstanceTopologyManager(ec2v2, &cfg)
+	awsCloud.instanceTopologyManager = NewInstanceTopologyManager(ec2, &cfg)
 
 	tagged := cfg.Global.KubernetesClusterTag != "" || cfg.Global.KubernetesClusterID != ""
 	if cfg.Global.VPC != "" && (cfg.Global.SubnetID != "" || cfg.Global.RoleARN != "") && tagged {
@@ -1109,7 +1058,7 @@ func (c *Cloud) buildSelfAWSInstance(ctx context.Context) (*awsInstance, error) 
 	if c.selfAWSInstance != nil {
 		panic("do not call buildSelfAWSInstance directly")
 	}
-	instanceID, err := c.metadata.GetMetadata("instance-id")
+	instanceIDMetadata, err := c.metadata.GetMetadata(ctx, &imds.GetMetadataInput{Path: "instance-id"})
 	if err != nil {
 		return nil, fmt.Errorf("error fetching instance-id from ec2 metadata service: %q", err)
 	}
@@ -1122,9 +1071,15 @@ func (c *Cloud) buildSelfAWSInstance(ctx context.Context) (*awsInstance, error) 
 	// information from the instance returned by the EC2 API - it is a
 	// single API call to get all the information, and it means we don't
 	// have two code paths.
-	instance, err := c.getInstanceByID(ctx, instanceID)
+	instanceIDBytes, err := io.ReadAll(instanceIDMetadata.Content)
 	if err != nil {
-		return nil, fmt.Errorf("error finding instance %s: %q", instanceID, err)
+		return nil, fmt.Errorf("unable to parse instance id: %q", err)
+	}
+	defer instanceIDMetadata.Content.Close()
+
+	instance, err := c.getInstanceByID(ctx, string(instanceIDBytes))
+	if err != nil {
+		return nil, fmt.Errorf("error finding instance %s: %q", string(instanceIDBytes), err)
 	}
 	return newAWSInstance(c.ec2, instance), nil
 }
@@ -1204,11 +1159,17 @@ func (c *Cloud) describeLoadBalancerv2(ctx context.Context, name string) (*elbv2
 }
 
 // Retrieves instance's vpc id from metadata
-func (c *Cloud) findVPCID() (string, error) {
-	macs, err := c.metadata.GetMetadata("network/interfaces/macs/")
+func (c *Cloud) findVPCID(ctx context.Context) (string, error) {
+	macsMetadata, err := c.metadata.GetMetadata(ctx, &imds.GetMetadataInput{Path: "network/interfaces/macs/"})
 	if err != nil {
 		return "", fmt.Errorf("could not list interfaces of the instance: %q", err)
 	}
+	macsBytes, err := io.ReadAll(macsMetadata.Content)
+	if err != nil {
+		return "", fmt.Errorf("unable to parse macs: %q", err)
+	}
+	defer macsMetadata.Content.Close()
+	macs := string(macsBytes)
 
 	// loop over interfaces, first vpc id returned wins
 	for _, macPath := range strings.Split(macs, "\n") {
@@ -1216,11 +1177,16 @@ func (c *Cloud) findVPCID() (string, error) {
 			continue
 		}
 		url := fmt.Sprintf("network/interfaces/macs/%svpc-id", macPath)
-		vpcID, err := c.metadata.GetMetadata(url)
+		vpcIDMetadata, err := c.metadata.GetMetadata(ctx, &imds.GetMetadataInput{Path: url})
 		if err != nil {
 			continue
 		}
-		return vpcID, nil
+		vpcIDBytes, err := io.ReadAll(vpcIDMetadata.Content)
+		if err != nil {
+			continue
+		}
+		defer vpcIDMetadata.Content.Close()
+		return string(vpcIDBytes), nil
 	}
 	return "", fmt.Errorf("could not find VPC ID in instance metadata")
 }
@@ -3420,7 +3386,7 @@ func checkProtocol(port v1.ServicePort, annotations map[string]string) error {
 	return fmt.Errorf("Protocol %s not supported by LoadBalancer", port.Protocol)
 }
 
-func getRegionFromMetadata(cfg config.CloudConfig, metadata config.EC2Metadata) (string, error) {
+func getRegionFromMetadata(ctx context.Context, cfg config.CloudConfig, metadata config.EC2Metadata) (string, error) {
 	// For backwards compatibility reasons, keeping this check to avoid breaking possible
 	// cases where Zone was set to override the region configuration. Otherwise, fall back
 	// to getting region the standard way.
@@ -3431,5 +3397,5 @@ func getRegionFromMetadata(cfg config.CloudConfig, metadata config.EC2Metadata) 
 		return azToRegion(zone)
 	}
 
-	return cfg.GetRegion(metadata)
+	return cfg.GetRegion(ctx, metadata)
 }

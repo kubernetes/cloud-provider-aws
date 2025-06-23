@@ -32,7 +32,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	v1 "k8s.io/api/core/v1"
-	"k8s.io/cloud-provider-aws/pkg/resourcemanagers"
 	"k8s.io/cloud-provider-aws/pkg/services"
 )
 
@@ -172,7 +171,7 @@ func TestInstanceMetadata(t *testing.T) {
 	t.Run("Should return populated InstanceMetadata", func(t *testing.T) {
 		instance := makeInstance("i-00000000000000000", "192.168.0.1", "1.2.3.4", "instance-same.ec2.internal", "instance-same.ec2.external", nil, true)
 		c, _ := mockInstancesResp(&instance, []*ec2types.Instance{&instance})
-		var mockedTopologyManager resourcemanagers.MockedInstanceTopologyManager
+		var mockedTopologyManager MockedInstanceTopologyManager
 		c.instanceTopologyManager = &mockedTopologyManager
 		mockedTopologyManager.On("GetNodeTopology", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(&types.InstanceTopology{
 			AvailabilityZone: awsv2.String("us-west-2b"),
@@ -216,7 +215,7 @@ func TestInstanceMetadata(t *testing.T) {
 	t.Run("Should skip additional labels if already set", func(t *testing.T) {
 		instance := makeInstance("i-00000000000000000", "192.168.0.1", "1.2.3.4", "instance-same.ec2.internal", "instance-same.ec2.external", nil, true)
 		c, _ := mockInstancesResp(&instance, []*ec2types.Instance{&instance})
-		var mockedTopologyManager resourcemanagers.MockedInstanceTopologyManager
+		var mockedTopologyManager MockedInstanceTopologyManager
 		c.instanceTopologyManager = &mockedTopologyManager
 		node := &v1.Node{
 			Spec: v1.NodeSpec{
@@ -244,7 +243,7 @@ func TestInstanceMetadata(t *testing.T) {
 	t.Run("Should swallow errors if getting node topology fails if instance type not expected to be supported", func(t *testing.T) {
 		instance := makeInstance("i-00000000000000000", "192.168.0.1", "1.2.3.4", "instance-same.ec2.internal", "instance-same.ec2.external", nil, true)
 		c, _ := mockInstancesResp(&instance, []*ec2types.Instance{&instance})
-		var mockedTopologyManager resourcemanagers.MockedInstanceTopologyManager
+		var mockedTopologyManager MockedInstanceTopologyManager
 		c.instanceTopologyManager = &mockedTopologyManager
 		mockedTopologyManager.On("GetNodeTopology", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil,
 			services.NewMockAPIError("InvalidParameterValue", "Nope."))
@@ -269,7 +268,7 @@ func TestInstanceMetadata(t *testing.T) {
 	t.Run("Should not swallow errors if getting node topology fails if instance type is expected to be supported", func(t *testing.T) {
 		instance := makeInstance("i-00000000000000000", "192.168.0.1", "1.2.3.4", "instance-same.ec2.internal", "instance-same.ec2.external", nil, true)
 		c, _ := mockInstancesResp(&instance, []*ec2types.Instance{&instance})
-		var mockedTopologyManager resourcemanagers.MockedInstanceTopologyManager
+		var mockedTopologyManager MockedInstanceTopologyManager
 		c.instanceTopologyManager = &mockedTopologyManager
 		mockedTopologyManager.On("GetNodeTopology", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil,
 			services.NewMockAPIError("InvalidParameterValue", "Nope."))
@@ -291,6 +290,19 @@ func TestInstanceMetadata(t *testing.T) {
 	t.Run("Should limit ec2:DescribeInstances calls to a single request per instance", func(t *testing.T) {
 		instance := makeInstance("i-00000000000001234", "192.168.0.1", "1.2.3.4", "instance-same.ec2.internal", "instance-same.ec2.external", nil, true)
 		c, awsServices := mockInstancesResp(&instance, []*ec2types.Instance{&instance})
+
+		// Add mock for DescribeInstanceTopology on the EC2 mock
+		awsServices.ec2.(*MockedFakeEC2).On("DescribeInstanceTopology", mock.Anything, mock.Anything).Return([]ec2types.InstanceTopology{
+			{
+				AvailabilityZone: awsv2.String("us-west-2b"),
+				GroupName:        new(string),
+				InstanceId:       awsv2.String("i-00000000000001234"),
+				InstanceType:     new(string),
+				NetworkNodes:     []string{"nn-123456789", "nn-234567890", "nn-345678901"},
+				ZoneId:           awsv2.String("az2"),
+			},
+		}, nil)
+
 		node := &v1.Node{
 			Spec: v1.NodeSpec{
 				ProviderID: fmt.Sprintf("aws:///us-west-2c/%s", *instance.InstanceId),
