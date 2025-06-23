@@ -415,9 +415,11 @@ func TestClientsEndpointOverride(t *testing.T) {
 		assert.True(t, strings.Contains(reqInfo.credential, strings.ToLower(kms.ServiceID)), "KMS: blank signing name should fall back to request service")
 		assert.True(t, strings.Contains(reqInfo.credential, "us-west-2"), "KMS: blank signing region should fall back to request region")
 
+		val := os.Getenv("AWS_EC2_METADATA_DISABLED")
 		// Test Metadata client. This client only supports overriding the URL, not the signing name and region.
 		reqInfo = requestInfo{}
 		// This client can only successfully make requests when AWS_EC2_METADATA_DISABLED = false.
+		// https://docs.aws.amazon.com/sdkref/latest/guide/feature-imds-credentials.html
 		os.Setenv("AWS_EC2_METADATA_DISABLED", "false")
 		// Call Metadata(), which both creates the client and uses it to make a request.
 		mockProvider.Metadata(context.TODO())
@@ -428,6 +430,9 @@ func TestClientsEndpointOverride(t *testing.T) {
 		reqInfo = requestInfo{}
 		mockProvider.Metadata(context.TODO())
 		assert.False(t, reqInfo.usedCustomEndpoint, "IMDS: request was completed despite setting AWS_EC2_METADATA_DISABLED=true")
+
+		// reset AWS_EC2_METADATA_DISABLED
+		os.Setenv("AWS_EC2_METADATA_DISABLED", val)
 	})
 }
 

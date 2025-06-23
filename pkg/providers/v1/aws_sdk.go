@@ -203,9 +203,9 @@ func (p *awsSDKProvider) Metadata(ctx context.Context) (config.EC2Metadata, erro
 	// But IMDS uses a different request pattern: https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/configuring-instance-metadata-service.html
 	var opts []func(*imds.Options) = p.cfg.GetIMDSEndpointOpts()
 	imdsClient := imds.NewFromConfig(cfg, opts...)
-	opts = append(opts, func(o *imds.Options) {
-		o.ClientEnableState = imds.ClientEnabled
-	})
+	// opts = append(opts, func(o *imds.Options) {
+	// 	o.ClientEnableState = imds.ClientEnabled
+	// })
 
 	getInstanceIdentityDocumentOutput, err := imdsClient.GetInstanceIdentityDocument(ctx, &imds.GetInstanceIdentityDocumentInput{})
 	if err == nil {
