@@ -27,10 +27,10 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 
+	"github.com/aws/aws-sdk-go-v2/aws"
 	ec2types "github.com/aws/aws-sdk-go-v2/service/ec2/types"
 	elbtypes "github.com/aws/aws-sdk-go-v2/service/elasticloadbalancing/types"
 	elbv2types "github.com/aws/aws-sdk-go-v2/service/elasticloadbalancingv2/types"
-	"github.com/aws/aws-sdk-go/aws"
 	"github.com/stretchr/testify/assert"
 
 	"k8s.io/cloud-provider-aws/pkg/providers/v1/config"
@@ -598,7 +598,7 @@ func TestCloud_findInstancesForELB(t *testing.T) {
 	awsServices.instances = append(awsServices.instances, newInstance)
 	want = map[InstanceID]*ec2types.Instance{
 		"i-self": awsServices.selfInstance,
-		InstanceID(aws.StringValue(newInstance.InstanceId)): newInstance,
+		InstanceID(aws.ToString(newInstance.InstanceId)): newInstance,
 	}
 	got, err = c.findInstancesForELB(context.TODO(), []*v1.Node{defaultNode, newNode}, nil)
 	assert.NoError(t, err)
