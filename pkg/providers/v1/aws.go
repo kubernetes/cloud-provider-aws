@@ -28,6 +28,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/credentials/stscreds"
 	"github.com/aws/aws-sdk-go-v2/feature/ec2/imds"
 	"github.com/aws/aws-sdk-go-v2/service/ec2"
@@ -37,8 +38,6 @@ import (
 	elbv2 "github.com/aws/aws-sdk-go-v2/service/elasticloadbalancingv2"
 	elbv2types "github.com/aws/aws-sdk-go-v2/service/elasticloadbalancingv2/types"
 	"github.com/aws/aws-sdk-go-v2/service/kms"
-	"github.com/aws/aws-sdk-go/aws"
-	"github.com/aws/aws-sdk-go/aws/awserr"
 	"github.com/aws/smithy-go"
 	"gopkg.in/gcfg.v1"
 
@@ -730,7 +729,7 @@ func extractIPv4NodeAddresses(instance *ec2types.Instance) ([]v1.NodeAddress, er
 			return true
 		}
 
-		return aws.Int32Value(instance.NetworkInterfaces[i].Attachment.DeviceIndex) < aws.Int32Value(instance.NetworkInterfaces[j].Attachment.DeviceIndex)
+		return aws.ToInt32(instance.NetworkInterfaces[i].Attachment.DeviceIndex) < aws.ToInt32(instance.NetworkInterfaces[j].Attachment.DeviceIndex)
 	})
 
 	// handle internal network interfaces
@@ -741,10 +740,10 @@ func extractIPv4NodeAddresses(instance *ec2types.Instance) ([]v1.NodeAddress, er
 		}
 
 		for _, internalIP := range networkInterface.PrivateIpAddresses {
-			if ipAddress := aws.StringValue(internalIP.PrivateIpAddress); ipAddress != "" {
+			if ipAddress := aws.ToString(internalIP.PrivateIpAddress); ipAddress != "" {
 				ip := netutils.ParseIPSloppy(ipAddress)
 				if ip == nil {
-					return nil, fmt.Errorf("EC2 instance had invalid private address: %s (%q)", aws.StringValue(instance.InstanceId), ipAddress)
+					return nil, fmt.Errorf("EC2 instance had invalid private address: %s (%q)", aws.ToString(instance.InstanceId), ipAddress)
 				}
 				addresses = append(addresses, v1.NodeAddress{Type: v1.NodeInternalIP, Address: ip.String()})
 			}
@@ -752,22 +751,22 @@ func extractIPv4NodeAddresses(instance *ec2types.Instance) ([]v1.NodeAddress, er
 	}
 
 	// TODO: Other IP addresses (multiple ips)?
-	publicIPAddress := aws.StringValue(instance.PublicIpAddress)
+	publicIPAddress := aws.ToString(instance.PublicIpAddress)
 	if publicIPAddress != "" {
 		ip := netutils.ParseIPSloppy(publicIPAddress)
 		if ip == nil {
-			return nil, fmt.Errorf("EC2 instance had invalid public address: %s (%s)", aws.StringValue(instance.InstanceId), publicIPAddress)
+			return nil, fmt.Errorf("EC2 instance had invalid public address: %s (%s)", aws.ToString(instance.InstanceId), publicIPAddress)
 		}
 		addresses = append(addresses, v1.NodeAddress{Type: v1.NodeExternalIP, Address: ip.String()})
 	}
 
-	privateDNSName := aws.StringValue(instance.PrivateDnsName)
+	privateDNSName := aws.ToString(instance.PrivateDnsName)
 	if privateDNSName != "" {
 		addresses = append(addresses, v1.NodeAddress{Type: v1.NodeInternalDNS, Address: privateDNSName})
 		addresses = append(addresses, v1.NodeAddress{Type: v1.NodeHostName, Address: privateDNSName})
 	}
 
-	publicDNSName := aws.StringValue(instance.PublicDnsName)
+	publicDNSName := aws.ToString(instance.PublicDnsName)
 	if publicDNSName != "" {
 		addresses = append(addresses, v1.NodeAddress{Type: v1.NodeExternalDNS, Address: publicDNSName})
 	}
@@ -794,10 +793,10 @@ func extractIPv6NodeAddresses(instance *ec2types.Instance) ([]v1.NodeAddress, er
 		}
 
 		// return only the "first" address for each ENI
-		internalIPv6 := aws.StringValue(networkInterface.Ipv6Addresses[0].Ipv6Address)
+		internalIPv6 := aws.ToString(networkInterface.Ipv6Addresses[0].Ipv6Address)
 		ip := net.ParseIP(internalIPv6)
 		if ip == nil {
-			return nil, fmt.Errorf("EC2 instance had invalid IPv6 address: %s (%q)", aws.StringValue(instance.InstanceId), internalIPv6)
+			return nil, fmt.Errorf("EC2 instance had invalid IPv6 address: %s (%q)", aws.ToString(instance.InstanceId), internalIPv6)
 		}
 		addresses = append(addresses, v1.NodeAddress{Type: v1.NodeInternalIP, Address: ip.String()})
 	}
@@ -943,7 +942,7 @@ func (c *Cloud) InstanceID(ctx context.Context, nodeName types.NodeName) (string
 		}
 		return "", fmt.Errorf("getInstanceByNodeName failed for %q with %q", nodeName, err)
 	}
-	return "/" + aws.StringValue(inst.Placement.AvailabilityZone) + "/" + aws.StringValue(inst.InstanceId), nil
+	return "/" + aws.ToString(inst.Placement.AvailabilityZone) + "/" + aws.ToString(inst.InstanceId), nil
 }
 
 // InstanceTypeByProviderID returns the cloudprovider instance type of the node with the specified unique providerID
@@ -1518,13 +1517,13 @@ func (c *Cloud) ensureSecurityGroup(ctx context.Context, name string, descriptio
 				klog.Warningf("Found multiple security groups with name: %q", name)
 			}
 			err := c.tagging.readRepairClusterTags(ctx,
-				c.ec2, aws.StringValue(securityGroups[0].GroupId),
+				c.ec2, aws.ToString(securityGroups[0].GroupId),
 				ResourceLifecycleOwned, nil, securityGroups[0].Tags)
 			if err != nil {
 				return "", err
 			}
 
-			return aws.StringValue(securityGroups[0].GroupId), nil
+			return aws.ToString(securityGroups[0].GroupId), nil
 		}
 
 		createRequest := &ec2.CreateSecurityGroupInput{}
@@ -1550,9 +1549,9 @@ func (c *Cloud) ensureSecurityGroup(ctx context.Context, name string, descriptio
 		createResponse, err := c.ec2.CreateSecurityGroup(ctx, createRequest)
 		if err != nil {
 			ignore := false
-			switch err := err.(type) {
-			case awserr.Error:
-				if err.Code() == "InvalidGroup.Duplicate" && attempt < MaxReadThenCreateRetries {
+			var ae smithy.APIError
+			if errors.As(err, &ae) {
+				if ae.ErrorCode() == "InvalidGroup.Duplicate" && attempt < MaxReadThenCreateRetries {
 					klog.V(2).Infof("Got InvalidGroup.Duplicate while creating security group (race?); will retry")
 					ignore = true
 				}
@@ -1563,7 +1562,7 @@ func (c *Cloud) ensureSecurityGroup(ctx context.Context, name string, descriptio
 			}
 			time.Sleep(1 * time.Second)
 		} else {
-			groupID = aws.StringValue(createResponse.GroupId)
+			groupID = aws.ToString(createResponse.GroupId)
 			break
 		}
 	}
@@ -1577,8 +1576,8 @@ func (c *Cloud) ensureSecurityGroup(ctx context.Context, name string, descriptio
 // Finds the value for a given tag.
 func findTag(tags []ec2types.Tag, key string) (string, bool) {
 	for _, tag := range tags {
-		if aws.StringValue(tag.Key) == key {
-			return aws.StringValue(tag.Value), true
+		if aws.ToString(tag.Key) == key {
+			return aws.ToString(tag.Value), true
 		}
 	}
 	return "", false
@@ -1643,8 +1642,8 @@ func (c *Cloud) findELBSubnets(ctx context.Context, internalELB bool) ([]string,
 
 	subnetsByAZ := make(map[string]ec2types.Subnet)
 	for _, subnet := range subnets {
-		az := aws.StringValue(subnet.AvailabilityZone)
-		id := aws.StringValue(subnet.SubnetId)
+		az := aws.ToString(subnet.AvailabilityZone)
+		id := aws.ToString(subnet.SubnetId)
 		if az == "" || id == "" {
 			klog.Warningf("Ignoring subnet with empty az/id: %v", subnet)
 			continue
@@ -1725,7 +1724,7 @@ func (c *Cloud) findELBSubnets(ctx context.Context, internalELB bool) ([]string,
 			// does not support NLB/CLB for the moment, only ALB.
 			continue
 		}
-		subnetIDs = append(subnetIDs, aws.StringValue(subnetsByAZ[zone].SubnetId))
+		subnetIDs = append(subnetIDs, aws.ToString(subnetsByAZ[zone].SubnetId))
 	}
 
 	return subnetIDs, nil
@@ -1810,7 +1809,7 @@ func (c *Cloud) resolveSubnetNameOrIDs(ctx context.Context, subnetNameOrIDs []st
 	}
 	var subnets []string
 	for _, subnet := range resolvedSubnets {
-		subnets = append(subnets, aws.StringValue(subnet.SubnetId))
+		subnets = append(subnets, aws.ToString(subnet.SubnetId))
 	}
 	return subnets, nil
 }
@@ -1819,7 +1818,7 @@ func isSubnetPublic(rt []ec2types.RouteTable, subnetID string) (bool, error) {
 	var subnetTable *ec2types.RouteTable
 	for _, table := range rt {
 		for _, assoc := range table.Associations {
-			if aws.StringValue(assoc.SubnetId) == subnetID {
+			if aws.ToString(assoc.SubnetId) == subnetID {
 				subnetTable = &table
 				break
 			}
@@ -1831,9 +1830,9 @@ func isSubnetPublic(rt []ec2types.RouteTable, subnetID string) (bool, error) {
 		// associated with the VPC's main routing table.
 		for _, table := range rt {
 			for _, assoc := range table.Associations {
-				if aws.BoolValue(assoc.Main) == true {
+				if aws.ToBool(assoc.Main) == true {
 					klog.V(4).Infof("Assuming implicit use of main routing table %s for %s",
-						aws.StringValue(table.RouteTableId), subnetID)
+						aws.ToString(table.RouteTableId), subnetID)
 					subnetTable = &table
 					break
 				}
@@ -1852,7 +1851,7 @@ func isSubnetPublic(rt []ec2types.RouteTable, subnetID string) (bool, error) {
 		// from the default in-subnet route which is called "local"
 		// or other virtual gateway (starting with vgv)
 		// or vpc peering connections (starting with pcx).
-		if strings.HasPrefix(aws.StringValue(route.GatewayId), "igw") {
+		if strings.HasPrefix(aws.ToString(route.GatewayId), "igw") {
 			return true, nil
 		}
 	}
@@ -2028,7 +2027,7 @@ func (c *Cloud) getSubnetCidrs(ctx context.Context, subnetIDs []string) ([]strin
 
 	cidrs := make([]string, 0, len(subnets))
 	for _, subnet := range subnets {
-		cidrs = append(cidrs, aws.StringValue(subnet.CidrBlock))
+		cidrs = append(cidrs, aws.ToString(subnet.CidrBlock))
 	}
 	return cidrs, nil
 }
@@ -2552,13 +2551,13 @@ func (c *Cloud) EnsureLoadBalancer(ctx context.Context, clusterName string, apiS
 		return nil, err
 	}
 
-	err = c.ensureLoadBalancerInstances(ctx, aws.StringValue(loadBalancer.LoadBalancerName), loadBalancer.Instances, instances)
+	err = c.ensureLoadBalancerInstances(ctx, aws.ToString(loadBalancer.LoadBalancerName), loadBalancer.Instances, instances)
 	if err != nil {
 		klog.Warningf("Error registering instances with the load balancer: %q", err)
 		return nil, err
 	}
 
-	klog.V(1).Infof("Loadbalancer %s (%v) has DNS name %s", loadBalancerName, serviceName, aws.StringValue(loadBalancer.DNSName))
+	klog.V(1).Infof("Loadbalancer %s (%v) has DNS name %s", loadBalancerName, serviceName, aws.ToString(loadBalancer.DNSName))
 
 	// TODO: Wait for creation?
 
@@ -2606,9 +2605,9 @@ func (c *Cloud) GetLoadBalancerName(ctx context.Context, clusterName string, ser
 func toStatus(lb *elbtypes.LoadBalancerDescription) *v1.LoadBalancerStatus {
 	status := &v1.LoadBalancerStatus{}
 
-	if aws.StringValue(lb.DNSName) != "" {
+	if aws.ToString(lb.DNSName) != "" {
 		var ingress v1.LoadBalancerIngress
-		ingress.Hostname = aws.StringValue(lb.DNSName)
+		ingress.Hostname = aws.ToString(lb.DNSName)
 		status.Ingress = []v1.LoadBalancerIngress{ingress}
 	}
 
@@ -2623,10 +2622,10 @@ func v2toStatus(lb *elbv2types.LoadBalancer) *v1.LoadBalancerStatus {
 	}
 
 	// We check for Active or Provisioning, the only successful statuses
-	if aws.StringValue(lb.DNSName) != "" && (lb.State.Code == elbv2types.LoadBalancerStateEnumActive ||
+	if aws.ToString(lb.DNSName) != "" && (lb.State.Code == elbv2types.LoadBalancerStateEnumActive ||
 		lb.State.Code == elbv2types.LoadBalancerStateEnumProvisioning) {
 		var ingress v1.LoadBalancerIngress
-		ingress.Hostname = aws.StringValue(lb.DNSName)
+		ingress.Hostname = aws.ToString(lb.DNSName)
 		status.Ingress = []v1.LoadBalancerIngress{ingress}
 	}
 
@@ -2638,12 +2637,12 @@ func v2toStatus(lb *elbv2types.LoadBalancer) *v1.LoadBalancerStatus {
 // However, if there are multiple security groups, we will choose the one tagged with our cluster filter.
 // Otherwise we will return an error.
 func findSecurityGroupForInstance(instance *ec2types.Instance, taggedSecurityGroups map[string]*ec2types.SecurityGroup) (*ec2types.GroupIdentifier, error) {
-	instanceID := aws.StringValue(instance.InstanceId)
+	instanceID := aws.ToString(instance.InstanceId)
 
 	var tagged []ec2types.GroupIdentifier
 	var untagged []ec2types.GroupIdentifier
 	for _, group := range instance.SecurityGroups {
-		groupID := aws.StringValue(group.GroupId)
+		groupID := aws.ToString(group.GroupId)
 		if groupID == "" {
 			klog.Warningf("Ignoring security group without id for instance %q: %v", instanceID, group)
 			continue
@@ -2695,7 +2694,7 @@ func (c *Cloud) getTaggedSecurityGroups(ctx context.Context) (map[string]*ec2typ
 			continue
 		}
 
-		id := aws.StringValue(group.GroupId)
+		id := aws.ToString(group.GroupId)
 		if id == "" {
 			klog.Warningf("Ignoring group without id: %v", group)
 			continue
@@ -2715,7 +2714,7 @@ func (c *Cloud) updateInstanceSecurityGroupsForLoadBalancer(ctx context.Context,
 	// Determine the load balancer security group id
 	lbSecurityGroupIDs := lb.SecurityGroups
 	if len(lbSecurityGroupIDs) == 0 {
-		return fmt.Errorf("could not determine security group for load balancer: %s", aws.StringValue(lb.LoadBalancerName))
+		return fmt.Errorf("could not determine security group for load balancer: %s", aws.ToString(lb.LoadBalancerName))
 	}
 
 	taggedSecurityGroups, err := c.getTaggedSecurityGroups(ctx)
@@ -2765,10 +2764,10 @@ func (c *Cloud) updateInstanceSecurityGroupsForLoadBalancer(ctx context.Context,
 		}
 
 		if securityGroup == nil {
-			klog.Warning("Ignoring instance without security group: ", aws.StringValue(instance.InstanceId))
+			klog.Warning("Ignoring instance without security group: ", aws.ToString(instance.InstanceId))
 			continue
 		}
-		id := aws.StringValue(securityGroup.GroupId)
+		id := aws.ToString(securityGroup.GroupId)
 		if id == "" {
 			klog.Warningf("found security group without id: %v", securityGroup)
 			continue
@@ -2779,7 +2778,7 @@ func (c *Cloud) updateInstanceSecurityGroupsForLoadBalancer(ctx context.Context,
 
 	// Compare to actual groups
 	for actualGroup, hasClusterTag := range actualGroups {
-		actualGroupID := aws.StringValue(actualGroup.GroupId)
+		actualGroupID := aws.ToString(actualGroup.GroupId)
 		if actualGroupID == "" {
 			klog.Warning("Ignoring group without ID: ", actualGroup)
 			continue
@@ -2934,7 +2933,7 @@ func (c *Cloud) EnsureLoadBalancerDeleted(ctx context.Context, clusterName strin
 		}
 
 		for _, sg := range response {
-			sgID := aws.StringValue(sg.GroupId)
+			sgID := aws.ToString(sg.GroupId)
 
 			if sgID == c.cfg.Global.ElbSecurityGroup {
 				//We don't want to delete a security group that was defined in the Cloud Configuration.
@@ -2966,7 +2965,7 @@ func (c *Cloud) EnsureLoadBalancerDeleted(ctx context.Context, clusterName strin
 		// Determine the load balancer security group id
 		lbSecurityGroupIDs := lb.SecurityGroups
 		if len(lbSecurityGroupIDs) == 0 {
-			return fmt.Errorf("could not determine security group for load balancer: %s", aws.StringValue(lb.LoadBalancerName))
+			return fmt.Errorf("could not determine security group for load balancer: %s", aws.ToString(lb.LoadBalancerName))
 		}
 		c.sortELBSecurityGroupList(lbSecurityGroupIDs, service.Annotations, taggedLBSecurityGroups)
 		loadBalancerSecurityGroupID := lbSecurityGroupIDs[0]
@@ -3086,7 +3085,7 @@ func (c *Cloud) UpdateLoadBalancer(ctx context.Context, clusterName string, serv
 		}
 	}
 
-	err = c.ensureLoadBalancerInstances(ctx, aws.StringValue(lb.LoadBalancerName), lb.Instances, instances)
+	err = c.ensureLoadBalancerInstances(ctx, aws.ToString(lb.LoadBalancerName), lb.Instances, instances)
 	if err != nil {
 		klog.Warningf("Error registering/deregistering instances with the load balancer: %q", err)
 		return err
@@ -3133,7 +3132,7 @@ func (c *Cloud) getInstancesByIDs(ctx context.Context, instanceIDs []string) (ma
 	}
 
 	for _, instance := range instances {
-		instanceID := aws.StringValue(instance.InstanceId)
+		instanceID := aws.ToString(instance.InstanceId)
 		if instanceID == "" {
 			continue
 		}
@@ -3235,7 +3234,7 @@ func mapNodeNameToPrivateDNSName(nodeName types.NodeName) string {
 // Deprecated: use instanceIDToNodeName instead. See
 // mapNodeNameToPrivateDNSName for details.
 func mapInstanceToNodeName(i *ec2types.Instance) types.NodeName {
-	return types.NodeName(aws.StringValue(i.PrivateDnsName))
+	return types.NodeName(aws.ToString(i.PrivateDnsName))
 }
 
 var aliveFilter = []string{
