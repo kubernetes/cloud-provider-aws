@@ -21,9 +21,9 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/ec2"
 	ec2types "github.com/aws/aws-sdk-go-v2/service/ec2/types"
-	"github.com/aws/aws-sdk-go/aws"
 	"k8s.io/klog/v2"
 
 	"k8s.io/apimachinery/pkg/util/wait"
@@ -109,7 +109,7 @@ func findClusterIDs(tags []ec2types.Tag) (string, string, error) {
 	newClusterID := ""
 
 	for _, tag := range tags {
-		tagKey := aws.StringValue(tag.Key)
+		tagKey := aws.ToString(tag.Key)
 		if strings.HasPrefix(tagKey, TagNameKubernetesClusterPrefix) {
 			id := strings.TrimPrefix(tagKey, TagNameKubernetesClusterPrefix)
 			if newClusterID != "" {
@@ -119,7 +119,7 @@ func findClusterIDs(tags []ec2types.Tag) (string, string, error) {
 		}
 
 		if tagKey == TagNameKubernetesClusterLegacy {
-			id := aws.StringValue(tag.Value)
+			id := aws.ToString(tag.Value)
 			if legacyClusterID != "" {
 				return "", "", fmt.Errorf("Found multiple %s tags (%q and %q)", TagNameKubernetesClusterLegacy, legacyClusterID, id)
 			}
@@ -141,10 +141,10 @@ func (t *awsTagging) hasClusterTag(tags []ec2types.Tag) bool {
 	}
 	clusterTagKey := t.clusterTagKey()
 	for _, tag := range tags {
-		tagKey := aws.StringValue(tag.Key)
+		tagKey := aws.ToString(tag.Key)
 		// For 1.6, we continue to recognize the legacy tags, for the 1.5 -> 1.6 upgrade
 		// Note that we want to continue traversing tag list if we see a legacy tag with value != ClusterID
-		if (tagKey == TagNameKubernetesClusterLegacy) && (aws.StringValue(tag.Value) == t.ClusterID) {
+		if (tagKey == TagNameKubernetesClusterLegacy) && (aws.ToString(tag.Value) == t.ClusterID) {
 			return true
 		}
 		if tagKey == clusterTagKey {
@@ -156,7 +156,7 @@ func (t *awsTagging) hasClusterTag(tags []ec2types.Tag) bool {
 
 func (t *awsTagging) hasNoClusterPrefixTag(tags []ec2types.Tag) bool {
 	for _, tag := range tags {
-		if strings.HasPrefix(aws.StringValue(tag.Key), TagNameKubernetesClusterPrefix) {
+		if strings.HasPrefix(aws.ToString(tag.Key), TagNameKubernetesClusterPrefix) {
 			return false
 		}
 	}
@@ -169,7 +169,7 @@ func (t *awsTagging) hasNoClusterPrefixTag(tags []ec2types.Tag) bool {
 func (t *awsTagging) readRepairClusterTags(ctx context.Context, client iface.EC2, resourceID string, lifecycle ResourceLifecycle, additionalTags map[string]string, observedTags []ec2types.Tag) error {
 	actualTagMap := make(map[string]string)
 	for _, tag := range observedTags {
-		actualTagMap[aws.StringValue(tag.Key)] = aws.StringValue(tag.Value)
+		actualTagMap[aws.ToString(tag.Key)] = aws.ToString(tag.Value)
 	}
 
 	expectedTags := t.buildTags(lifecycle, additionalTags)

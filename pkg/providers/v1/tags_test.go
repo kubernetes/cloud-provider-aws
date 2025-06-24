@@ -24,9 +24,8 @@ import (
 	"os"
 	"testing"
 
+	"github.com/aws/aws-sdk-go-v2/aws"
 	ec2types "github.com/aws/aws-sdk-go-v2/service/ec2/types"
-	"github.com/aws/aws-sdk-go/aws"
-	"github.com/aws/aws-sdk-go/aws/awserr"
 
 	"github.com/stretchr/testify/assert"
 	"k8s.io/klog/v2"
@@ -273,7 +272,7 @@ func TestTagResource(t *testing.T) {
 		{
 			name:            "tagging failed due to resource not found error",
 			instanceID:      "i-not-found",
-			err:             awserr.New("InvalidInstanceID.NotFound", "Instance not found", nil),
+			err:             errors.New("InvalidInstanceID.NotFound: Instance not found"),
 			expectedMessage: "Error occurred trying to tag resources",
 		},
 	}

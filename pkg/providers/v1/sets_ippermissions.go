@@ -20,8 +20,8 @@ import (
 	"encoding/json"
 	"fmt"
 
+	"github.com/aws/aws-sdk-go-v2/aws"
 	ec2types "github.com/aws/aws-sdk-go-v2/service/ec2/types"
-	"github.com/aws/aws-sdk-go/aws"
 )
 
 // IPPermissionSet maps IP strings of strings to EC2 IpPermissions
@@ -181,22 +181,22 @@ type IPPermissionMatchDesc struct {
 // Test whether specific IPPermission contains description.
 func (p IPPermissionMatchDesc) Test(perm ec2types.IpPermission) bool {
 	for _, v4Range := range perm.IpRanges {
-		if aws.StringValue(v4Range.Description) == p.Description {
+		if aws.ToString(v4Range.Description) == p.Description {
 			return true
 		}
 	}
 	for _, v6Range := range perm.Ipv6Ranges {
-		if aws.StringValue(v6Range.Description) == p.Description {
+		if aws.ToString(v6Range.Description) == p.Description {
 			return true
 		}
 	}
 	for _, prefixListID := range perm.PrefixListIds {
-		if aws.StringValue(prefixListID.Description) == p.Description {
+		if aws.ToString(prefixListID.Description) == p.Description {
 			return true
 		}
 	}
 	for _, group := range perm.UserIdGroupPairs {
-		if aws.StringValue(group.Description) == p.Description {
+		if aws.ToString(group.Description) == p.Description {
 			return true
 		}
 	}

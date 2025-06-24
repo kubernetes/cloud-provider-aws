@@ -20,9 +20,9 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/ec2"
 	ec2types "github.com/aws/aws-sdk-go-v2/service/ec2/types"
-	"github.com/aws/aws-sdk-go/aws"
 	"k8s.io/klog/v2"
 
 	cloudprovider "k8s.io/cloud-provider"
@@ -78,7 +78,7 @@ func (c *Cloud) ListRoutes(ctx context.Context, clusterName string) ([]*cloudpro
 	var instanceIDs []string
 
 	for _, r := range table.Routes {
-		instanceID := aws.StringValue(r.InstanceId)
+		instanceID := aws.ToString(r.InstanceId)
 
 		if instanceID == "" {
 			continue
@@ -93,7 +93,7 @@ func (c *Cloud) ListRoutes(ctx context.Context, clusterName string) ([]*cloudpro
 	}
 
 	for _, r := range table.Routes {
-		destinationCIDR := aws.StringValue(r.DestinationCidrBlock)
+		destinationCIDR := aws.ToString(r.DestinationCidrBlock)
 		if destinationCIDR == "" {
 			continue
 		}
@@ -111,7 +111,7 @@ func (c *Cloud) ListRoutes(ctx context.Context, clusterName string) ([]*cloudpro
 		}
 
 		// Capture instance routes
-		instanceID := aws.StringValue(r.InstanceId)
+		instanceID := aws.ToString(r.InstanceId)
 		if instanceID != "" {
 			_, found := instances[instanceID]
 			if found {
@@ -153,7 +153,7 @@ func (c *Cloud) CreateRoute(ctx context.Context, clusterName string, nameHint st
 
 	// In addition to configuring the route itself, we also need to configure the instance to accept that traffic
 	// On AWS, this requires turning source-dest checks off
-	err = c.configureInstanceSourceDestCheck(ctx, aws.StringValue(instance.InstanceId), false)
+	err = c.configureInstanceSourceDestCheck(ctx, aws.ToString(instance.InstanceId), false)
 	if err != nil {
 		return err
 	}
@@ -165,7 +165,7 @@ func (c *Cloud) CreateRoute(ctx context.Context, clusterName string, nameHint st
 
 	var deleteRoute *ec2types.Route
 	for _, r := range table.Routes {
-		destinationCIDR := aws.StringValue(r.DestinationCidrBlock)
+		destinationCIDR := aws.ToString(r.DestinationCidrBlock)
 
 		if destinationCIDR != route.DestinationCIDR {
 			continue
@@ -177,7 +177,7 @@ func (c *Cloud) CreateRoute(ctx context.Context, clusterName string, nameHint st
 	}
 
 	if deleteRoute != nil {
-		klog.Infof("deleting blackholed route: %s", aws.StringValue(deleteRoute.DestinationCidrBlock))
+		klog.Infof("deleting blackholed route: %s", aws.ToString(deleteRoute.DestinationCidrBlock))
 
 		request := &ec2.DeleteRouteInput{}
 		request.DestinationCidrBlock = deleteRoute.DestinationCidrBlock
@@ -185,7 +185,7 @@ func (c *Cloud) CreateRoute(ctx context.Context, clusterName string, nameHint st
 
 		_, err = c.ec2.DeleteRoute(ctx, request)
 		if err != nil {
-			return fmt.Errorf("error deleting blackholed AWS route (%s): %q", aws.StringValue(deleteRoute.DestinationCidrBlock), err)
+			return fmt.Errorf("error deleting blackholed AWS route (%s): %q", aws.ToString(deleteRoute.DestinationCidrBlock), err)
 		}
 	}
 
