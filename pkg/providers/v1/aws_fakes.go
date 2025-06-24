@@ -25,6 +25,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/aws/aws-sdk-go-v2/aws"
 	stscredsv2 "github.com/aws/aws-sdk-go-v2/credentials/stscreds"
 	"github.com/aws/aws-sdk-go-v2/feature/ec2/imds"
 	"github.com/aws/aws-sdk-go-v2/service/autoscaling"
@@ -33,8 +34,6 @@ import (
 	elb "github.com/aws/aws-sdk-go-v2/service/elasticloadbalancing"
 	elbv2 "github.com/aws/aws-sdk-go-v2/service/elasticloadbalancingv2"
 	"github.com/aws/aws-sdk-go-v2/service/kms"
-	"github.com/aws/aws-sdk-go/aws"
-	"github.com/aws/aws-sdk-go/aws/awserr"
 	"k8s.io/klog/v2"
 
 	"k8s.io/cloud-provider-aws/pkg/providers/v1/config"
@@ -374,7 +373,7 @@ func (ec2i *FakeEC2Impl) CreateTags(ctx context.Context, input *ec2.CreateTagsIn
 		}
 
 		if id == "i-not-found" {
-			return nil, awserr.New("InvalidInstanceID.NotFound", "Instance not found", nil)
+			return nil, errors.New("InvalidInstanceID.NotFound: Instance not found")
 		}
 		// return an Instance not found error for the first `n` calls
 		// instance ID should be of the format `i-not-found-count-$N-$SUFFIX`
@@ -384,7 +383,7 @@ func (ec2i *FakeEC2Impl) CreateTags(ctx context.Context, input *ec2.CreateTagsIn
 				panic(err)
 			}
 			if callCount < notFoundCount {
-				return nil, awserr.New("InvalidInstanceID.NotFound", "Instance not found", nil)
+				return nil, errors.New("InvalidInstanceID.NotFound: Instance not found")
 			}
 		}
 	}
@@ -399,7 +398,7 @@ func (ec2i *FakeEC2Impl) DeleteTags(ctx context.Context, input *ec2.DeleteTagsIn
 		}
 
 		if id == "i-not-found" {
-			return nil, awserr.New("InvalidInstanceID.NotFound", "Instance not found", nil)
+			return nil, errors.New("InvalidInstanceID.NotFound: Instance not found")
 		}
 	}
 	return &ec2.DeleteTagsOutput{}, nil
@@ -459,7 +458,7 @@ func (m *FakeMetadata) GetMetadata(ctx context.Context, input *imds.GetMetadataI
 	if key == "placement/availability-zone" {
 		az := ""
 		if i.Placement != nil {
-			az = aws.StringValue(i.Placement.AvailabilityZone)
+			az = aws.ToString(i.Placement.AvailabilityZone)
 		}
 		return &imds.GetMetadataOutput{Content: io.NopCloser(strings.NewReader(az))}, nil
 	} else if key == "instance-id" {
@@ -771,7 +770,7 @@ func instanceMatchesFilter(instance *ec2types.Instance, filter ec2types.Filter) 
 		if instance.PrivateDnsName == nil {
 			return false
 		}
-		return contains(filter.Values, aws.StringValue(instance.PrivateDnsName))
+		return contains(filter.Values, aws.ToString(instance.PrivateDnsName))
 	}
 
 	if name == "instance-state-name" {
@@ -780,7 +779,7 @@ func instanceMatchesFilter(instance *ec2types.Instance, filter ec2types.Filter) 
 
 	if name == "tag-key" {
 		for _, instanceTag := range instance.Tags {
-			if contains(filter.Values, aws.StringValue(instanceTag.Key)) {
+			if contains(filter.Values, aws.ToString(instanceTag.Key)) {
 				return true
 			}
 		}
@@ -790,7 +789,7 @@ func instanceMatchesFilter(instance *ec2types.Instance, filter ec2types.Filter) 
 	if strings.HasPrefix(name, "tag:") {
 		tagName := name[4:]
 		for _, instanceTag := range instance.Tags {
-			if aws.StringValue(instanceTag.Key) == tagName && contains(filter.Values, aws.StringValue(instanceTag.Value)) {
+			if aws.ToString(instanceTag.Key) == tagName && contains(filter.Values, aws.ToString(instanceTag.Value)) {
 				return true
 			}
 		}

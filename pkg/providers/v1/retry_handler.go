@@ -24,7 +24,7 @@ import (
 	"sync"
 	"time"
 
-	awsv2 "github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/smithy-go"
 	"github.com/aws/smithy-go/middleware"
 	"github.com/aws/smithy-go/transport/http"
@@ -134,7 +134,7 @@ func (b *Backoff) ReportError() {
 // This works in tandem with (l *delayPrerequest) HandleFinalize, which will throw the error
 // in certain cases as part of the middleware.
 type customRetryer struct {
-	awsv2.Retryer
+	aws.Retryer
 }
 
 func (r customRetryer) IsErrorRetryable(err error) bool {

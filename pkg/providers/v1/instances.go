@@ -25,9 +25,9 @@ import (
 	"sync"
 	"time"
 
+	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/ec2"
 	ec2types "github.com/aws/aws-sdk-go-v2/service/ec2/types"
-	"github.com/aws/aws-sdk-go/aws"
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/klog/v2"
 
@@ -169,7 +169,7 @@ func (c *instanceCache) describeAllInstancesUncached(ctx context.Context) (*allI
 
 	m := make(map[InstanceID]*ec2types.Instance)
 	for _, i := range instances {
-		id := InstanceID(aws.StringValue(i.InstanceId))
+		id := InstanceID(aws.ToString(i.InstanceId))
 		m[id] = i
 	}
 
