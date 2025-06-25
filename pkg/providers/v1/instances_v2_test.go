@@ -18,16 +18,14 @@ package aws
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sync"
 	"testing"
 
-	awsv2 "github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/ec2"
-	"github.com/aws/aws-sdk-go-v2/service/ec2/types"
 	ec2types "github.com/aws/aws-sdk-go-v2/service/ec2/types"
-	"github.com/aws/aws-sdk-go/aws"
-	"github.com/aws/aws-sdk-go/aws/awserr"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
@@ -173,13 +171,13 @@ func TestInstanceMetadata(t *testing.T) {
 		c, _ := mockInstancesResp(&instance, []*ec2types.Instance{&instance})
 		var mockedTopologyManager MockedInstanceTopologyManager
 		c.instanceTopologyManager = &mockedTopologyManager
-		mockedTopologyManager.On("GetNodeTopology", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(&types.InstanceTopology{
-			AvailabilityZone: awsv2.String("us-west-2b"),
+		mockedTopologyManager.On("GetNodeTopology", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(&ec2types.InstanceTopology{
+			AvailabilityZone: aws.String("us-west-2b"),
 			GroupName:        new(string),
-			InstanceId:       awsv2.String("i-123456789"),
+			InstanceId:       aws.String("i-123456789"),
 			InstanceType:     new(string),
 			NetworkNodes:     []string{"nn-123456789", "nn-234567890", "nn-345678901"},
-			ZoneId:           awsv2.String("az2"),
+			ZoneId:           aws.String("az2"),
 		}, nil)
 		node := &v1.Node{
 			Spec: v1.NodeSpec{
@@ -294,12 +292,12 @@ func TestInstanceMetadata(t *testing.T) {
 		// Add mock for DescribeInstanceTopology on the EC2 mock
 		awsServices.ec2.(*MockedFakeEC2).On("DescribeInstanceTopology", mock.Anything, mock.Anything).Return([]ec2types.InstanceTopology{
 			{
-				AvailabilityZone: awsv2.String("us-west-2b"),
+				AvailabilityZone: aws.String("us-west-2b"),
 				GroupName:        new(string),
-				InstanceId:       awsv2.String("i-00000000000001234"),
+				InstanceId:       aws.String("i-00000000000001234"),
 				InstanceType:     new(string),
 				NetworkNodes:     []string{"nn-123456789", "nn-234567890", "nn-345678901"},
-				ZoneId:           awsv2.String("az2"),
+				ZoneId:           aws.String("az2"),
 			},
 		}, nil)
 
@@ -377,14 +375,14 @@ func getCloudWithMockedDescribeInstances(instanceExists bool, instanceState ec2t
 	c := &Cloud{ec2: &awsSdkEC2{ec2: mockedEC2API}, describeInstanceBatcher: newdescribeInstanceBatcher(context.Background(), &awsSdkEC2{ec2: mockedEC2API})}
 
 	if !instanceExists {
-		mockedEC2API.On("DescribeInstances", mock.Anything).Return(&ec2.DescribeInstancesOutput{}, awserr.New("InvalidInstanceID.NotFound", "Instance not found", nil))
+		mockedEC2API.On("DescribeInstances", mock.Anything).Return(&ec2.DescribeInstancesOutput{}, errors.New("InvalidInstanceID.NotFound: Instance not found"))
 	} else {
 		mockedEC2API.On("DescribeInstances", mock.Anything).Return(&ec2.DescribeInstancesOutput{
 			Reservations: []ec2types.Reservation{
 				{
 					Instances: []ec2types.Instance{
 						{
-							InstanceId: awsv2.String(instanceID),
+							InstanceId: aws.String(instanceID),
 							State: &ec2types.InstanceState{
 								Name: instanceState,
 							},
