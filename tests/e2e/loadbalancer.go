@@ -17,6 +17,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"time"
 
 	. "github.com/onsi/ginkgo/v2"
 	v1 "k8s.io/api/core/v1"
@@ -42,6 +43,8 @@ var (
 	// clusterNodeSelector is the discovered node(compute/worker) selector used in the cluster.
 	clusterNodesSelector string
 	clusterNodesCount    int = 0
+
+	cloudConfigHandler *testClusterConfig
 
 	// lookupNodeSelectors are valid compute/node/worker selectors commonly used in different kubernetes
 	// distributions.
@@ -71,11 +74,12 @@ var _ = Describe("[cloud-provider-aws-e2e] loadbalancer", func() {
 	})
 
 	type loadBalancerTestCases struct {
-		Name              string
-		ResourceSuffix    string
-		Annotations       map[string]string
-		PostConfigService func(cfg *configServiceLB, svc *v1.Service)
-		PostRunValidation func(cfg *configServiceLB, svc *v1.Service)
+		Name                 string
+		ResourceSuffix       string
+		Annotations          map[string]string
+		PostConfigService    func(cfg *configServiceLB, svc *v1.Service)
+		PostRunValidation    func(cfg *configServiceLB, svc *v1.Service)
+		preCloudConfigUpdate map[string]string
 	}
 	cases := []loadBalancerTestCases{
 		{
@@ -84,14 +88,14 @@ var _ = Describe("[cloud-provider-aws-e2e] loadbalancer", func() {
 			Annotations:    map[string]string{},
 		},
 		{
-			Name:           "NLB should configure the loadbalancer based on annotations",
+			Name:           "NLB should configure based on annotations",
 			ResourceSuffix: "nlb",
 			Annotations: map[string]string{
 				annotationLBType: "nlb",
 			},
 		},
 		{
-			Name:           "NLB should configure the loadbalancer with target-node-labels",
+			Name:           "NLB should configure with target-node-labels",
 			ResourceSuffix: "sg-nd",
 			Annotations: map[string]string{
 				annotationLBType: "nlb",
@@ -132,15 +136,35 @@ var _ = Describe("[cloud-provider-aws-e2e] loadbalancer", func() {
 				framework.ExpectNoError(getLBTargetCount(context.TODO(), lbDNS, clusterNodesCount), "AWS LB target count validation failed")
 			},
 		},
+		{
+			Name:           "NLB should be created with security groups",
+			ResourceSuffix: "nlb-sg",
+			Annotations: map[string]string{
+				annotationLBType: "nlb",
+			},
+			preCloudConfigUpdate: map[string]string{
+				"NLBSecurityGroupMode": "Managed",
+			},
+		},
 	}
 
 	serviceNameBase := "lbconfig-test"
 	for _, tc := range cases {
 		It(tc.Name, func() {
+			// Test case requires updates in the cloud-config
+			if len(tc.preCloudConfigUpdate) > 0 {
+				cloudConfigHandler = NewTestClusterConfig(cs)
+				if !cloudConfigHandler.discoverClusterCloudConfig() {
+					Skip("Test is not supported as unable to determine the cloud-config.")
+				}
+				defer cloudConfigHandler.restoreCloudConfig()
+				cloudConfigHandler.setCloudConfig(tc.preCloudConfigUpdate)
+			}
+
+			// Configure test
 			loadBalancerCreateTimeout := e2eservice.GetServiceLoadBalancerCreationTimeout(cs)
 			framework.Logf("Running tests against AWS with timeout %s", loadBalancerCreateTimeout)
 
-			// Create Configuration
 			serviceName := serviceNameBase
 			if len(tc.ResourceSuffix) > 0 {
 				serviceName = serviceName + "-" + tc.ResourceSuffix
@@ -163,13 +187,13 @@ var _ = Describe("[cloud-provider-aws-e2e] loadbalancer", func() {
 				framework.ExpectNoError(fmt.Errorf("failed to create LoadBalancer Service %q: %v", lbServiceConfig.Name, err))
 			}
 
-			By("waiting for loadbalancer for service " + lbServiceConfig.Namespace + "/" + lbServiceConfig.Name)
-			lbService, err := lbConfig.LBJig.WaitForLoadBalancer(loadBalancerCreateTimeout)
-			framework.ExpectNoError(err)
-
 			// Run Workloads
 			By("creating a pod to be part of the TCP service " + serviceName)
-			_, err = lbConfig.LBJig.Run(lbConfig.buildReplicationController())
+			_, err := lbConfig.LBJig.Run(lbConfig.buildReplicationController())
+			framework.ExpectNoError(err)
+
+			By("waiting for loadbalancer for service " + lbServiceConfig.Namespace + "/" + lbServiceConfig.Name)
+			lbService, err := lbConfig.LBJig.WaitForLoadBalancer(loadBalancerCreateTimeout)
 			framework.ExpectNoError(err)
 
 			// Hook: PostRunValidation performs LB validations after it is created (before test).
@@ -399,4 +423,102 @@ func getLBTargetCount(ctx context.Context, lbDNSName string, expectedTargets int
 		return fmt.Errorf("target count mismatch: expected %d, got %d", expectedTargets, totalTargets)
 	}
 	return nil
+}
+
+// testClusterConfig handle information for cloud-config configuration in the running cluster.
+type testClusterConfig struct {
+	kubeClient          clientset.Interface
+	configMapName       string
+	configMapNamespace  string
+	configMapKey        string
+	originalConfig      *v1.ConfigMap
+	originalConfigValue string
+}
+
+// TODO: figure out how to dynamicaly discover the cloud-config from the cluster.
+var supportedConfigLookup = []string{"openshift-config/cloud-provider-config/config"}
+
+func NewTestClusterConfig(cs clientset.Interface) *testClusterConfig {
+	tc := &testClusterConfig{
+		kubeClient: cs,
+	}
+	return tc
+}
+
+func (tc *testClusterConfig) discoverClusterCloudConfig() bool {
+	foundConfig := false
+	for _, env := range supportedConfigLookup {
+		envArr := strings.Split(env, "/")
+		framework.ExpectEqual(len(envArr), 3, fmt.Sprintf("expecting config in the format namespace/configMapName/configKey, got %q", env))
+		namespace := envArr[0]
+		configMap := envArr[1]
+		configKey := envArr[2]
+
+		// trying to find config
+		cm, err := tc.kubeClient.CoreV1().ConfigMaps(namespace).Get(context.TODO(), configMap, metav1.GetOptions{})
+		if err != nil {
+			framework.Logf("unable to retrieve configuration from environment: %v", envArr)
+			continue
+		}
+
+		configValue, ok := cm.Data[configKey]
+		if !ok {
+			framework.Logf("unable to find config key in the configuration %v", envArr)
+			continue
+		}
+		tc.originalConfigValue = configValue
+
+		foundConfig = true
+		if tc.originalConfig == nil {
+			tc.originalConfig = cm
+		}
+		tc.configMapNamespace = string(namespace)
+		tc.configMapName = string(configMap)
+		tc.configMapKey = string(configKey)
+		break
+	}
+
+	if !foundConfig {
+		framework.Logf("unable to find the cloud-config")
+	}
+	return foundConfig
+}
+
+// updateConfigMap updates the cloud-config configMap
+func (tc *testClusterConfig) updateConfigMap(cfg *v1.ConfigMap) error {
+	_, err := tc.kubeClient.CoreV1().ConfigMaps(tc.configMapNamespace).Update(context.TODO(), cfg, metav1.UpdateOptions{})
+	if err != nil {
+		return fmt.Errorf("unable to update the configuration: %v", err)
+	}
+
+	// The configuration must be propagated to CCM.
+	// Should we need to watch CCM pods to restart or keep it simple and wait a few seconds?
+	// NOTE: watch CCM requires extra discovery of the cluster/distribution configuration.
+	time.Sleep(5 * time.Second)
+	// By("Waiting for cloud controller manager pod to roll out")
+	// labelSelector := "app=cloud-controller-manager"
+	// err = e2eservice.WaitForPodsWithLabelRunningReady(cs, tc.namespaceCCM, labelSelector, 1, framework.PodStartTimeout)
+	// framework.ExpectNoError(err, "failed to wait for cloud controller manager pod rollout")
+
+	return nil
+}
+
+// setCloudConfig updates the cloud-config to a new one.
+func (tc *testClusterConfig) setCloudConfig(cfgData map[string]string) error {
+	newConfig := &v1.ConfigMap{}
+	newConfig = tc.originalConfig.DeepCopy()
+	// update configuration recursively
+	for k, v := range cfgData {
+		newConfig.Data[tc.configMapKey] += fmt.Sprintf("%s=%s\n", k, v)
+	}
+	return tc.updateConfigMap(newConfig)
+}
+
+// restoreCloudConfig restores the cloudconfig to the original. It can be used as Defer.
+func (tc *testClusterConfig) restoreCloudConfig() {
+	tc.originalConfig.Data = map[string]string{
+		tc.configMapKey: tc.originalConfigValue,
+	}
+	framework.Logf("restoring cloud-config configuration: %v", tc.originalConfig)
+	tc.updateConfigMap(tc.originalConfig)
 }
