@@ -1385,7 +1385,7 @@ func (c *Cloud) ensureLoadBalancerHealthCheck(ctx context.Context, loadBalancer 
 	actual := loadBalancer.HealthCheck
 	// Override healthcheck protocol, port and path based on annotations
 	if s, ok := annotations[ServiceAnnotationLoadBalancerHealthCheckProtocol]; ok {
-		protocol = s
+		protocol = strings.ToUpper(s)
 	}
 	if s, ok := annotations[ServiceAnnotationLoadBalancerHealthCheckPort]; ok && s != defaultHealthCheckPort {
 		p, err := strconv.ParseInt(s, 10, 0)
@@ -1394,7 +1394,7 @@ func (c *Cloud) ensureLoadBalancerHealthCheck(ctx context.Context, loadBalancer 
 		}
 		port = int32(p)
 	}
-	switch strings.ToUpper(protocol) {
+	switch protocol {
 	case "HTTP", "HTTPS":
 		if path == "" {
 			path = defaultHealthCheckPath
