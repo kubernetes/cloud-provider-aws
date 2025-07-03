@@ -18,18 +18,17 @@ package aws
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"testing"
 
-	awsv2 "github.com/aws/aws-sdk-go-v2/aws"
-	"github.com/aws/aws-sdk-go-v2/service/ec2/types"
-	"github.com/aws/aws-sdk-go/aws"
-	"github.com/aws/aws-sdk-go/aws/awserr"
-	"github.com/aws/aws-sdk-go/service/ec2"
+	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/service/ec2"
+	ec2types "github.com/aws/aws-sdk-go-v2/service/ec2/types"
+
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	v1 "k8s.io/api/core/v1"
-	"k8s.io/cloud-provider-aws/pkg/resourcemanagers"
 	"k8s.io/cloud-provider-aws/pkg/services"
 )
 
@@ -61,7 +60,7 @@ func TestGetProviderId(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			instance := makeMinimalInstance(tc.instanceID)
-			c, _ := mockInstancesResp(&instance, []*ec2.Instance{&instance})
+			c, _ := mockInstancesResp(&instance, []*ec2types.Instance{&instance})
 
 			result, err := c.getProviderID(context.TODO(), &tc.node)
 			if err != nil {
@@ -79,7 +78,7 @@ func TestInstanceExists(t *testing.T) {
 	for _, tc := range []struct {
 		name           string
 		instanceExists bool
-		instanceState  string
+		instanceState  ec2types.InstanceStateName
 		expectedExists bool
 	}{
 		{
@@ -91,13 +90,13 @@ func TestInstanceExists(t *testing.T) {
 		{
 			name:           "Should return true when instance is found and running",
 			instanceExists: true,
-			instanceState:  ec2.InstanceStateNameRunning,
+			instanceState:  ec2types.InstanceStateNameRunning,
 			expectedExists: true,
 		},
 		{
 			name:           "Should return false when instance is found but terminated",
 			instanceExists: true,
-			instanceState:  ec2.InstanceStateNameTerminated,
+			instanceState:  ec2types.InstanceStateNameTerminated,
 			expectedExists: false,
 		},
 	} {
@@ -124,25 +123,25 @@ func TestInstanceShutdown(t *testing.T) {
 	for _, tc := range []struct {
 		name             string
 		instanceExists   bool
-		instanceState    string
+		instanceState    ec2types.InstanceStateName
 		expectedShutdown bool
 	}{
 		{
 			name:             "Should return false when instance is found and running",
 			instanceExists:   true,
-			instanceState:    ec2.InstanceStateNameRunning,
+			instanceState:    ec2types.InstanceStateNameRunning,
 			expectedShutdown: false,
 		},
 		{
 			name:             "Should return false when instance is found and terminated",
 			instanceExists:   true,
-			instanceState:    ec2.InstanceStateNameTerminated,
+			instanceState:    ec2types.InstanceStateNameTerminated,
 			expectedShutdown: false,
 		},
 		{
 			name:             "Should return true when instance is found and stopped",
 			instanceExists:   true,
-			instanceState:    ec2.InstanceStateNameStopped,
+			instanceState:    ec2types.InstanceStateNameStopped,
 			expectedShutdown: true,
 		},
 	} {
@@ -168,16 +167,16 @@ func TestInstanceShutdown(t *testing.T) {
 func TestInstanceMetadata(t *testing.T) {
 	t.Run("Should return populated InstanceMetadata", func(t *testing.T) {
 		instance := makeInstance("i-00000000000000000", "192.168.0.1", "1.2.3.4", "instance-same.ec2.internal", "instance-same.ec2.external", nil, true)
-		c, _ := mockInstancesResp(&instance, []*ec2.Instance{&instance})
-		var mockedTopologyManager resourcemanagers.MockedInstanceTopologyManager
+		c, _ := mockInstancesResp(&instance, []*ec2types.Instance{&instance})
+		var mockedTopologyManager MockedInstanceTopologyManager
 		c.instanceTopologyManager = &mockedTopologyManager
-		mockedTopologyManager.On("GetNodeTopology", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(&types.InstanceTopology{
-			AvailabilityZone: awsv2.String("us-west-2b"),
+		mockedTopologyManager.On("GetNodeTopology", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(&ec2types.InstanceTopology{
+			AvailabilityZone: aws.String("us-west-2b"),
 			GroupName:        new(string),
-			InstanceId:       awsv2.String("i-123456789"),
+			InstanceId:       aws.String("i-123456789"),
 			InstanceType:     new(string),
 			NetworkNodes:     []string{"nn-123456789", "nn-234567890", "nn-345678901"},
-			ZoneId:           awsv2.String("az2"),
+			ZoneId:           aws.String("az2"),
 		}, nil)
 		node := &v1.Node{
 			Spec: v1.NodeSpec{
@@ -212,8 +211,8 @@ func TestInstanceMetadata(t *testing.T) {
 
 	t.Run("Should skip additional labels if already set", func(t *testing.T) {
 		instance := makeInstance("i-00000000000000000", "192.168.0.1", "1.2.3.4", "instance-same.ec2.internal", "instance-same.ec2.external", nil, true)
-		c, _ := mockInstancesResp(&instance, []*ec2.Instance{&instance})
-		var mockedTopologyManager resourcemanagers.MockedInstanceTopologyManager
+		c, _ := mockInstancesResp(&instance, []*ec2types.Instance{&instance})
+		var mockedTopologyManager MockedInstanceTopologyManager
 		c.instanceTopologyManager = &mockedTopologyManager
 		node := &v1.Node{
 			Spec: v1.NodeSpec{
@@ -240,8 +239,8 @@ func TestInstanceMetadata(t *testing.T) {
 
 	t.Run("Should swallow errors if getting node topology fails if instance type not expected to be supported", func(t *testing.T) {
 		instance := makeInstance("i-00000000000000000", "192.168.0.1", "1.2.3.4", "instance-same.ec2.internal", "instance-same.ec2.external", nil, true)
-		c, _ := mockInstancesResp(&instance, []*ec2.Instance{&instance})
-		var mockedTopologyManager resourcemanagers.MockedInstanceTopologyManager
+		c, _ := mockInstancesResp(&instance, []*ec2types.Instance{&instance})
+		var mockedTopologyManager MockedInstanceTopologyManager
 		c.instanceTopologyManager = &mockedTopologyManager
 		mockedTopologyManager.On("GetNodeTopology", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil,
 			services.NewMockAPIError("InvalidParameterValue", "Nope."))
@@ -265,8 +264,8 @@ func TestInstanceMetadata(t *testing.T) {
 
 	t.Run("Should not swallow errors if getting node topology fails if instance type is expected to be supported", func(t *testing.T) {
 		instance := makeInstance("i-00000000000000000", "192.168.0.1", "1.2.3.4", "instance-same.ec2.internal", "instance-same.ec2.external", nil, true)
-		c, _ := mockInstancesResp(&instance, []*ec2.Instance{&instance})
-		var mockedTopologyManager resourcemanagers.MockedInstanceTopologyManager
+		c, _ := mockInstancesResp(&instance, []*ec2types.Instance{&instance})
+		var mockedTopologyManager MockedInstanceTopologyManager
 		c.instanceTopologyManager = &mockedTopologyManager
 		mockedTopologyManager.On("GetNodeTopology", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil,
 			services.NewMockAPIError("InvalidParameterValue", "Nope."))
@@ -287,7 +286,20 @@ func TestInstanceMetadata(t *testing.T) {
 
 	t.Run("Should limit ec2:DescribeInstances calls to a single request per instance", func(t *testing.T) {
 		instance := makeInstance("i-00000000000001234", "192.168.0.1", "1.2.3.4", "instance-same.ec2.internal", "instance-same.ec2.external", nil, true)
-		c, awsServices := mockInstancesResp(&instance, []*ec2.Instance{&instance})
+		c, awsServices := mockInstancesResp(&instance, []*ec2types.Instance{&instance})
+
+		// Add mock for DescribeInstanceTopology on the EC2 mock
+		awsServices.ec2.(*MockedFakeEC2).On("DescribeInstanceTopology", mock.Anything, mock.Anything).Return([]ec2types.InstanceTopology{
+			{
+				AvailabilityZone: aws.String("us-west-2b"),
+				GroupName:        new(string),
+				InstanceId:       aws.String("i-00000000000001234"),
+				InstanceType:     new(string),
+				NetworkNodes:     []string{"nn-123456789", "nn-234567890", "nn-345678901"},
+				ZoneId:           aws.String("az2"),
+			},
+		}, nil)
+
 		node := &v1.Node{
 			Spec: v1.NodeSpec{
 				ProviderID: fmt.Sprintf("aws:///us-west-2c/%s", *instance.InstanceId),
@@ -303,20 +315,20 @@ func TestInstanceMetadata(t *testing.T) {
 	})
 }
 
-func getCloudWithMockedDescribeInstances(instanceExists bool, instanceState string) *Cloud {
+func getCloudWithMockedDescribeInstances(instanceExists bool, instanceState ec2types.InstanceStateName) *Cloud {
 	mockedEC2API := newMockedEC2API()
 	c := &Cloud{ec2: &awsSdkEC2{ec2: mockedEC2API}}
 
 	if !instanceExists {
-		mockedEC2API.On("DescribeInstances", mock.Anything).Return(&ec2.DescribeInstancesOutput{}, awserr.New("InvalidInstanceID.NotFound", "Instance not found", nil))
+		mockedEC2API.On("DescribeInstances", mock.Anything).Return(&ec2.DescribeInstancesOutput{}, errors.New("InvalidInstanceID.NotFound: Instance not found"))
 	} else {
 		mockedEC2API.On("DescribeInstances", mock.Anything).Return(&ec2.DescribeInstancesOutput{
-			Reservations: []*ec2.Reservation{
+			Reservations: []ec2types.Reservation{
 				{
-					Instances: []*ec2.Instance{
+					Instances: []ec2types.Instance{
 						{
-							State: &ec2.InstanceState{
-								Name: aws.String(instanceState),
+							State: &ec2types.InstanceState{
+								Name: instanceState,
 							},
 						},
 					},
