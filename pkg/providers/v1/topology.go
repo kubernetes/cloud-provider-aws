@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package resourcemanagers
+package aws
 
 import (
 	"context"
@@ -28,7 +28,7 @@ import (
 	"github.com/aws/smithy-go"
 	"k8s.io/client-go/tools/cache"
 	"k8s.io/cloud-provider-aws/pkg/providers/v1/config"
-	"k8s.io/cloud-provider-aws/pkg/services"
+	"k8s.io/cloud-provider-aws/pkg/providers/v1/iface"
 	"k8s.io/klog/v2"
 )
 
@@ -66,13 +66,13 @@ type InstanceTopologyManager interface {
 
 // instanceTopologyManager manages getting instance topology for nodes.
 type instanceTopologyManager struct {
-	ec2                                  services.Ec2SdkV2
+	ec2                                  iface.EC2
 	unsupportedKeyStore                  cache.Store
 	supportedTopologyInstanceTypePattern *regexp.Regexp
 }
 
 // NewInstanceTopologyManager generates a new InstanceTopologyManager.
-func NewInstanceTopologyManager(ec2 services.Ec2SdkV2, cfg *config.CloudConfig) InstanceTopologyManager {
+func NewInstanceTopologyManager(ec2 iface.EC2, cfg *config.CloudConfig) InstanceTopologyManager {
 	var supportedTopologyInstanceTypePattern *regexp.Regexp
 	if cfg.Global.SupportedTopologyInstanceTypePattern != "" {
 		supportedTopologyInstanceTypePattern = regexp.MustCompile(cfg.Global.SupportedTopologyInstanceTypePattern)
