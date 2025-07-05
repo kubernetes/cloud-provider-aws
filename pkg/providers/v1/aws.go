@@ -336,8 +336,35 @@ type Services interface {
 	Compute(ctx context.Context, region string, assumeRoleProvider *stscreds.AssumeRoleProvider) (iface.EC2, error)
 	LoadBalancing(ctx context.Context, regionName string, assumeRoleProvider *stscreds.AssumeRoleProvider) (ELB, error)
 	LoadBalancingV2(ctx context.Context, regionName string, assumeRoleProvider *stscreds.AssumeRoleProvider) (ELBV2, error)
+	Autoscaling(region string) (ASG, error)
 	Metadata(ctx context.Context) (config.EC2Metadata, error)
 	KeyManagement(ctx context.Context, regionName string, assumeRoleProvider *stscreds.AssumeRoleProvider) (KMS, error)
+}
+
+type EC2API interface {
+    AttachVolume(ctx context.Context, request *ec2.AttachVolumeInput, optFns ...func(*ec2.Options)) (*ec2.AttachVolumeOutput, error)
+    AuthorizeSecurityGroupIngress(ctx context.Context, request *ec2.AuthorizeSecurityGroupIngressInput, optFns ...func(*ec2.Options)) (*ec2.AuthorizeSecurityGroupIngressOutput, error)
+    CreateRoute(ctx context.Context, request *ec2.CreateRouteInput, optFns ...func(*ec2.Options)) (*ec2.CreateRouteOutput, error)
+    CreateSecurityGroup(ctx context.Context, request *ec2.CreateSecurityGroupInput, optFns ...func(*ec2.Options)) (*ec2.CreateSecurityGroupOutput, error)
+    CreateTags(ctx context.Context, request *ec2.CreateTagsInput, optFns ...func(*ec2.Options)) (*ec2.CreateTagsOutput, error)
+    CreateVolume(ctx context.Context, request *ec2.CreateVolumeInput, optFns ...func(*ec2.Options)) (*ec2.CreateVolumeOutput, error)
+    DeleteRoute(ctx context.Context, request *ec2.DeleteRouteInput, optFns ...func(*ec2.Options)) (*ec2.DeleteRouteOutput, error)
+    DeleteSecurityGroup(ctx context.Context, request *ec2.DeleteSecurityGroupInput, optFns ...func(*ec2.Options)) (*ec2.DeleteSecurityGroupOutput, error)
+    DeleteTags(ctx context.Context, request *ec2.DeleteTagsInput, optFns ...func(*ec2.Options)) (*ec2.DeleteTagsOutput, error)
+    DeleteVolume(ctx context.Context, request *ec2.DeleteVolumeInput, optFns ...func(*ec2.Options)) (*ec2.DeleteVolumeOutput, error)
+    DescribeAvailabilityZones(ctx context.Context, request *ec2.DescribeAvailabilityZonesInput, optFns ...func(*ec2.Options)) (*ec2.DescribeAvailabilityZonesOutput, error)
+    DescribeInstances(ctx context.Context, request *ec2.DescribeInstancesInput, optFns ...func(*ec2.Options)) (*ec2.DescribeInstancesOutput, error)
+    DescribeNetworkInterfaces(ctx context.Context, input *ec2.DescribeNetworkInterfacesInput, optFns ...func(*ec2.Options)) (*ec2.DescribeNetworkInterfacesOutput, error)
+    DescribeRouteTables(ctx context.Context, request *ec2.DescribeRouteTablesInput, optFns ...func(*ec2.Options)) (*ec2.DescribeRouteTablesOutput, error)
+    DescribeSecurityGroups(ctx context.Context, request *ec2.DescribeSecurityGroupsInput, optFns ...func(*ec2.Options)) (*ec2.DescribeSecurityGroupsOutput, error)
+    DescribeSubnets(ctx context.Context, request *ec2.DescribeSubnetsInput, optFns ...func(*ec2.Options)) (*ec2.DescribeSubnetsOutput, error)
+    DescribeVolumeModifications(ctx context.Context, input *ec2.DescribeVolumesModificationsInput, optFns ...func(*ec2.Options)) (*ec2.DescribeVolumesModificationsOutput, error)
+    DescribeVolumes(ctx context.Context, request *ec2.DescribeVolumesInput, optFns ...func(*ec2.Options)) (*ec2.DescribeVolumesOutput, error)
+    DescribeVpcs(ctx context.Context, input *ec2.DescribeVpcsInput, optFns ...func(*ec2.Options)) (*ec2.DescribeVpcsOutput, error)
+    DetachVolume(ctx context.Context, request *ec2.DetachVolumeInput, optFns ...func(*ec2.Options)) (*ec2.DetachVolumeOutput, error)
+    ModifyInstanceAttribute(ctx context.Context, request *ec2.ModifyInstanceAttributeInput, optFns ...func(*ec2.Options)) (*ec2.ModifyInstanceAttributeOutput, error)
+    ModifyVolume(ctx context.Context, request *ec2.ModifyVolumeInput, optFns ...func(*ec2.Options)) (*ec2.ModifyVolumeOutput, error)
+    RevokeSecurityGroupIngress(ctx context.Context, request *ec2.RevokeSecurityGroupIngressInput, optFns ...func(*ec2.Options)) (*ec2.RevokeSecurityGroupIngressOutput, error)
 }
 
 // ELB is a simple pass-through of AWS' ELB client interface, which allows for testing
@@ -546,7 +573,7 @@ type Cloud struct {
 
 // awsSdkEC2 is an implementation of the EC2 interface, backed by aws-sdk-go
 type awsSdkEC2 struct {
-	ec2 ec2iface.EC2API
+	ec2 EC2API
 }
 
 // Interface to make the CloudConfig immutable for awsSDKProvider
@@ -562,32 +589,6 @@ type awsCloudConfigProvider interface {
 	GetIMDSEndpointOpts() []func(*imds.Options)
 }
 
-func (p *awsSDKProvider) addHandlers(regionName string, h *request.Handlers) {
-	h.Build.PushFrontNamed(request.NamedHandler{
-		Name: "k8s/user-agent",
-		Fn:   request.MakeAddToUserAgentHandler("kubernetes", version.Get().String()),
-	})
-
-	h.Sign.PushFrontNamed(request.NamedHandler{
-		Name: "k8s/logger",
-		Fn:   awsHandlerLogger,
-	})
-
-	delayer := p.getCrossRequestRetryDelay(regionName)
-	if delayer != nil {
-		h.Sign.PushFrontNamed(request.NamedHandler{
-			Name: "k8s/delay-presign",
-			Fn:   delayer.BeforeSign,
-		})
-
-		h.AfterRetry.PushFrontNamed(request.NamedHandler{
-			Name: "k8s/delay-afterretry",
-			Fn:   delayer.AfterRetry,
-		})
-	}
-
-	p.addAPILoggingHandlers(h)
-}
 
 // InstanceIDIndexFunc indexes based on a Node's instance ID found in its spec.providerID
 func InstanceIDIndexFunc(obj interface{}) ([]string, error) {
@@ -640,7 +641,7 @@ func (c *Cloud) CurrentNodeName(ctx context.Context, hostname string) (types.Nod
 }
 
 // Implementation of EC2.Instances
-func (s *awsSdkEC2) DescribeInstances(request *ec2.DescribeInstancesInput) ([]*ec2.Instance, error) {
+func (s *awsSdkEC2) DescribeInstances(ctx context.Context, request *ec2.DescribeInstancesInput, optFns ...func(*ec2.Options)) ([]*ec2.Instance, error) {
 	// Instances are paged
 	results := []*ec2.Instance{}
 	var nextToken *string
@@ -674,8 +675,9 @@ func (s *awsSdkEC2) DescribeInstances(request *ec2.DescribeInstancesInput) ([]*e
 	return results, nil
 }
 
+
 // DescribeNetworkInterfaces describes network interface provided in the input.
-func (s *awsSdkEC2) DescribeNetworkInterfaces(input *ec2.DescribeNetworkInterfacesInput) (*ec2.DescribeNetworkInterfacesOutput, error) {
+func (s *awsSdkEC2) DescribeNetworkInterfaces(ctx context.Context, input *ec2.DescribeNetworkInterfacesInput, optFns ...func(*ec2.Options)) (*ec2.DescribeNetworkInterfacesOutput, error) {
 	requestTime := time.Now()
 	resp, err := s.ec2.DescribeNetworkInterfaces(input)
 	timeTaken := time.Since(requestTime).Seconds()
@@ -684,7 +686,7 @@ func (s *awsSdkEC2) DescribeNetworkInterfaces(input *ec2.DescribeNetworkInterfac
 }
 
 // Implements EC2.DescribeSecurityGroups
-func (s *awsSdkEC2) DescribeSecurityGroups(request *ec2.DescribeSecurityGroupsInput) ([]*ec2.SecurityGroup, error) {
+func (s *awsSdkEC2) DescribeSecurityGroups(ctx context.Context, request *ec2.DescribeSecurityGroupsInput, optFns ...func(*ec2.Options)) ([]*ec2.SecurityGroup, error) {
 	// Security groups are paged
 	results := []*ec2.SecurityGroup{}
 	var nextToken *string
@@ -709,7 +711,7 @@ func (s *awsSdkEC2) DescribeSecurityGroups(request *ec2.DescribeSecurityGroupsIn
 	return results, nil
 }
 
-func (s *awsSdkEC2) AttachVolume(request *ec2.AttachVolumeInput) (*ec2.VolumeAttachment, error) {
+func (s *awsSdkEC2) AttachVolume(ctx context.Context, request *ec2.AttachVolumeInput, optFns ...func(*ec2.Options)) (*ec2.VolumeAttachment, error) {
 	requestTime := time.Now()
 	resp, err := s.ec2.AttachVolume(request)
 	timeTaken := time.Since(requestTime).Seconds()
@@ -717,7 +719,7 @@ func (s *awsSdkEC2) AttachVolume(request *ec2.AttachVolumeInput) (*ec2.VolumeAtt
 	return resp, err
 }
 
-func (s *awsSdkEC2) DetachVolume(request *ec2.DetachVolumeInput) (*ec2.VolumeAttachment, error) {
+func (s *awsSdkEC2) DetachVolume(ctx context.Context, request *ec2.DetachVolumeInput, optFns ...func(*ec2.Options)) (*ec2.VolumeAttachment, error) {
 	requestTime := time.Now()
 	resp, err := s.ec2.DetachVolume(request)
 	timeTaken := time.Since(requestTime).Seconds()
@@ -725,7 +727,7 @@ func (s *awsSdkEC2) DetachVolume(request *ec2.DetachVolumeInput) (*ec2.VolumeAtt
 	return resp, err
 }
 
-func (s *awsSdkEC2) DescribeVolumes(request *ec2.DescribeVolumesInput) ([]*ec2.Volume, error) {
+func (s *awsSdkEC2) DescribeVolumes(ctx context.Context, request *ec2.DescribeVolumesInput, optFns ...func(*ec2.Options)) ([]*ec2.Volume, error) {
 	// Volumes are paged
 	results := []*ec2.Volume{}
 	var nextToken *string
@@ -751,7 +753,7 @@ func (s *awsSdkEC2) DescribeVolumes(request *ec2.DescribeVolumesInput) ([]*ec2.V
 	return results, nil
 }
 
-func (s *awsSdkEC2) CreateVolume(request *ec2.CreateVolumeInput) (*ec2.Volume, error) {
+func (s *awsSdkEC2) CreateVolume(ctx context.Context, request *ec2.CreateVolumeInput, optFns ...func(*ec2.Options)) (*ec2.Volume, error) {
 	requestTime := time.Now()
 	resp, err := s.ec2.CreateVolume(request)
 	timeTaken := time.Since(requestTime).Seconds()
@@ -759,7 +761,7 @@ func (s *awsSdkEC2) CreateVolume(request *ec2.CreateVolumeInput) (*ec2.Volume, e
 	return resp, err
 }
 
-func (s *awsSdkEC2) DeleteVolume(request *ec2.DeleteVolumeInput) (*ec2.DeleteVolumeOutput, error) {
+func (s *awsSdkEC2) DeleteVolume(ctx context.Context, request *ec2.DeleteVolumeInput, optFns ...func(*ec2.Options)) (*ec2.DeleteVolumeOutput, error) {
 	requestTime := time.Now()
 	resp, err := s.ec2.DeleteVolume(request)
 	timeTaken := time.Since(requestTime).Seconds()
@@ -767,7 +769,7 @@ func (s *awsSdkEC2) DeleteVolume(request *ec2.DeleteVolumeInput) (*ec2.DeleteVol
 	return resp, err
 }
 
-func (s *awsSdkEC2) ModifyVolume(request *ec2.ModifyVolumeInput) (*ec2.ModifyVolumeOutput, error) {
+func (s *awsSdkEC2) ModifyVolume(ctx context.Context, request *ec2.ModifyVolumeInput, optFns ...func(*ec2.Options)) (*ec2.ModifyVolumeOutput, error) {
 	requestTime := time.Now()
 	resp, err := s.ec2.ModifyVolume(request)
 	timeTaken := time.Since(requestTime).Seconds()
@@ -775,7 +777,7 @@ func (s *awsSdkEC2) ModifyVolume(request *ec2.ModifyVolumeInput) (*ec2.ModifyVol
 	return resp, err
 }
 
-func (s *awsSdkEC2) DescribeVolumeModifications(request *ec2.DescribeVolumesModificationsInput) ([]*ec2.VolumeModification, error) {
+func (s *awsSdkEC2) DescribeVolumeModifications(ctx context.Context, request *ec2.DescribeVolumesModificationsInput, optFns ...func(*ec2.Options)) ([]*ec2.VolumeModification, error) {
 	requestTime := time.Now()
 	results := []*ec2.VolumeModification{}
 	var nextToken *string
@@ -797,7 +799,7 @@ func (s *awsSdkEC2) DescribeVolumeModifications(request *ec2.DescribeVolumesModi
 	return results, nil
 }
 
-func (s *awsSdkEC2) DescribeSubnets(request *ec2.DescribeSubnetsInput) ([]*ec2.Subnet, error) {
+func (s *awsSdkEC2) DescribeSubnets(ctx context.Context, request *ec2.DescribeSubnetsInput, optFns ...func(*ec2.Options)) ([]*ec2.Subnet, error) {
 	// Subnets are not paged
 	response, err := s.ec2.DescribeSubnets(request)
 	if err != nil {
@@ -806,7 +808,7 @@ func (s *awsSdkEC2) DescribeSubnets(request *ec2.DescribeSubnetsInput) ([]*ec2.S
 	return response.Subnets, nil
 }
 
-func (s *awsSdkEC2) DescribeAvailabilityZones(request *ec2.DescribeAvailabilityZonesInput) ([]*ec2.AvailabilityZone, error) {
+func (s *awsSdkEC2) DescribeAvailabilityZones(ctx context.Context, request *ec2.DescribeAvailabilityZonesInput, optFns ...func(*ec2.Options)) ([]*ec2.AvailabilityZone, error) {
 	// AZs are not paged
 	response, err := s.ec2.DescribeAvailabilityZones(request)
 	if err != nil {
@@ -815,23 +817,23 @@ func (s *awsSdkEC2) DescribeAvailabilityZones(request *ec2.DescribeAvailabilityZ
 	return response.AvailabilityZones, err
 }
 
-func (s *awsSdkEC2) CreateSecurityGroup(request *ec2.CreateSecurityGroupInput) (*ec2.CreateSecurityGroupOutput, error) {
+func (s *awsSdkEC2) CreateSecurityGroup(ctx context.Context, request *ec2.CreateSecurityGroupInput, optFns ...func(*ec2.Options)) (*ec2.CreateSecurityGroupOutput, error) {
 	return s.ec2.CreateSecurityGroup(request)
 }
 
-func (s *awsSdkEC2) DeleteSecurityGroup(request *ec2.DeleteSecurityGroupInput) (*ec2.DeleteSecurityGroupOutput, error) {
+func (s *awsSdkEC2) DeleteSecurityGroup(ctx context.Context, request *ec2.DeleteSecurityGroupInput, optFns ...func(*ec2.Options)) (*ec2.DeleteSecurityGroupOutput, error) {
 	return s.ec2.DeleteSecurityGroup(request)
 }
 
-func (s *awsSdkEC2) AuthorizeSecurityGroupIngress(request *ec2.AuthorizeSecurityGroupIngressInput) (*ec2.AuthorizeSecurityGroupIngressOutput, error) {
+func (s *awsSdkEC2) AuthorizeSecurityGroupIngress(ctx context.Context, request *ec2.AuthorizeSecurityGroupIngressInput, optFns ...func(*ec2.Options)) (*ec2.AuthorizeSecurityGroupIngressOutput, error) {
 	return s.ec2.AuthorizeSecurityGroupIngress(request)
 }
 
-func (s *awsSdkEC2) RevokeSecurityGroupIngress(request *ec2.RevokeSecurityGroupIngressInput) (*ec2.RevokeSecurityGroupIngressOutput, error) {
+func (s *awsSdkEC2) RevokeSecurityGroupIngress(ctx context.Context, request *ec2.RevokeSecurityGroupIngressInput) (*ec2.RevokeSecurityGroupIngressOutput, error) {
 	return s.ec2.RevokeSecurityGroupIngress(request)
 }
 
-func (s *awsSdkEC2) CreateTags(request *ec2.CreateTagsInput) (*ec2.CreateTagsOutput, error) {
+func (s *awsSdkEC2) CreateTags(ctx context.Context, request *ec2.CreateTagsInput, optFns ...func(*ec2.Options)) (*ec2.CreateTagsOutput, error) {
 	requestTime := time.Now()
 	resp, err := s.ec2.CreateTags(request)
 	timeTaken := time.Since(requestTime).Seconds()
@@ -839,7 +841,7 @@ func (s *awsSdkEC2) CreateTags(request *ec2.CreateTagsInput) (*ec2.CreateTagsOut
 	return resp, err
 }
 
-func (s *awsSdkEC2) DeleteTags(request *ec2.DeleteTagsInput) (*ec2.DeleteTagsOutput, error) {
+func (s *awsSdkEC2) DeleteTags(ctx context.Context, request *ec2.DeleteTagsInput, optFns ...func(*ec2.Options)) (*ec2.DeleteTagsOutput, error) {
 	requestTime := time.Now()
 	resp, err := s.ec2.DeleteTags(request)
 	timeTaken := time.Since(requestTime).Seconds()
@@ -847,7 +849,7 @@ func (s *awsSdkEC2) DeleteTags(request *ec2.DeleteTagsInput) (*ec2.DeleteTagsOut
 	return resp, err
 }
 
-func (s *awsSdkEC2) DescribeRouteTables(request *ec2.DescribeRouteTablesInput) ([]*ec2.RouteTable, error) {
+func (s *awsSdkEC2) DescribeRouteTables(ctx context.Context, request *ec2.DescribeRouteTablesInput, optFns ...func(*ec2.Options)) ([]*ec2.RouteTable, error) {
 	results := []*ec2.RouteTable{}
 	var nextToken *string
 	requestTime := time.Now()
@@ -871,267 +873,19 @@ func (s *awsSdkEC2) DescribeRouteTables(request *ec2.DescribeRouteTablesInput) (
 	return results, nil
 }
 
-func (s *awsSdkEC2) CreateRoute(request *ec2.CreateRouteInput) (*ec2.CreateRouteOutput, error) {
+func (s *awsSdkEC2) CreateRoute(ctx context.Context, request *ec2.CreateRouteInput, optFns ...func(*ec2.Options)) (*ec2.CreateRouteOutput, error) {
 	return s.ec2.CreateRoute(request)
 }
 
-func (s *awsSdkEC2) DeleteRoute(request *ec2.DeleteRouteInput) (*ec2.DeleteRouteOutput, error) {
+func (s *awsSdkEC2) DeleteRoute(ctx context.Context, request *ec2.DeleteRouteInput, optFns ...func(*ec2.Options)) (*ec2.DeleteRouteOutput, error) {
 	return s.ec2.DeleteRoute(request)
 }
 
-func (s *awsSdkEC2) ModifyInstanceAttribute(request *ec2.ModifyInstanceAttributeInput) (*ec2.ModifyInstanceAttributeOutput, error) {
+func (s *awsSdkEC2) ModifyInstanceAttribute(ctx context.Context, request *ec2.ModifyInstanceAttributeInput, optFns ...func(*ec2.Options)) (*ec2.ModifyInstanceAttributeOutput, error) {
 	return s.ec2.ModifyInstanceAttribute(request)
 }
 
-func (s *awsSdkEC2) DescribeVpcs(request *ec2.DescribeVpcsInput) (*ec2.DescribeVpcsOutput, error) {
-	return s.ec2.DescribeVpcs(request)
-}
-
-// Implementation of EC2.Instances
-func (s *awsSdkEC2) DescribeInstances(request *ec2.DescribeInstancesInput) ([]*ec2.Instance, error) {
-	// Instances are paged
-	results := []*ec2.Instance{}
-	var nextToken *string
-	requestTime := time.Now()
-
-	if request.MaxResults == nil && len(request.InstanceIds) == 0 {
-		// MaxResults must be set in order for pagination to work
-		// MaxResults cannot be set with InstanceIds
-		request.MaxResults = aws.Int64(1000)
-	}
-
-	for {
-		response, err := s.ec2.DescribeInstances(request)
-		if err != nil {
-			recordAWSMetric("describe_instance", 0, err)
-			return nil, fmt.Errorf("error listing AWS instances: %q", err)
-		}
-
-		for _, reservation := range response.Reservations {
-			results = append(results, reservation.Instances...)
-		}
-
-		nextToken = response.NextToken
-		if aws.StringValue(nextToken) == "" {
-			break
-		}
-		request.NextToken = nextToken
-	}
-	timeTaken := time.Since(requestTime).Seconds()
-	recordAWSMetric("describe_instance", timeTaken, nil)
-	return results, nil
-}
-
-// DescribeNetworkInterfaces describes network interface provided in the input.
-func (s *awsSdkEC2) DescribeNetworkInterfaces(input *ec2.DescribeNetworkInterfacesInput) (*ec2.DescribeNetworkInterfacesOutput, error) {
-	requestTime := time.Now()
-	resp, err := s.ec2.DescribeNetworkInterfaces(input)
-	timeTaken := time.Since(requestTime).Seconds()
-	recordAWSMetric("describe_network_interfaces", timeTaken, err)
-	return resp, err
-}
-
-// Implements EC2.DescribeSecurityGroups
-func (s *awsSdkEC2) DescribeSecurityGroups(request *ec2.DescribeSecurityGroupsInput) ([]*ec2.SecurityGroup, error) {
-	// Security groups are paged
-	results := []*ec2.SecurityGroup{}
-	var nextToken *string
-	requestTime := time.Now()
-	for {
-		response, err := s.ec2.DescribeSecurityGroups(request)
-		if err != nil {
-			recordAWSMetric("describe_security_groups", 0, err)
-			return nil, fmt.Errorf("error listing AWS security groups: %q", err)
-		}
-
-		results = append(results, response.SecurityGroups...)
-
-		nextToken = response.NextToken
-		if aws.StringValue(nextToken) == "" {
-			break
-		}
-		request.NextToken = nextToken
-	}
-	timeTaken := time.Since(requestTime).Seconds()
-	recordAWSMetric("describe_security_groups", timeTaken, nil)
-	return results, nil
-}
-
-func (s *awsSdkEC2) AttachVolume(request *ec2.AttachVolumeInput) (*ec2.VolumeAttachment, error) {
-	requestTime := time.Now()
-	resp, err := s.ec2.AttachVolume(request)
-	timeTaken := time.Since(requestTime).Seconds()
-	recordAWSMetric("attach_volume", timeTaken, err)
-	return resp, err
-}
-
-func (s *awsSdkEC2) DetachVolume(request *ec2.DetachVolumeInput) (*ec2.VolumeAttachment, error) {
-	requestTime := time.Now()
-	resp, err := s.ec2.DetachVolume(request)
-	timeTaken := time.Since(requestTime).Seconds()
-	recordAWSMetric("detach_volume", timeTaken, err)
-	return resp, err
-}
-
-func (s *awsSdkEC2) DescribeVolumes(request *ec2.DescribeVolumesInput) ([]*ec2.Volume, error) {
-	// Volumes are paged
-	results := []*ec2.Volume{}
-	var nextToken *string
-	requestTime := time.Now()
-	for {
-		response, err := s.ec2.DescribeVolumes(request)
-
-		if err != nil {
-			recordAWSMetric("describe_volume", 0, err)
-			return nil, err
-		}
-
-		results = append(results, response.Volumes...)
-
-		nextToken = response.NextToken
-		if aws.StringValue(nextToken) == "" {
-			break
-		}
-		request.NextToken = nextToken
-	}
-	timeTaken := time.Since(requestTime).Seconds()
-	recordAWSMetric("describe_volume", timeTaken, nil)
-	return results, nil
-}
-
-func (s *awsSdkEC2) CreateVolume(request *ec2.CreateVolumeInput) (*ec2.Volume, error) {
-	requestTime := time.Now()
-	resp, err := s.ec2.CreateVolume(request)
-	timeTaken := time.Since(requestTime).Seconds()
-	recordAWSMetric("create_volume", timeTaken, err)
-	return resp, err
-}
-
-func (s *awsSdkEC2) DeleteVolume(request *ec2.DeleteVolumeInput) (*ec2.DeleteVolumeOutput, error) {
-	requestTime := time.Now()
-	resp, err := s.ec2.DeleteVolume(request)
-	timeTaken := time.Since(requestTime).Seconds()
-	recordAWSMetric("delete_volume", timeTaken, err)
-	return resp, err
-}
-
-func (s *awsSdkEC2) ModifyVolume(request *ec2.ModifyVolumeInput) (*ec2.ModifyVolumeOutput, error) {
-	requestTime := time.Now()
-	resp, err := s.ec2.ModifyVolume(request)
-	timeTaken := time.Since(requestTime).Seconds()
-	recordAWSMetric("modify_volume", timeTaken, err)
-	return resp, err
-}
-
-func (s *awsSdkEC2) DescribeVolumeModifications(request *ec2.DescribeVolumesModificationsInput) ([]*ec2.VolumeModification, error) {
-	requestTime := time.Now()
-	results := []*ec2.VolumeModification{}
-	var nextToken *string
-	for {
-		resp, err := s.ec2.DescribeVolumesModifications(request)
-		if err != nil {
-			recordAWSMetric("describe_volume_modification", 0, err)
-			return nil, fmt.Errorf("error listing volume modifictions : %v", err)
-		}
-		results = append(results, resp.VolumesModifications...)
-		nextToken = resp.NextToken
-		if aws.StringValue(nextToken) == "" {
-			break
-		}
-		request.NextToken = nextToken
-	}
-	timeTaken := time.Since(requestTime).Seconds()
-	recordAWSMetric("describe_volume_modification", timeTaken, nil)
-	return results, nil
-}
-
-func (s *awsSdkEC2) DescribeSubnets(request *ec2.DescribeSubnetsInput) ([]*ec2.Subnet, error) {
-	// Subnets are not paged
-	response, err := s.ec2.DescribeSubnets(request)
-	if err != nil {
-		return nil, fmt.Errorf("error listing AWS subnets: %q", err)
-	}
-	return response.Subnets, nil
-}
-
-func (s *awsSdkEC2) DescribeAvailabilityZones(request *ec2.DescribeAvailabilityZonesInput) ([]*ec2.AvailabilityZone, error) {
-	// AZs are not paged
-	response, err := s.ec2.DescribeAvailabilityZones(request)
-	if err != nil {
-		return nil, fmt.Errorf("error listing AWS availability zones: %q", err)
-	}
-	return response.AvailabilityZones, err
-}
-
-func (s *awsSdkEC2) CreateSecurityGroup(request *ec2.CreateSecurityGroupInput) (*ec2.CreateSecurityGroupOutput, error) {
-	return s.ec2.CreateSecurityGroup(request)
-}
-
-func (s *awsSdkEC2) DeleteSecurityGroup(request *ec2.DeleteSecurityGroupInput) (*ec2.DeleteSecurityGroupOutput, error) {
-	return s.ec2.DeleteSecurityGroup(request)
-}
-
-func (s *awsSdkEC2) AuthorizeSecurityGroupIngress(request *ec2.AuthorizeSecurityGroupIngressInput) (*ec2.AuthorizeSecurityGroupIngressOutput, error) {
-	return s.ec2.AuthorizeSecurityGroupIngress(request)
-}
-
-func (s *awsSdkEC2) RevokeSecurityGroupIngress(request *ec2.RevokeSecurityGroupIngressInput) (*ec2.RevokeSecurityGroupIngressOutput, error) {
-	return s.ec2.RevokeSecurityGroupIngress(request)
-}
-
-func (s *awsSdkEC2) CreateTags(request *ec2.CreateTagsInput) (*ec2.CreateTagsOutput, error) {
-	requestTime := time.Now()
-	resp, err := s.ec2.CreateTags(request)
-	timeTaken := time.Since(requestTime).Seconds()
-	recordAWSMetric("create_tags", timeTaken, err)
-	return resp, err
-}
-
-func (s *awsSdkEC2) DeleteTags(request *ec2.DeleteTagsInput) (*ec2.DeleteTagsOutput, error) {
-	requestTime := time.Now()
-	resp, err := s.ec2.DeleteTags(request)
-	timeTaken := time.Since(requestTime).Seconds()
-	recordAWSMetric("delete_tags", timeTaken, err)
-	return resp, err
-}
-
-func (s *awsSdkEC2) DescribeRouteTables(request *ec2.DescribeRouteTablesInput) ([]*ec2.RouteTable, error) {
-	results := []*ec2.RouteTable{}
-	var nextToken *string
-	requestTime := time.Now()
-	for {
-		response, err := s.ec2.DescribeRouteTables(request)
-		if err != nil {
-			recordAWSMetric("describe_route_tables", 0, err)
-			return nil, fmt.Errorf("error listing AWS route tables: %q", err)
-		}
-
-		results = append(results, response.RouteTables...)
-
-		nextToken = response.NextToken
-		if aws.StringValue(nextToken) == "" {
-			break
-		}
-		request.NextToken = nextToken
-	}
-	timeTaken := time.Since(requestTime).Seconds()
-	recordAWSMetric("describe_route_tables", timeTaken, nil)
-	return results, nil
-}
-
-func (s *awsSdkEC2) CreateRoute(request *ec2.CreateRouteInput) (*ec2.CreateRouteOutput, error) {
-	return s.ec2.CreateRoute(request)
-}
-
-func (s *awsSdkEC2) DeleteRoute(request *ec2.DeleteRouteInput) (*ec2.DeleteRouteOutput, error) {
-	return s.ec2.DeleteRoute(request)
-}
-
-func (s *awsSdkEC2) ModifyInstanceAttribute(request *ec2.ModifyInstanceAttributeInput) (*ec2.ModifyInstanceAttributeOutput, error) {
-	return s.ec2.ModifyInstanceAttribute(request)
-}
-
-func (s *awsSdkEC2) DescribeVpcs(request *ec2.DescribeVpcsInput) (*ec2.DescribeVpcsOutput, error) {
+func (s *awsSdkEC2) DescribeVpcs(ctx context.Context, request *ec2.DescribeVpcsInput, optFns ...func(*ec2.Options)) (*ec2.DescribeVpcsOutput, error) {
 	return s.ec2.DescribeVpcs(request)
 }
 
