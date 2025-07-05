@@ -243,11 +243,6 @@ func (ec2i *FakeEC2Impl) DescribeInstances(ctx context.Context, request *ec2.Des
 	return matches, nil
 }
 
-// DescribeInstanceTopology is not implemented but is required for interface conformance
-func (ec2i *FakeEC2Impl) DescribeInstanceTopology(ctx context.Context, request *ec2.DescribeInstanceTopologyInput, optFns ...func(*ec2.Options)) ([]ec2types.InstanceTopology, error) {
-	panic("Not implemented")
-}
-
 // AttachVolume is not implemented but is required for interface conformance
 func (ec2i *FakeEC2Impl) AttachVolume(request *ec2.AttachVolumeInput) (resp *ec2types.VolumeAttachment, err error) {
 	panic("Not implemented")
