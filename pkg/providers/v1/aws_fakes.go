@@ -168,11 +168,6 @@ func (s *FakeAWSServices) LoadBalancingV2(region string) (ELBV2, error) {
 	return s.elbv2, nil
 }
 
-// Autoscaling returns a fake ASG client
-func (s *FakeAWSServices) Autoscaling(region string) (ASG, error) {
-	return s.asg, nil
-}
-
 // Metadata returns a fake EC2Metadata client
 func (s *FakeAWSServices) Metadata() (config.EC2Metadata, error) {
 	return s.metadata, nil
