@@ -17,10 +17,11 @@ limitations under the License.
 package aws
 
 import (
+	"context"
 	"fmt"
 
-	"github.com/aws/aws-sdk-go/aws"
-	"github.com/aws/aws-sdk-go/service/ec2"
+	"github.com/aws/aws-sdk-go-v2/aws"
+	ec2types "github.com/aws/aws-sdk-go-v2/service/ec2/types"
 	csimigration "k8s.io/csi-translation-lib/plugins"
 	"k8s.io/klog/v2"
 
@@ -47,7 +48,7 @@ type KubernetesVolumeID string
 
 // DiskInfo returns aws disk information in easy to use manner
 type diskInfo struct {
-	ec2Instance     *ec2.Instance
+	ec2Instance     *ec2types.Instance
 	nodeName        types.NodeName
 	volumeState     string
 	attachmentState string
@@ -71,7 +72,7 @@ func GetAWSVolumeID(kubeVolumeID string) (string, error) {
 	return string(awsID), err
 }
 
-func (c *Cloud) checkIfAttachedToNode(diskName KubernetesVolumeID, nodeName types.NodeName) (*diskInfo, bool, error) {
+func (c *Cloud) checkIfAttachedToNode(ctx context.Context, diskName KubernetesVolumeID, nodeName types.NodeName) (*diskInfo, bool, error) {
 	disk, err := newAWSDisk(c, diskName)
 
 	if err != nil {
@@ -82,7 +83,7 @@ func (c *Cloud) checkIfAttachedToNode(diskName KubernetesVolumeID, nodeName type
 		disk: disk,
 	}
 
-	info, err := disk.describeVolume()
+	info, err := disk.describeVolume(ctx)
 
 	if err != nil {
 		klog.Warningf("Error describing volume %s with %v", diskName, err)
@@ -90,13 +91,13 @@ func (c *Cloud) checkIfAttachedToNode(diskName KubernetesVolumeID, nodeName type
 		return awsDiskInfo, false, err
 	}
 
-	awsDiskInfo.volumeState = aws.StringValue(info.State)
+	awsDiskInfo.volumeState = string(info.State)
 
 	if len(info.Attachments) > 0 {
 		attachment := info.Attachments[0]
-		awsDiskInfo.attachmentState = aws.StringValue(attachment.State)
-		instanceID := aws.StringValue(attachment.InstanceId)
-		instanceInfo, err := c.getInstanceByID(instanceID)
+		awsDiskInfo.attachmentState = string(attachment.State)
+		instanceID := *attachment.InstanceId
+		instanceInfo, err := c.getInstanceByID(ctx, instanceID)
 
 		// This should never happen but if it does it could mean there was a race and instance
 		// has been deleted
