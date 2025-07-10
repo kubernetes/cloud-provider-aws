@@ -141,7 +141,7 @@ func (s IPPermissionSet) Equal(s2 IPPermissionSet) bool {
 	return len(s) == len(s2) && s.IsSuperset(s2)
 }
 
-// Difference returns a set of objects that are not in s2
+// Difference returns a set of objects that are not in s2.
 // For example:
 // s1 = {a1, a2, a3}
 // s2 = {a1, a2, a4, a5}
@@ -149,10 +149,16 @@ func (s IPPermissionSet) Equal(s2 IPPermissionSet) bool {
 // s2.Difference(s1) = {a4, a5}
 func (s IPPermissionSet) Difference(s2 IPPermissionSet) IPPermissionSet {
 	result := NewIPPermissionSet()
-	for k, v := range s {
-		_, found := s2[k]
+	for _, desired := range s.List() {
+		found := false
+		for _, existing := range s2.List() {
+			if ipPermissionExists(&desired, &existing, false) {
+				found = true
+				break
+			}
+		}
 		if !found {
-			result[k] = v
+			result.Insert(desired)
 		}
 	}
 	return result
