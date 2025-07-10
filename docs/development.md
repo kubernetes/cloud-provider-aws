@@ -47,7 +47,6 @@ KubernetesClusterTag                            = <kubernetes cluster ID>
 DisableSecurityGroupIngress                     = false
 ClusterServiceLoadBalancerHealthProbeMode       = Shared
 ClusterServiceSharedLoadBalancerHealthProbePort = 0
-NLBSecurityGroupMode                            = Managed # optional. This teaches the controller to create NLB with Security Group
 EOF
 ```
     - Replace the placeholders with values from your AWS environment.
