@@ -1,6 +1,6 @@
 issuer: https://gitlab.ddbuild.io
 
-subject_pattern: "project_path:DataDog/cloud-provider-aws:ref_type:branch:ref:master"
+subject_pattern: "project_path:DataDog/cloud-provider-aws:ref_type:(branch|tag):ref:(master|v.+)"
 
 permissions:
   contents: write
