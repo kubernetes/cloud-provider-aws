@@ -29,6 +29,7 @@ import (
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/service/ec2"
 	ec2types "github.com/aws/aws-sdk-go-v2/service/ec2/types"
 
 	elb "github.com/aws/aws-sdk-go-v2/service/elasticloadbalancing"
@@ -1082,24 +1083,24 @@ func (c *Cloud) ensureLoadBalancer(ctx context.Context, namespacedName types.Nam
 
 		{
 			// Sync security groups
-			expected := sets.New[string](securityGroupIDs...)
-			actual := stringSetFromList(loadBalancer.SecurityGroups)
+			expected := sets.New(securityGroupIDs...)
+			actual := sets.New(loadBalancer.SecurityGroups...)
 
 			if !expected.Equal(actual) {
 				// This call just replaces the security groups, unlike e.g. subnets (!)
-				request := &elb.ApplySecurityGroupsToLoadBalancerInput{}
-				request.LoadBalancerName = aws.String(loadBalancerName)
-				if securityGroupIDs == nil {
-					request.SecurityGroups = nil
-				} else {
-					request.SecurityGroups = securityGroupIDs
-				}
-				klog.V(2).Info("Applying updated security groups to load balancer")
-				_, err := c.elb.ApplySecurityGroupsToLoadBalancer(ctx, request)
-				if err != nil {
+				klog.V(2).Infof("Applying updated security groups to load balancer %q", loadBalancerName)
+				if _, err := c.elb.ApplySecurityGroupsToLoadBalancer(ctx, &elb.ApplySecurityGroupsToLoadBalancerInput{
+					LoadBalancerName: aws.String(loadBalancerName),
+					SecurityGroups:   securityGroupIDs,
+				}); err != nil {
 					return nil, fmt.Errorf("error applying AWS loadbalancer security groups: %q", err)
 				}
 				dirty = true
+
+				// Ensure the replaced security groups are removed from AWS when owned by the controller.
+				if sgsNotRemoved, errs := c.removeOwnedSecurityGroups(ctx, loadBalancerName, actual.UnsortedList()); len(errs) > 0 {
+					return nil, fmt.Errorf("error removing owned security groups %v: %v", sgsNotRemoved, errs)
+				}
 			}
 		}
 
@@ -1703,4 +1704,163 @@ func ValidateHealthCheck(s *elbtypes.HealthCheck) error {
 	}
 
 	return nil
+}
+
+// isOwnedSecurityGroup checks if the security group is owned by the controller
+// by checking if the security group has the cluster ownership tag
+// (kubernetes.io/cluster/<clusterID>=owned).
+//
+// Parameters:
+// - `ctx`: The context for the operation.
+// - `securityGroupID`: The ID of the security group to check.
+//
+// Returns:
+//   - `bool`: True if the security group is owned by the controller, false otherwise.
+//   - `error`: An error if the security group cannot be retrieved, is not found,
+//     or if multiple security groups are found with the same ID (unexpected).
+//
+// Note: This function calls the AWS DescribeSecurityGroups API to retrieve
+// the security group and check its tags.
+func (c *Cloud) isOwnedSecurityGroup(ctx context.Context, securityGroupID string) (bool, error) {
+	groups, err := c.ec2.DescribeSecurityGroups(ctx, &ec2.DescribeSecurityGroupsInput{
+		GroupIds: []string{securityGroupID},
+	})
+	if err != nil {
+		return false, fmt.Errorf("error retrieving security group %q: %w", securityGroupID, err)
+	}
+	if len(groups) == 0 {
+		return false, fmt.Errorf("security group %q not found", securityGroupID)
+	}
+	if len(groups) != 1 {
+		// This should not be possible - ids should be unique
+		return false, fmt.Errorf("multiple security groups found with same id %q", securityGroupID)
+	}
+	return c.tagging.hasClusterTagOwned(groups[0].Tags), nil
+}
+
+// buildSecurityGroupRuleReferences finds all security groups that have ingress rules
+// referencing the specified security group ID, and categorizes them based on cluster tagging.
+// This is used to identify dependencies before removing a security group.
+//
+// Parameters:
+//   - ctx: The context for the request.
+//   - sgID: The ID of the security group to find references for.
+//
+// Returns:
+//   - map[*ec2types.SecurityGroup]bool: All security groups with ingress rules referencing sgID, mapped to their cluster tag status (true/false).
+//   - map[*ec2types.SecurityGroup]IPPermissionSet: Only cluster-tagged security groups mapped to their ingress rules that reference sgID.
+//   - error: An error if the AWS DescribeSecurityGroups API call fails.
+//
+// Behavior:
+//   - Queries AWS for all security groups with ingress rules referencing the target sgID.
+//   - For each found security group, records its cluster tag status in the first map.
+//   - Only processes ingress rules for cluster-tagged security groups; non-cluster-tagged ones are skipped with a warning.
+//   - Collects the specific ingress rules that reference the target security group from cluster-tagged SGs only.
+//   - Non-cluster-tagged security groups appear in the first map (with false value) but are excluded from the second map.
+func (c *Cloud) buildSecurityGroupRuleReferences(ctx context.Context, sgID string) (map[*ec2types.SecurityGroup]bool, map[*ec2types.SecurityGroup]IPPermissionSet, error) {
+	groupsHasTags := make(map[*ec2types.SecurityGroup]bool)
+	groupsLinkedPermissions := make(map[*ec2types.SecurityGroup]IPPermissionSet)
+	sgsOut, err := c.ec2.DescribeSecurityGroups(ctx, &ec2.DescribeSecurityGroupsInput{
+		Filters: []ec2types.Filter{
+			newEc2Filter("ip-permission.group-id", sgID),
+		},
+	})
+	if err != nil {
+		return groupsHasTags, groupsLinkedPermissions, fmt.Errorf("error querying security groups for ELB: %q", err)
+	}
+
+	for _, sg := range sgsOut {
+		groupsHasTags[&sg] = c.tagging.hasClusterTag(sg.Tags)
+
+		groupsLinkedPermissions[&sg] = NewIPPermissionSet()
+		for _, rule := range sg.IpPermissions {
+			if rule.UserIdGroupPairs != nil {
+				for _, pair := range rule.UserIdGroupPairs {
+					if pair.GroupId != nil && aws.ToString(pair.GroupId) == sgID {
+						groupsLinkedPermissions[&sg].Insert(rule)
+					}
+				}
+			}
+		}
+
+	}
+	return groupsHasTags, groupsLinkedPermissions, nil
+}
+
+// removeOwnedSecurityGroups removes the CLB owned/managed security groups from AWS.
+// It revokes ingress rules that reference the security groups to be removed,
+// then deletes the security groups that are owned by the controller.
+// This is used when updating load balancer security groups to clean up orphaned ones.
+//
+// Parameters:
+// - `ctx`: The context for the operation.
+// - `loadBalancerName`: The name of the load balancer (used for logging and deletion operations).
+// - `securityGroups`: The list of security group IDs to process for removal.
+//
+// Returns:
+// - `[]string`: Security group IDs that could not be removed due to errors.
+// - `[]error`: Collection of all errors encountered during the removal process.
+//
+// Behavior:
+// - For each security group, checks if it is owned by the controller using cluster tags.
+// - Identifies and revokes all ingress rules in other security groups that reference the target SG.
+// - Only deletes security groups that are owned by the controller (have cluster ownership tags).
+// - Non-owned security groups have their references revoked but are not deleted.
+// - Processing continues for all security groups even if some operations fail.
+// - Collects and returns all security groups that could not be fully processed.
+func (c *Cloud) removeOwnedSecurityGroups(ctx context.Context, loadBalancerName string, securityGroups []string) ([]string, []error) {
+	groupsNotRemoved := []string{}
+	errs := []error{}
+	for _, sg := range securityGroups {
+		isOwned, err := c.isOwnedSecurityGroup(ctx, sg)
+		if err != nil {
+			groupsNotRemoved = append(groupsNotRemoved, sg)
+			errs = append(errs, fmt.Errorf("unable to validate if security group %q is owned by the controller: %w", sg, err))
+			continue
+		}
+
+		_, groupsLinkedPermissions, err := c.buildSecurityGroupRuleReferences(ctx, sg)
+		if err != nil {
+			groupsNotRemoved = append(groupsNotRemoved, sg)
+			errs = append(errs, fmt.Errorf("error building security group rule references for %q: %w", sg, err))
+			continue
+		}
+
+		for sgTarget, sgPerms := range groupsLinkedPermissions {
+			klog.Infof("revoking security group ingress for %q", aws.ToString(sgTarget.GroupId))
+			if _, err := c.ec2.RevokeSecurityGroupIngress(ctx, &ec2.RevokeSecurityGroupIngressInput{
+				GroupId:       sgTarget.GroupId,
+				IpPermissions: sgPerms.List(),
+			}); err != nil {
+				groupsNotRemoved = append(groupsNotRemoved, sg)
+				errs = append(errs, fmt.Errorf("error revoking security group ingress rules from %q: %w", aws.ToString(sgTarget.GroupId), err))
+				continue
+			}
+		}
+
+		if len(errs) > 0 {
+			klog.Warningf("one or more errors while revoking security group ingress rules, skipping %q deletion", groupsNotRemoved)
+			continue
+		}
+
+		if !isOwned {
+			msg := fmt.Sprintf("security group %q is not owned by the controller, skipping remove lifecycle after update", sg)
+			klog.Warningf("%s", msg)
+			groupsNotRemoved = append(groupsNotRemoved, sg)
+			errs = append(errs, fmt.Errorf("%s", msg))
+			continue
+		}
+
+		klog.Infof("deleting loadbalancer ownedsecurity group %q", sg)
+		sgMap := make(map[string]struct{})
+		sgMap[sg] = struct{}{}
+		if err := c.deleteSecurityGroupsWithBackoff(ctx, loadBalancerName, sgMap); err != nil {
+			msg := fmt.Sprintf("error deleting security group %q: %v", sg, err)
+			klog.Warningf("%s", msg)
+			groupsNotRemoved = append(groupsNotRemoved, sg)
+			errs = append(errs, fmt.Errorf("error deleting security group %q: %w", sg, err))
+		}
+		klog.Infof("loadbalancer owned security group %q deleted", sg)
+	}
+	return groupsNotRemoved, errs
 }
