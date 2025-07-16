@@ -1881,35 +1881,6 @@ func ValidateHealthCheck(s *elbtypes.HealthCheck) error {
 	return nil
 }
 
-// isOwnedSecurityGroup checks if the security group is owned by the controller
-// by checking if the security group has the cluster ownership tag
-// (kubernetes.io/cluster/<clusterID>=owned).
-//
-// Parameters:
-// - `ctx`: The context for the operation.
-// - `securityGroupID`: The ID of the security group to check.
-//
-// Returns:
-//   - `bool`: True if the security group is owned by the controller, false otherwise.
-//   - `error`: An error if the security group cannot be retrieved, is not found,
-//     or if multiple security groups are found with the same ID (unexpected).
-func (c *Cloud) isOwnedSecurityGroup(ctx context.Context, securityGroupID string) (bool, error) {
-	groups, err := c.ec2.DescribeSecurityGroups(ctx, &ec2.DescribeSecurityGroupsInput{
-		GroupIds: []string{securityGroupID},
-	})
-	if err != nil {
-		return false, fmt.Errorf("error retrieving security group %q: %w", securityGroupID, err)
-	}
-	if len(groups) == 0 {
-		return false, fmt.Errorf("security group %q not found", securityGroupID)
-	}
-	if len(groups) != 1 {
-		// This should not be possible - ids should be unique
-		return false, fmt.Errorf("[BUG] multiple security groups(%d) found with same id %q", len(groups), securityGroupID)
-	}
-	return c.tagging.hasClusterTagOwned(groups[0].Tags)
-}
-
 // buildSecurityGroupRuleReferences finds all security groups that have ingress rules
 // referencing the specified security group ID, and categorizes them based on cluster tagging.
 // This is used to identify dependencies before removing a security group.
