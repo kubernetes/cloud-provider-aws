@@ -2940,19 +2940,9 @@ func (c *Cloud) updateInstanceSecurityGroupsForLoadBalancer(ctx context.Context,
 	loadBalancerSecurityGroupID := lbSecurityGroupIDs[0]
 
 	// Get the actual list of groups that allow ingress from the load-balancer
-	actualGroups := make(map[*ec2types.SecurityGroup]bool)
-	{
-		describeRequest := &ec2.DescribeSecurityGroupsInput{}
-		describeRequest.Filters = []ec2types.Filter{
-			newEc2Filter("ip-permission.group-id", loadBalancerSecurityGroupID),
-		}
-		response, err := c.ec2.DescribeSecurityGroups(ctx, describeRequest)
-		if err != nil {
-			return fmt.Errorf("error querying security groups for ELB: %q", err)
-		}
-		for _, sg := range response {
-			actualGroups[&sg] = c.tagging.hasClusterTag(sg.Tags)
-		}
+	actualGroups, _, err := c.buildSecurityGroupRuleReferences(ctx, loadBalancerSecurityGroupID)
+	if err != nil {
+		return fmt.Errorf("error building security group rule references: %w", err)
 	}
 
 	// Open the firewall from the load balancer to the instance
