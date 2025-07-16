@@ -605,13 +605,15 @@ func TestHasClusterTagOwned(t *testing.T) {
 			}
 
 			result, err := tagging.hasClusterTagOwned(tt.tags)
+
 			if tt.expectedError != "" {
-				assert.Error(t, err)
-				assert.Contains(t, err.Error(), tt.expectedError)
+				assert.Error(t, err, "Expected error for test case: %s", tt.name)
+				assert.Contains(t, err.Error(), tt.expectedError, "Error message should contain expected text")
+				assert.Equal(t, tt.expected, result, "Result should match expected value even when error occurs")
 			} else {
-				assert.NoError(t, err)
+				assert.NoError(t, err, "Expected no error for test case: %s", tt.name)
+				assert.Equal(t, tt.expected, result, "hasClusterTagOwned returned unexpected result")
 			}
-			assert.Equal(t, tt.expected, result, "hasClusterTagOwned returned unexpected result")
 		})
 	}
 }
