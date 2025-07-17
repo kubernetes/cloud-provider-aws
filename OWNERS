@@ -1,4 +1,5 @@
 approvers:
+- sig-cloud-provider-leads
 - dims
 - nckturner
 - olemarkus
