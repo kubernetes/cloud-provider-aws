@@ -56,6 +56,11 @@ const (
 	lbAttrAccessLogsS3Bucket            = "access_logs.s3.bucket"
 	lbAttrAccessLogsS3Prefix            = "access_logs.s3.prefix"
 
+	// Target Group Attributes names
+	// Traffic Control
+	tgAttrPreserveClientIPEnabled = "preserve_client_ip.enabled"
+	tgAttrProxyProtocolV2Enabled  = "proxy_protocol_v2.enabled"
+
 	// defaultEC2InstanceCacheMaxAge is the max age for the EC2 instance cache
 	defaultEC2InstanceCacheMaxAge = 10 * time.Minute
 )
@@ -400,6 +405,12 @@ func (c *Cloud) ensureLoadBalancerv2(ctx context.Context, namespacedName types.N
 			loadBalancer = &loadBalancers.LoadBalancers[0]
 		}
 	}
+
+	// Reconcile target group attributes.
+	if err := c.reconcileTargetGroupsAttributes(ctx, aws.ToString(loadBalancer.LoadBalancerArn), annotations); err != nil {
+		return nil, err
+	}
+
 	return loadBalancer, nil
 }
 
@@ -491,6 +502,249 @@ func (c *Cloud) reconcileLBAttributes(ctx context.Context, loadBalancerArn strin
 		})
 		if err != nil {
 			return fmt.Errorf("unable to update load balancer attributes during attribute sync: %q", err)
+		}
+	}
+
+	return nil
+}
+
+// buildTargetGroupAttributes builds the list of target group attributes that need to be modified
+// based on service annotations, target group AWS defaults, and current attribute values.
+//
+// This function implements attribute management with the following logic:
+// 1. Sets AWS default values based on target group type and protocol
+// 2. Parses user-specified attributes from ServiceAnnotationLoadBalancerTargetGroupAttributes annotation
+// 3. Validates attribute values and enforces AWS defaults
+// 4. Calculates the diff between current state and desired state
+// 5. Returns only attributes that need to be changed
+//
+// Default Behavior (AWS defaults):
+// - preserve_client_ip.enabled:
+//   - true (default) for instance targets or UDP/TCP_UDP protocols (cannot be changed for UDP/TCP_UDP)
+//   - false (default) for IP targets with TCP/TLS protocols
+//   - REQUIRED to be true for UDP/TCP_UDP protocols (AWS restriction)
+//
+// - proxy_protocol_v2.enabled: false (AWS default, can be changed to true)
+//
+// Supported Annotations:
+// - preserve_client_ip.enabled: "true"|"false" - whether to preserve client IP addresses
+// - proxy_protocol_v2.enabled: "true"|"false" - whether to enable proxy protocol v2
+
+// Behavior when no annotations provided:
+// - Target groups calculate drift from current AWS default values, and restore them.
+//
+// Parameters:
+// - tg: target group object
+// - tgAttributes: current target group attributes from AWS resource
+// - annotations: service annotations containing desired attribute values
+//
+// Returns:
+// - []elbv2types.TargetGroupAttribute: list of attributes that need to be modified
+// - error: validation errors, parsing errors, or AWS restrictions
+func (c *Cloud) buildTargetGroupAttributes(tg *elbv2types.TargetGroup, tgAttributes []elbv2types.TargetGroupAttribute, annotations map[string]string) ([]elbv2types.TargetGroupAttribute, error) {
+	errPrefix := "error building target group attributes"
+	if tg == nil {
+		return nil, fmt.Errorf("%s: target group is nil", errPrefix)
+	}
+	if tgAttributes == nil {
+		return nil, fmt.Errorf("%s: target group attributes are nil", errPrefix)
+	}
+
+	// Existing attributes are current target group attributes from AWS.
+	existingAttributes := make(map[string]string, len(tgAttributes))
+	for _, attr := range tgAttributes {
+		existingAttributes[aws.ToString(attr.Key)] = aws.ToString(attr.Value)
+	}
+
+	// Desired attributes are the AWS default values for a target group.
+	// https://pkg.go.dev/github.com/aws/aws-sdk-go-v2/service/elasticloadbalancingv2@main/types#TargetGroupAttribute
+	desiredAttributes := make(map[string]string, len(existingAttributes))
+	//   - proxy_protocol_v2.enabled - Indicates whether Proxy Protocol version 2 is
+	//   enabled. The value is true or false . The default is false .
+	desiredAttributes[tgAttrProxyProtocolV2Enabled] = "false"
+	//   - preserve_client_ip.enabled - Indicates whether client IP preservation is
+	//   enabled. The value is true or false . The default is disabled if the target
+	//   group type is IP address and the target group protocol is TCP or TLS. Otherwise,
+	//   the default is enabled. Client IP preservation can't be disabled for UDP and
+	//   TCP_UDP target groups.
+	desiredAttributes[tgAttrPreserveClientIPEnabled] = "true"
+	if tg.TargetType == elbv2types.TargetTypeEnumIp && (tg.Protocol == elbv2types.ProtocolEnumTcp || tg.Protocol == elbv2types.ProtocolEnumTls) {
+		desiredAttributes[tgAttrPreserveClientIPEnabled] = "false"
+	}
+
+	// Annotation attributes are the user-defined attributes set through annotations.
+	// Attributes are in format key=value, separated by comma.
+	annotationAttributes := make(map[string]string, len(existingAttributes))
+	if attributes, present := annotations[ServiceAnnotationLoadBalancerTargetGroupAttributes]; present {
+		attributes = strings.TrimSpace(attributes)
+		if len(attributes) == 0 {
+			return []elbv2types.TargetGroupAttribute{}, nil
+		}
+
+		for _, attr := range strings.Split(attributes, ",") {
+			attr = strings.TrimSpace(attr)
+			if attr == "" {
+				continue
+			}
+
+			parts := strings.SplitN(attr, "=", 2)
+			if len(parts) != 2 {
+				return nil, fmt.Errorf("%s: invalid attribute format: %q", errPrefix, attr)
+			}
+			attrKey := parts[0]
+			attrValue := parts[1]
+
+			if _, ok := annotationAttributes[attrKey]; ok {
+				return nil, fmt.Errorf("%s: %q is set twice in the annotation", errPrefix, attrKey)
+			}
+
+			switch attrKey {
+			case tgAttrPreserveClientIPEnabled:
+				if attrValue != "true" && attrValue != "false" {
+					return nil, fmt.Errorf("%s: invalid attribute value for %q: %s", errPrefix, attrKey, attrValue)
+				}
+				// AWS restriction: Client IP preservation can't be disabled for UDP and TCP_UDP target groups.
+				if (tg.Protocol == elbv2types.ProtocolEnumUdp || tg.Protocol == elbv2types.ProtocolEnumTcpUdp) && attrValue == "false" {
+					return nil, fmt.Errorf("%s: client IP preservation can't be disabled for UDP", errPrefix)
+				}
+				annotationAttributes[attrKey] = attrValue
+
+			case tgAttrProxyProtocolV2Enabled:
+				if attrValue != "true" && attrValue != "false" {
+					return nil, fmt.Errorf("%s: invalid attribute value for %q: %s", errPrefix, attrKey, attrValue)
+				}
+				annotationAttributes[attrKey] = attrValue
+
+			default:
+				return nil, fmt.Errorf("%s: the attribute %q is not supported by the controller or is invalid", errPrefix, attrKey)
+			}
+		}
+	}
+
+	// Calculate attribute difference between current and desired state.
+	var diff []elbv2types.TargetGroupAttribute
+	for attrKey, attrValue := range existingAttributes {
+		// Calculate diff only for controller supported attributes.
+		if _, ok := desiredAttributes[attrKey]; !ok {
+			continue
+		}
+
+		// Calculate the target value: annotation override > AWS default > current value.
+		newValue := attrValue
+		if len(annotationAttributes[attrKey]) > 0 {
+			if attrValue == annotationAttributes[attrKey] {
+				continue
+			}
+			klog.V(2).Infof("Setting from annotation the target group attribute %q value from %q to %q", attrKey, attrValue, annotationAttributes[attrKey])
+			newValue = annotationAttributes[attrKey]
+		} else if len(desiredAttributes[attrKey]) > 0 {
+			if attrValue == desiredAttributes[attrKey] {
+				continue
+			}
+			klog.V(2).Infof("Restoring default target group attribute %q value from %q to %q", attrKey, attrValue, desiredAttributes[attrKey])
+			newValue = desiredAttributes[attrKey]
+		} else {
+			continue
+		}
+
+		diff = append(diff, elbv2types.TargetGroupAttribute{
+			Key:   aws.String(attrKey),
+			Value: aws.String(newValue),
+		})
+	}
+	return diff, nil
+}
+
+// ensureTargetGroupAttributes ensures that the target group attributes for a specific
+// target group match the desired state specified in service annotations.
+//
+// This function:
+// 1. Validates the target group object is provided
+// 2. Retrieves current attributes for the specified target group
+// 3. Builds the desired attributes using buildTargetGroupAttributes
+// 4. Updates target group attributes via AWS API only when changes are needed
+// 5. Returns whether attributes were modified (dirty flag) and any errors
+//
+// The function is called during target group operations (create/update) to ensure target group
+// attributes stay in sync with service annotations. This provides immediate attribute application
+// when target groups are created or modified.
+//
+// IMPORTANT: When target groups are recreated (due to port/protocol/health check changes),
+// the new target groups start with AWS default attribute values. This function will
+// detect the difference and apply the desired attributes from annotations.
+//
+// Parameters:
+// - ctx: context for AWS API calls and cancellation
+// - tg: target group object containing ARN, protocol, and type information
+// - annotations: service annotations containing desired target group attributes
+//
+// Returns:
+// - bool: true if target group attributes were modified, false otherwise
+// - error: validation errors, AWS API errors, or attribute building errors
+func (c *Cloud) ensureTargetGroupAttributes(ctx context.Context, tg *elbv2types.TargetGroup, annotations map[string]string) (bool, error) {
+	if tg == nil {
+		return false, fmt.Errorf("unable to reconcile target group attributes: target group is required")
+	}
+
+	tgAttributes, err := c.elbv2.DescribeTargetGroupAttributes(ctx, &elbv2.DescribeTargetGroupAttributesInput{
+		TargetGroupArn: tg.TargetGroupArn,
+	})
+	if err != nil {
+		return false, fmt.Errorf("unable to retrieve target group attributes during attribute sync: %w", err)
+	}
+
+	desiredTargetGroupAttributes, err := c.buildTargetGroupAttributes(tg, tgAttributes.Attributes, annotations)
+	if err != nil {
+		return false, fmt.Errorf("unable to build target group attributes: %w", err)
+	}
+
+	// Attributes are global to the service, if there are no attributes to set, skip this target group.
+	if len(desiredTargetGroupAttributes) == 0 {
+		return false, nil
+	}
+	dirty := len(desiredTargetGroupAttributes) > 0
+	klog.V(2).Infof("Updating attributes for target group %q", aws.ToString(tg.TargetGroupArn))
+
+	// modify target group attributes
+	if _, err = c.elbv2.ModifyTargetGroupAttributes(ctx, &elbv2.ModifyTargetGroupAttributesInput{
+		TargetGroupArn: tg.TargetGroupArn,
+		Attributes:     desiredTargetGroupAttributes,
+	}); err != nil {
+		return dirty, fmt.Errorf("unable to modify target group attributes during attribute sync: %w", err)
+	}
+	klog.V(2).Infof("Successfully updated target group attributes for %q", aws.ToString(tg.TargetGroupArn))
+
+	return dirty, nil
+}
+
+// reconcileTargetGroupsAttributes reconciles the target group attributes for all target groups
+// associated with a load balancer to match the desired state specified in service annotations.
+//
+// The function serves as a higher-level coordinator that applies consistent attribute
+// configuration across all target groups for a given load balancer.
+//
+// Parameters:
+// - ctx: context for AWS API calls with timeout and cancellation support
+// - lbARN: AWS load balancer ARN to identify which target groups to process
+// - annotations: service annotations containing desired target group attribute configuration
+//
+// Returns:
+// - error: validation errors, AWS API errors, or target group attribute update failures
+func (c *Cloud) reconcileTargetGroupsAttributes(ctx context.Context, lbARN string, annotations map[string]string) error {
+	if len(lbARN) == 0 {
+		return fmt.Errorf("error updating target groups attributes: load balancer ARN is empty")
+	}
+
+	describeTargetGroupsOutput, err := c.elbv2.DescribeTargetGroups(ctx, &elbv2.DescribeTargetGroupsInput{
+		LoadBalancerArn: aws.String(lbARN),
+	})
+	if err != nil {
+		return fmt.Errorf("error updating target groups attributes from load balancer %q: %w", lbARN, err)
+	}
+
+	for _, tg := range describeTargetGroupsOutput.TargetGroups {
+		if _, err := c.ensureTargetGroupAttributes(ctx, &tg, annotations); err != nil {
+			return fmt.Errorf("error updating target group attributes for target group %q: %w", aws.ToString(tg.TargetGroupArn), err)
 		}
 	}
 	return nil
