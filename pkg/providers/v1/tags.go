@@ -154,6 +154,31 @@ func (t *awsTagging) hasClusterTag(tags []ec2types.Tag) bool {
 	return false
 }
 
+// hasClusterTagOwned checks if the resource has the cluster tag with the value "owned"
+// This is used to determine if the resource is owned by the controller.
+// It checks both legacy and new tags.
+func (t *awsTagging) hasClusterTagOwned(tags []ec2types.Tag) bool {
+	if len(t.ClusterID) == 0 {
+		return false
+	}
+	clusterTagKey := t.clusterTagKey()
+	for _, tag := range tags {
+		tagKey := aws.ToString(tag.Key)
+		tagValue := aws.ToString(tag.Value)
+
+		// For legacy tags, the cluster ID is the value, not "owned"
+		if (tagKey == TagNameKubernetesClusterLegacy) && (tagValue == t.ClusterID) {
+			return true
+		}
+
+		// For new tags, check if it's the cluster tag with "owned" value
+		if tagKey == clusterTagKey && tagValue == string(ResourceLifecycleOwned) {
+			return true
+		}
+	}
+	return false
+}
+
 func (t *awsTagging) hasNoClusterPrefixTag(tags []ec2types.Tag) bool {
 	for _, tag := range tags {
 		if strings.HasPrefix(aws.ToString(tag.Key), TagNameKubernetesClusterPrefix) {
