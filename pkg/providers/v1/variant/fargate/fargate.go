@@ -5,10 +5,9 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/ec2"
 	ec2types "github.com/aws/aws-sdk-go-v2/service/ec2/types"
-	awssdk "github.com/aws/aws-sdk-go/aws"
-	"github.com/aws/aws-sdk-go/aws/credentials"
 
 	v1 "k8s.io/api/core/v1"
 	cloudprovider "k8s.io/cloud-provider"
@@ -27,11 +26,11 @@ const (
 type fargateVariant struct {
 	cloudConfig *config.CloudConfig
 	ec2API      iface.EC2
-	credentials *credentials.Credentials
+	credentials aws.CredentialsProvider
 	provider    config.SDKProvider
 }
 
-func (f *fargateVariant) Initialize(cloudConfig *config.CloudConfig, credentials *credentials.Credentials, provider config.SDKProvider, ec2API iface.EC2, region string) error {
+func (f *fargateVariant) Initialize(cloudConfig *config.CloudConfig, credentials aws.CredentialsProvider, provider config.SDKProvider, ec2API iface.EC2, region string) error {
 	f.cloudConfig = cloudConfig
 	f.ec2API = ec2API
 	f.credentials = credentials
@@ -70,7 +69,7 @@ func (f *fargateVariant) NodeAddresses(ctx context.Context, instanceID, vpcID st
 	for _, family := range f.cloudConfig.Global.NodeIPFamilies {
 		switch family {
 		case "ipv4":
-			nodeAddresses := getNodeAddressesForFargateNode(awssdk.StringValue(eni.PrivateDnsName), awssdk.StringValue(eni.PrivateIpAddress))
+			nodeAddresses := getNodeAddressesForFargateNode(aws.ToString(eni.PrivateDnsName), aws.ToString(eni.PrivateIpAddress))
 			addresses = append(addresses, nodeAddresses...)
 		case "ipv6":
 			if eni.Ipv6Addresses == nil || len(eni.Ipv6Addresses) == 0 {
@@ -78,7 +77,7 @@ func (f *fargateVariant) NodeAddresses(ctx context.Context, instanceID, vpcID st
 				continue
 			}
 			internalIPv6Address := eni.Ipv6Addresses[0].Ipv6Address
-			nodeAddresses := getNodeAddressesForFargateNode(awssdk.StringValue(eni.PrivateDnsName), awssdk.StringValue(internalIPv6Address))
+			nodeAddresses := getNodeAddressesForFargateNode(aws.ToString(eni.PrivateDnsName), aws.ToString(internalIPv6Address))
 			addresses = append(addresses, nodeAddresses...)
 		}
 	}
@@ -97,7 +96,7 @@ func (f *fargateVariant) InstanceShutdown(ctx context.Context, instanceID, vpcID
 
 func newEc2Filter(name string, values ...string) ec2types.Filter {
 	filter := ec2types.Filter{
-		Name: awssdk.String(name),
+		Name: aws.String(name),
 	}
 	for _, value := range values {
 		filter.Values = append(filter.Values, value)

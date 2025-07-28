@@ -20,8 +20,8 @@ import (
 	"encoding/json"
 	"fmt"
 
+	"github.com/aws/aws-sdk-go-v2/aws"
 	ec2types "github.com/aws/aws-sdk-go-v2/service/ec2/types"
-	"github.com/aws/aws-sdk-go/aws"
 )
 
 // IPPermissionSet maps IP strings of strings to EC2 IpPermissions
@@ -141,7 +141,7 @@ func (s IPPermissionSet) Equal(s2 IPPermissionSet) bool {
 	return len(s) == len(s2) && s.IsSuperset(s2)
 }
 
-// Difference returns a set of objects that are not in s2
+// Difference returns a set of objects that are not in s2.
 // For example:
 // s1 = {a1, a2, a3}
 // s2 = {a1, a2, a4, a5}
@@ -149,10 +149,16 @@ func (s IPPermissionSet) Equal(s2 IPPermissionSet) bool {
 // s2.Difference(s1) = {a4, a5}
 func (s IPPermissionSet) Difference(s2 IPPermissionSet) IPPermissionSet {
 	result := NewIPPermissionSet()
-	for k, v := range s {
-		_, found := s2[k]
+	for _, desired := range s.List() {
+		found := false
+		for _, existing := range s2.List() {
+			if ipPermissionExists(&desired, &existing, false) {
+				found = true
+				break
+			}
+		}
 		if !found {
-			result[k] = v
+			result.Insert(desired)
 		}
 	}
 	return result
@@ -181,22 +187,22 @@ type IPPermissionMatchDesc struct {
 // Test whether specific IPPermission contains description.
 func (p IPPermissionMatchDesc) Test(perm ec2types.IpPermission) bool {
 	for _, v4Range := range perm.IpRanges {
-		if aws.StringValue(v4Range.Description) == p.Description {
+		if aws.ToString(v4Range.Description) == p.Description {
 			return true
 		}
 	}
 	for _, v6Range := range perm.Ipv6Ranges {
-		if aws.StringValue(v6Range.Description) == p.Description {
+		if aws.ToString(v6Range.Description) == p.Description {
 			return true
 		}
 	}
 	for _, prefixListID := range perm.PrefixListIds {
-		if aws.StringValue(prefixListID.Description) == p.Description {
+		if aws.ToString(prefixListID.Description) == p.Description {
 			return true
 		}
 	}
 	for _, group := range perm.UserIdGroupPairs {
-		if aws.StringValue(group.Description) == p.Description {
+		if aws.ToString(group.Description) == p.Description {
 			return true
 		}
 	}

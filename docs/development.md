@@ -1,13 +1,73 @@
 # Development
 
-A local single node cluster can be brought up on AWS by running the local up script while on an AWS EC2 instance.
-Before running this, ensure that the instance you are running on has the `KubernetesCluster` tag. The tag can be any value.
+This guide is for contributors and developers working on the AWS cloud controller manager (`cloud-provider-aws`).
+It provides step-by-step instructions for setting up a development environment, building and testing the controller, and running end-to-end (e2e) tests on AWS.
 
-```
+You will learn how to:
+- Set up a Kubernetes cluster for development (either locally or using an existing AWS cluster)
+- Build and test the controller binary
+- Run the controller locally or in your cluster
+- Prepare and execute e2e tests
+
+Whether you are adding new features, fixing bugs, or validating changes, this guide will help you get started and follow best practices for development in the Kubernetes ecosystem.
+
+## Setting up environment
+
+To develop and test the AWS cloud controller manager, you need access to a Kubernetes cluster running on AWS. You can either create a new cluster for development or use an existing one.
+
+The following sections describe both approaches.
+
+### Option 1: Create a local development cluster
+
+You can bring up a single-node Kubernetes cluster on AWS by running the provided local-up script **on an AWS EC2 instance**.
+**Note:** The EC2 instance must have the `KubernetesCluster` tag (the value can be any string).
+
+```sh
 ./hack/local-up-cluster.sh
 ```
 
-By default this script will use the cloud provider binary from this repository. You will need to have the k8s main repo cloned before running this script.
+By default, this script uses the cloud provider binary from this repository.
+**Prerequisite:** You must have the Kubernetes main repository cloned before running this script.
+
+### Option 2: Use an existing cluster
+
+If you already have a Kubernetes cluster running on AWS, you can test the controller binary directly from your local machine or another environment.
+Follow these steps:
+
+1. **Export AWS credentials** for the AWS account and region where your cluster is running.
+2. **Scale down the in-cluster cloud controller manager deployment** to avoid conflicts.
+3. **Create a cloud-config file** tailored to your environment:
+```sh
+cat << EOF >> $CLOUD_CONFIG
+[Global]
+Region                                          = us-east-1
+VPC                                             = <VPC ID where the cluster is installed>
+SubnetID                                        = <Single subnet ID used by load balancer controller>
+KubernetesClusterTag                            = <kubernetes cluster ID>
+DisableSecurityGroupIngress                     = false
+ClusterServiceLoadBalancerHealthProbeMode       = Shared
+ClusterServiceSharedLoadBalancerHealthProbePort = 0
+EOF
+```
+    - Replace the placeholders with values from your AWS environment.
+    - The `KubernetesClusterTag` should match the tag used on your cluster resources (e.g., `my-cluster-id` for `kubernetes.io/cluster/my-cluster-id`).
+
+4. **Run the controller:**
+```sh
+$ ./aws-cloud-controller-manager -v=2 \
+    --cloud-config="${CLOUD_CONFIG}" \
+    --kubeconfig="${KUBECONFIG}" \
+    --cloud-provider=aws \
+    --use-service-account-credentials=true \
+    --configure-cloud-routes=false \
+    --leader-elect=true \
+    --leader-elect-lease-duration=137s \
+    --leader-elect-renew-deadline=107s \
+    --leader-elect-retry-period=26s \
+    --leader-elect-resource-namespace=openshift-cloud-controller-manager
+```
+
+> **Tip:** When running the controller outside of AWS (e.g., on your laptop), ensure your cloud config includes `Region`, `VPC`, `SubnetID`, and `KubernetesClusterTag` to avoid errors related to EC2 metadata service access.
 
 ## Basic Development Flow
 

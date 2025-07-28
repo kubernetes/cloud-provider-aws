@@ -19,8 +19,8 @@ package aws
 import (
 	"context"
 
+	"github.com/aws/aws-sdk-go-v2/aws"
 	ec2types "github.com/aws/aws-sdk-go-v2/service/ec2/types"
-	"github.com/aws/aws-sdk-go/aws"
 
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/cloud-provider-aws/pkg/providers/v1/iface"
@@ -52,16 +52,16 @@ type awsInstance struct {
 func newAWSInstance(ec2Service iface.EC2, instance *ec2types.Instance) *awsInstance {
 	az := ""
 	if instance.Placement != nil {
-		az = aws.StringValue(instance.Placement.AvailabilityZone)
+		az = aws.ToString(instance.Placement.AvailabilityZone)
 	}
 	self := &awsInstance{
 		ec2:              ec2Service,
-		awsID:            aws.StringValue(instance.InstanceId),
+		awsID:            aws.ToString(instance.InstanceId),
 		nodeName:         mapInstanceToNodeName(instance),
 		availabilityZone: az,
 		instanceType:     string(instance.InstanceType),
-		vpcID:            aws.StringValue(instance.VpcId),
-		subnetID:         aws.StringValue(instance.SubnetId),
+		vpcID:            aws.ToString(instance.VpcId),
+		subnetID:         aws.ToString(instance.SubnetId),
 	}
 
 	return self

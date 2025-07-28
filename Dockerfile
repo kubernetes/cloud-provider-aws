@@ -14,10 +14,15 @@
 ##                               BUILD ARGS                                   ##
 ################################################################################
 # This build arg allows the specification of a custom Golang image.
-ARG GOLANG_IMAGE=golang:1.24.0
+ARG GOLANG_IMAGE=golang:1.24.4
 
-# Datadog's base docker image
-ARG BASE_IMAGE
+# The distroless image on which the CPI manager image is built.
+#
+# Please do not use "latest". Explicit tags should be used to provide
+# deterministic builds. Follow what kubernetes uses to build
+# kube-controller-manager, for example for 1.23.x:
+# https://github.com/kubernetes/kubernetes/blob/release-1.24/build/common.sh#L94
+ARG DISTROLESS_IMAGE=registry.k8s.io/build-image/go-runner:v2.4.0-go1.24.4-bookworm.0
 
 ################################################################################
 ##                              BUILD STAGE                                   ##

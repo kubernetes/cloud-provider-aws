@@ -24,10 +24,7 @@ import (
 	"sync"
 	"time"
 
-	awsv2 "github.com/aws/aws-sdk-go-v2/aws"
-	"github.com/aws/aws-sdk-go/aws"
-	"github.com/aws/aws-sdk-go/aws/awserr"
-	"github.com/aws/aws-sdk-go/aws/request"
+	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/smithy-go"
 	"github.com/aws/smithy-go/middleware"
 	"github.com/aws/smithy-go/transport/http"
@@ -59,60 +56,6 @@ func NewCrossRequestRetryDelay() *CrossRequestRetryDelay {
 	c := &CrossRequestRetryDelay{}
 	c.backoff.init(decayIntervalSeconds, decayFraction, maxDelay)
 	return c
-}
-
-// BeforeSign is added to the Sign chain; called before each request
-func (c *CrossRequestRetryDelay) BeforeSign(r *request.Request) {
-	now := time.Now()
-	delay := c.backoff.ComputeDelayForRequest(now)
-	if delay > 0 {
-		klog.Warningf("Inserting delay before AWS request (%s) to avoid RequestLimitExceeded: %s",
-			describeRequest(r), delay.String())
-
-		if sleepFn := r.Config.SleepDelay; sleepFn != nil {
-			// Support SleepDelay for backwards compatibility
-			sleepFn(delay)
-		} else if err := aws.SleepWithContext(r.Context(), delay); err != nil {
-			r.Error = awserr.New(request.CanceledErrorCode, "request context canceled", err)
-			r.Retryable = aws.Bool(false)
-			return
-		}
-
-		// Avoid clock skew problems
-		r.Time = now
-	}
-}
-
-// Return the operation name, for use in log messages and metrics
-func operationName(r *request.Request) string {
-	name := "?"
-	if r.Operation != nil {
-		name = r.Operation.Name
-	}
-	return name
-}
-
-// Return a user-friendly string describing the request, for use in log messages
-func describeRequest(r *request.Request) string {
-	service := r.ClientInfo.ServiceName
-	return service + "::" + operationName(r)
-}
-
-// AfterRetry is added to the AfterRetry chain; called after any error
-func (c *CrossRequestRetryDelay) AfterRetry(r *request.Request) {
-	if r.Error == nil {
-		return
-	}
-	awsError, ok := r.Error.(awserr.Error)
-	if !ok {
-		return
-	}
-	if awsError.Code() == "RequestLimitExceeded" {
-		c.backoff.ReportError()
-		recordAWSThrottlesMetric(operationName(r))
-		klog.Warningf("Got RequestLimitExceeded error on AWS request (%s)",
-			describeRequest(r))
-	}
 }
 
 // Backoff manages a backoff that varies based on the recently observed failures
@@ -191,7 +134,7 @@ func (b *Backoff) ReportError() {
 // This works in tandem with (l *delayPrerequest) HandleFinalize, which will throw the error
 // in certain cases as part of the middleware.
 type customRetryer struct {
-	awsv2.Retryer
+	aws.Retryer
 }
 
 func (r customRetryer) IsErrorRetryable(err error) bool {
@@ -202,7 +145,6 @@ func (r customRetryer) IsErrorRetryable(err error) bool {
 }
 
 // Middleware for AWS SDK Go V2 clients
-// middleware replica of CrossRequestRetryDelay.BeforeSign()
 // Throws nonRetryableError if the request context was canceled, to preserve behavior from AWS
 // SDK Go V1, where requests were marked as non-retryable under the same conditions.
 // This works in tandem with customRetryer, which will not retry nonRetryableErrors.
@@ -217,14 +159,14 @@ func delayPreSign(delayer *CrossRequestRetryDelay) middleware.FinalizeMiddleware
 
 			if delay > 0 {
 				klog.Warningf("Inserting delay before AWS request (%s) to avoid RequestLimitExceeded: %s",
-					describeRequestV2(ctx), delay.String())
+					describeRequest(ctx), delay.String())
 
 				if err := sleepWithContext(ctx, delay); err != nil {
 					return middleware.FinalizeOutput{}, middleware.Metadata{}, errors.New(nonRetryableError)
 				}
 			}
 
-			service, name := awsServiceAndNameV2(ctx)
+			service, name := awsServiceAndName(ctx)
 			request, ok := in.Request.(*http.Request)
 			if ok {
 				klog.V(4).Infof("AWS API Send: %s %s %s %s", service, name, request.Request.Method, request.Request.URL.Path)
@@ -234,7 +176,6 @@ func delayPreSign(delayer *CrossRequestRetryDelay) middleware.FinalizeMiddleware
 	)
 }
 
-// middleware replica of CrossRequestRetryDelay.AfterRetry()
 func delayAfterRetry(delayer *CrossRequestRetryDelay) middleware.FinalizeMiddleware {
 	return middleware.FinalizeMiddlewareFunc(
 		"k8s/delay-afterretry",
@@ -249,9 +190,9 @@ func delayAfterRetry(delayer *CrossRequestRetryDelay) middleware.FinalizeMiddlew
 			var ae smithy.APIError
 			if errors.As(finErr, &ae) && strings.Contains(ae.Error(), "RequestLimitExceeded") {
 				delayer.backoff.ReportError()
-				recordAWSThrottlesMetric(operationNameV2(ctx))
+				recordAWSThrottlesMetric(operationName(ctx))
 				klog.Warningf("Got RequestLimitExceeded error on AWS request (%s)",
-					describeRequestV2(ctx))
+					describeRequest(ctx))
 			}
 			return finOutput, finMetadata, finErr
 		},
@@ -259,7 +200,7 @@ func delayAfterRetry(delayer *CrossRequestRetryDelay) middleware.FinalizeMiddlew
 }
 
 // Return the operation name, for use in log messages and metrics
-func operationNameV2(ctx context.Context) string {
+func operationName(ctx context.Context) string {
 	name := "?"
 	if opName := middleware.GetOperationName(ctx); opName != "" {
 		name = opName
@@ -268,11 +209,10 @@ func operationNameV2(ctx context.Context) string {
 }
 
 // Return a user-friendly string describing the request, for use in log messages.
-// Used by AWS SDK Go V2 clients in place of operationName()
-func describeRequestV2(ctx context.Context) string {
+func describeRequest(ctx context.Context) string {
 	service := middleware.GetServiceID(ctx)
 
-	return service + "::" + operationNameV2(ctx)
+	return service + "::" + operationName(ctx)
 }
 
 func sleepWithContext(ctx context.Context, dur time.Duration) error {

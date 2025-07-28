@@ -171,7 +171,7 @@ func NewTaggingController(
 			// and when it gets tagged, there might be another event which put the same item in the work queue
 			// (since the node won't have the labels yet) and hence prevents us from making an unnecessary EC2 call.
 			if !tc.isTaggingRequired(node) {
-				klog.Infof("Skip putting node %s in work queue since it was already tagged earlier.", node.GetName())
+				klog.V(3).Infof("Skip putting node %s in work queue since it was already tagged earlier.", node.GetName())
 				return
 			}
 
@@ -383,7 +383,7 @@ func (tc *Controller) untagEc2Instance(ctx context.Context, node *taggingControl
 
 	var err error
 	if tc.batchingEnabled {
-		err = tc.cloud.UntagResourceBatch(context.TODO(), string(instanceID), tc.tags)
+		err = tc.cloud.UntagResourceBatch(ctx, string(instanceID), tc.tags)
 	} else {
 		err = tc.cloud.UntagResource(ctx, string(instanceID), tc.tags)
 	}
