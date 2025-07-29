@@ -21,20 +21,16 @@ import (
 	"fmt"
 	"sync"
 
-	awsv2 "github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/aws/middleware"
 	"github.com/aws/aws-sdk-go-v2/aws/retry"
 	awsConfig "github.com/aws/aws-sdk-go-v2/config"
 	stscredsv2 "github.com/aws/aws-sdk-go-v2/credentials/stscreds"
+	"github.com/aws/aws-sdk-go-v2/feature/ec2/imds"
 	"github.com/aws/aws-sdk-go-v2/service/ec2"
-	"github.com/aws/aws-sdk-go/aws"
-	"github.com/aws/aws-sdk-go/aws/credentials"
-	"github.com/aws/aws-sdk-go/aws/ec2metadata"
-	"github.com/aws/aws-sdk-go/aws/request"
-	"github.com/aws/aws-sdk-go/aws/session"
-	"github.com/aws/aws-sdk-go/service/elb"
-	"github.com/aws/aws-sdk-go/service/elbv2"
-	"github.com/aws/aws-sdk-go/service/kms"
+	elb "github.com/aws/aws-sdk-go-v2/service/elasticloadbalancing"
+	elbv2 "github.com/aws/aws-sdk-go-v2/service/elasticloadbalancingv2"
+	"github.com/aws/aws-sdk-go-v2/service/kms"
 
 	smithymiddleware "github.com/aws/smithy-go/middleware"
 
@@ -45,65 +41,23 @@ import (
 )
 
 type awsSDKProvider struct {
-	creds   *credentials.Credentials
-	credsV2 awsv2.CredentialsProvider // for use in aws-sdk-go v2 clients
-	cfg     awsCloudConfigProvider
+	creds aws.CredentialsProvider
+	cfg   awsCloudConfigProvider
 
 	mutex          sync.Mutex
 	regionDelayers map[string]*CrossRequestRetryDelay
 }
 
-func newAWSSDKProvider(creds *credentials.Credentials, credsV2 awsv2.CredentialsProvider, cfg *config.CloudConfig) *awsSDKProvider {
+func newAWSSDKProvider(creds aws.CredentialsProvider, cfg *config.CloudConfig) *awsSDKProvider {
 	return &awsSDKProvider{
 		creds:          creds,
-		credsV2:        credsV2,
 		cfg:            cfg,
 		regionDelayers: make(map[string]*CrossRequestRetryDelay),
 	}
 }
 
-func (p *awsSDKProvider) AddHandlers(regionName string, h *request.Handlers) {
-	h.Build.PushFrontNamed(request.NamedHandler{
-		Name: "k8s/user-agent",
-		Fn:   request.MakeAddToUserAgentHandler("kubernetes", version.Get().String()),
-	})
-
-	h.Sign.PushFrontNamed(request.NamedHandler{
-		Name: "k8s/logger",
-		Fn:   awsHandlerLogger,
-	})
-
-	delayer := p.getCrossRequestRetryDelay(regionName)
-	if delayer != nil {
-		h.Sign.PushFrontNamed(request.NamedHandler{
-			Name: "k8s/delay-presign",
-			Fn:   delayer.BeforeSign,
-		})
-
-		h.AfterRetry.PushFrontNamed(request.NamedHandler{
-			Name: "k8s/delay-afterretry",
-			Fn:   delayer.AfterRetry,
-		})
-	}
-
-	p.addAPILoggingHandlers(h)
-}
-
-func (p *awsSDKProvider) addAPILoggingHandlers(h *request.Handlers) {
-	h.Send.PushBackNamed(request.NamedHandler{
-		Name: "k8s/api-request",
-		Fn:   awsSendHandlerLogger,
-	})
-
-	h.ValidateResponse.PushFrontNamed(request.NamedHandler{
-		Name: "k8s/api-validate-response",
-		Fn:   awsValidateResponseHandlerLogger,
-	})
-}
-
-// Adds handlers to AWS SDK Go V2 clients. For AWS SDK Go V1 clients,
-// func (p *awsSDKProvider) AddHandlers is used.
-func (p *awsSDKProvider) AddHandlersV2(ctx context.Context, regionName string, cfg *awsv2.Config) {
+// Adds middleware to AWS SDK Go V2 clients.
+func (p *awsSDKProvider) AddMiddleware(ctx context.Context, regionName string, cfg *aws.Config) {
 	cfg.APIOptions = append(cfg.APIOptions,
 		middleware.AddUserAgentKeyValue("kubernetes", version.Get().String()),
 		func(stack *smithymiddleware.Stack) error {
@@ -122,11 +76,11 @@ func (p *awsSDKProvider) AddHandlersV2(ctx context.Context, regionName string, c
 		)
 	}
 
-	p.addAPILoggingHandlersV2(cfg)
+	p.addAPILoggingMiddleware(cfg)
 }
 
 // Adds logging middleware for AWS SDK Go V2 clients
-func (p *awsSDKProvider) addAPILoggingHandlersV2(cfg *awsv2.Config) {
+func (p *awsSDKProvider) addAPILoggingMiddleware(cfg *aws.Config) {
 	cfg.APIOptions = append(cfg.APIOptions,
 		func(stack *smithymiddleware.Stack) error {
 			stack.Serialize.Add(awsSendHandlerLoggerMiddleware(), smithymiddleware.After)
@@ -158,26 +112,25 @@ func (p *awsSDKProvider) getCrossRequestRetryDelay(regionName string) *CrossRequ
 }
 
 func (p *awsSDKProvider) Compute(ctx context.Context, regionName string, assumeRoleProvider *stscredsv2.AssumeRoleProvider) (iface.EC2, error) {
-	cfg, err := awsConfig.LoadDefaultConfig(ctx, awsConfig.WithDefaultsMode(awsv2.DefaultsModeInRegion),
+	cfg, err := awsConfig.LoadDefaultConfig(ctx, awsConfig.WithDefaultsMode(aws.DefaultsModeInRegion),
 		awsConfig.WithRegion(regionName),
 	)
 	if assumeRoleProvider != nil {
-		cfg.Credentials = awsv2.NewCredentialsCache(assumeRoleProvider)
+		cfg.Credentials = aws.NewCredentialsCache(assumeRoleProvider)
 	}
 	if err != nil {
 		return nil, fmt.Errorf("unable to initialize AWS config: %v", err)
 	}
 
-	p.AddHandlersV2(ctx, regionName, &cfg)
+	p.AddMiddleware(ctx, regionName, &cfg)
 	var opts []func(*ec2.Options) = p.cfg.GetEC2EndpointOpts(regionName)
 	opts = append(opts, func(o *ec2.Options) {
 		o.Retryer = &customRetryer{
 			retry.NewStandard(),
 		}
-	})
-	opts = append(opts, func(o *ec2.Options) {
 		o.EndpointResolverV2 = p.cfg.GetCustomEC2Resolver()
 	})
+
 	ec2Client := ec2.NewFromConfig(cfg, opts...)
 
 	ec2 := &awsSdkEC2{
@@ -186,59 +139,77 @@ func (p *awsSDKProvider) Compute(ctx context.Context, regionName string, assumeR
 	return ec2, nil
 }
 
-func (p *awsSDKProvider) LoadBalancing(regionName string) (ELB, error) {
-	awsConfig := &aws.Config{
-		Region:      &regionName,
-		Credentials: p.creds,
+func (p *awsSDKProvider) LoadBalancing(ctx context.Context, regionName string, assumeRoleProvider *stscredsv2.AssumeRoleProvider) (ELB, error) {
+	cfg, err := awsConfig.LoadDefaultConfig(ctx, awsConfig.WithDefaultsMode(aws.DefaultsModeInRegion),
+		awsConfig.WithRegion(regionName),
+	)
+	if assumeRoleProvider != nil {
+		cfg.Credentials = aws.NewCredentialsCache(assumeRoleProvider)
 	}
-	awsConfig = awsConfig.WithCredentialsChainVerboseErrors(true).
-		WithEndpointResolver(p.cfg.GetResolver())
-	sess, err := session.NewSessionWithOptions(session.Options{
-		Config:            *awsConfig,
-		SharedConfigState: session.SharedConfigEnable,
-	})
 	if err != nil {
-		return nil, fmt.Errorf("unable to initialize AWS session: %v", err)
+		return nil, fmt.Errorf("unable to initialize AWS config: %v", err)
 	}
-	elbClient := elb.New(sess)
-	p.AddHandlers(regionName, &elbClient.Handlers)
+
+	p.AddMiddleware(ctx, regionName, &cfg)
+	var opts []func(*elb.Options) = p.cfg.GetELBEndpointOpts(regionName)
+	opts = append(opts, func(o *elb.Options) {
+		o.Retryer = &customRetryer{
+			retry.NewStandard(),
+		}
+		o.EndpointResolverV2 = p.cfg.GetCustomELBResolver()
+	})
+
+	elbClient := elb.NewFromConfig(cfg, opts...)
 
 	return elbClient, nil
 }
 
-func (p *awsSDKProvider) LoadBalancingV2(regionName string) (ELBV2, error) {
-	awsConfig := &aws.Config{
-		Region:      &regionName,
-		Credentials: p.creds,
+func (p *awsSDKProvider) LoadBalancingV2(ctx context.Context, regionName string, assumeRoleProvider *stscredsv2.AssumeRoleProvider) (ELBV2, error) {
+	cfg, err := awsConfig.LoadDefaultConfig(ctx, awsConfig.WithDefaultsMode(aws.DefaultsModeInRegion),
+		awsConfig.WithRegion(regionName),
+	)
+	if assumeRoleProvider != nil {
+		cfg.Credentials = aws.NewCredentialsCache(assumeRoleProvider)
 	}
-	awsConfig = awsConfig.WithCredentialsChainVerboseErrors(true).
-		WithEndpointResolver(p.cfg.GetResolver())
-	sess, err := session.NewSessionWithOptions(session.Options{
-		Config:            *awsConfig,
-		SharedConfigState: session.SharedConfigEnable,
-	})
 	if err != nil {
-		return nil, fmt.Errorf("unable to initialize AWS session: %v", err)
+		return nil, fmt.Errorf("unable to initialize AWS config: %v", err)
 	}
-	elbClient := elbv2.New(sess)
 
-	p.AddHandlers(regionName, &elbClient.Handlers)
+	p.AddMiddleware(ctx, regionName, &cfg)
+	var opts []func(*elbv2.Options) = p.cfg.GetELBV2EndpointOpts(regionName)
+	opts = append(opts, func(o *elbv2.Options) {
+		o.Retryer = &customRetryer{
+			retry.NewStandard(),
+		}
+		o.EndpointResolverV2 = p.cfg.GetCustomELBV2Resolver()
+	})
 
-	return elbClient, nil
+	elbv2Client := elbv2.NewFromConfig(cfg, opts...)
+
+	return elbv2Client, nil
 }
 
-func (p *awsSDKProvider) Metadata() (config.EC2Metadata, error) {
-	sess, err := session.NewSession(&aws.Config{
-		EndpointResolver: p.cfg.GetResolver(),
-	})
+func (p *awsSDKProvider) Metadata(ctx context.Context) (config.EC2Metadata, error) {
+	cfg, err := awsConfig.LoadDefaultConfig(context.TODO(), awsConfig.WithDefaultsMode(aws.DefaultsModeInRegion))
 	if err != nil {
-		return nil, fmt.Errorf("unable to initialize AWS session: %v", err)
+		return nil, fmt.Errorf("unable to initialize AWS config: %v", err)
 	}
-	client := ec2metadata.New(sess)
-	p.addAPILoggingHandlers(&client.Handlers)
 
-	identity, err := client.GetInstanceIdentityDocument()
+	p.addAPILoggingMiddleware(&cfg)
+
+	// Unlike other SDK clients, the IMDS client does not support signing, so any overrides of the signing region and name
+	// from awsSDKProvider.cfg will not be recognized.
+	// Standard SDK clients use SigV4: https://docs.aws.amazon.com/IAM/latest/UserGuide/reference_sigv-create-signed-request.html
+	// But IMDS uses a different request pattern: https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/configuring-instance-metadata-service.html
+	var opts []func(*imds.Options) = p.cfg.GetIMDSEndpointOpts()
+	imdsClient := imds.NewFromConfig(cfg, opts...)
+	// opts = append(opts, func(o *imds.Options) {
+	// 	o.ClientEnableState = imds.ClientEnabled
+	// })
+
+	getInstanceIdentityDocumentOutput, err := imdsClient.GetInstanceIdentityDocument(ctx, &imds.GetInstanceIdentityDocumentInput{})
 	if err == nil {
+		identity := getInstanceIdentityDocumentOutput.InstanceIdentityDocument
 		klog.InfoS("instance metadata identity",
 			"region", identity.Region,
 			"availability-zone", identity.AvailabilityZone,
@@ -249,26 +220,30 @@ func (p *awsSDKProvider) Metadata() (config.EC2Metadata, error) {
 			"account-id", identity.AccountID,
 			"image-id", identity.ImageID)
 	}
-	return client, nil
+	return imdsClient, nil
 }
 
-func (p *awsSDKProvider) KeyManagement(regionName string) (KMS, error) {
-	awsConfig := &aws.Config{
-		Region:      &regionName,
-		Credentials: p.creds,
+func (p *awsSDKProvider) KeyManagement(ctx context.Context, regionName string, assumeRoleProvider *stscredsv2.AssumeRoleProvider) (KMS, error) {
+	cfg, err := awsConfig.LoadDefaultConfig(ctx, awsConfig.WithDefaultsMode(aws.DefaultsModeInRegion),
+		awsConfig.WithRegion(regionName),
+	)
+	if assumeRoleProvider != nil {
+		cfg.Credentials = aws.NewCredentialsCache(assumeRoleProvider)
 	}
-	awsConfig = awsConfig.WithCredentialsChainVerboseErrors(true).
-		WithEndpointResolver(p.cfg.GetResolver())
-	sess, err := session.NewSessionWithOptions(session.Options{
-		Config:            *awsConfig,
-		SharedConfigState: session.SharedConfigEnable,
-	})
 	if err != nil {
-		return nil, fmt.Errorf("unable to initialize AWS session: %v", err)
+		return nil, fmt.Errorf("unable to initialize AWS config: %v", err)
 	}
-	kmsClient := kms.New(sess)
 
-	p.AddHandlers(regionName, &kmsClient.Handlers)
+	p.AddMiddleware(ctx, regionName, &cfg)
+	var opts []func(*kms.Options) = p.cfg.GetKMSEndpointOpts(regionName)
+	opts = append(opts, func(o *kms.Options) {
+		o.Retryer = &customRetryer{
+			retry.NewStandard(),
+		}
+		o.EndpointResolverV2 = p.cfg.GetCustomKMSResolver()
+	})
+
+	kmsClient := kms.NewFromConfig(cfg, opts...)
 
 	return kmsClient, nil
 }

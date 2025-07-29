@@ -27,10 +27,10 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 
+	"github.com/aws/aws-sdk-go-v2/aws"
 	ec2types "github.com/aws/aws-sdk-go-v2/service/ec2/types"
-	"github.com/aws/aws-sdk-go/aws"
-	"github.com/aws/aws-sdk-go/service/elb"
-	"github.com/aws/aws-sdk-go/service/elbv2"
+	elbtypes "github.com/aws/aws-sdk-go-v2/service/elasticloadbalancing/types"
+	elbv2types "github.com/aws/aws-sdk-go-v2/service/elasticloadbalancingv2/types"
 	"github.com/stretchr/testify/assert"
 
 	"k8s.io/cloud-provider-aws/pkg/providers/v1/config"
@@ -216,76 +216,70 @@ func TestSyncElbListeners(t *testing.T) {
 	tests := []struct {
 		name                 string
 		loadBalancerName     string
-		listeners            []*elb.Listener
-		listenerDescriptions []*elb.ListenerDescription
-		toCreate             []*elb.Listener
-		toDelete             []*int64
+		listeners            []elbtypes.Listener
+		listenerDescriptions []elbtypes.ListenerDescription
+		toCreate             []elbtypes.Listener
+		toDelete             []int32
 	}{
 		{
 			name:             "no edge cases",
 			loadBalancerName: "lb_one",
-			listeners: []*elb.Listener{
-				{InstancePort: aws.Int64(443), InstanceProtocol: aws.String("HTTP"), LoadBalancerPort: aws.Int64(443), Protocol: aws.String("HTTP"), SSLCertificateId: aws.String("abc-123")},
-				{InstancePort: aws.Int64(80), InstanceProtocol: aws.String("TCP"), LoadBalancerPort: aws.Int64(80), Protocol: aws.String("TCP"), SSLCertificateId: aws.String("def-456")},
-				{InstancePort: aws.Int64(8443), InstanceProtocol: aws.String("TCP"), LoadBalancerPort: aws.Int64(8443), Protocol: aws.String("TCP"), SSLCertificateId: aws.String("def-456")},
+			listeners: []elbtypes.Listener{
+				{InstancePort: aws.Int32(443), InstanceProtocol: aws.String("HTTP"), LoadBalancerPort: 443, Protocol: aws.String("HTTP"), SSLCertificateId: aws.String("abc-123")},
+				{InstancePort: aws.Int32(80), InstanceProtocol: aws.String("TCP"), LoadBalancerPort: 80, Protocol: aws.String("TCP"), SSLCertificateId: aws.String("def-456")},
+				{InstancePort: aws.Int32(8443), InstanceProtocol: aws.String("TCP"), LoadBalancerPort: 8443, Protocol: aws.String("TCP"), SSLCertificateId: aws.String("def-456")},
 			},
-			listenerDescriptions: []*elb.ListenerDescription{
-				{Listener: &elb.Listener{InstancePort: aws.Int64(80), InstanceProtocol: aws.String("TCP"), LoadBalancerPort: aws.Int64(80), Protocol: aws.String("TCP")}},
-				{Listener: &elb.Listener{InstancePort: aws.Int64(8443), InstanceProtocol: aws.String("TCP"), LoadBalancerPort: aws.Int64(8443), Protocol: aws.String("TCP"), SSLCertificateId: aws.String("def-456")}},
+			listenerDescriptions: []elbtypes.ListenerDescription{
+				{Listener: &elbtypes.Listener{InstancePort: aws.Int32(80), InstanceProtocol: aws.String("TCP"), LoadBalancerPort: 80, Protocol: aws.String("TCP")}},
+				{Listener: &elbtypes.Listener{InstancePort: aws.Int32(8443), InstanceProtocol: aws.String("TCP"), LoadBalancerPort: 8443, Protocol: aws.String("TCP"), SSLCertificateId: aws.String("def-456")}},
 			},
-			toDelete: []*int64{
-				aws.Int64(80),
-			},
-			toCreate: []*elb.Listener{
-				{InstancePort: aws.Int64(443), InstanceProtocol: aws.String("HTTP"), LoadBalancerPort: aws.Int64(443), Protocol: aws.String("HTTP"), SSLCertificateId: aws.String("abc-123")},
-				{InstancePort: aws.Int64(80), InstanceProtocol: aws.String("TCP"), LoadBalancerPort: aws.Int64(80), Protocol: aws.String("TCP"), SSLCertificateId: aws.String("def-456")},
+			toDelete: []int32{80},
+			toCreate: []elbtypes.Listener{
+				{InstancePort: aws.Int32(443), InstanceProtocol: aws.String("HTTP"), LoadBalancerPort: 443, Protocol: aws.String("HTTP"), SSLCertificateId: aws.String("abc-123")},
+				{InstancePort: aws.Int32(80), InstanceProtocol: aws.String("TCP"), LoadBalancerPort: 80, Protocol: aws.String("TCP"), SSLCertificateId: aws.String("def-456")},
 			},
 		},
 		{
 			name:             "no listeners to delete",
 			loadBalancerName: "lb_two",
-			listeners: []*elb.Listener{
-				{InstancePort: aws.Int64(443), InstanceProtocol: aws.String("HTTP"), LoadBalancerPort: aws.Int64(443), Protocol: aws.String("HTTP"), SSLCertificateId: aws.String("abc-123")},
-				{InstancePort: aws.Int64(80), InstanceProtocol: aws.String("TCP"), LoadBalancerPort: aws.Int64(80), Protocol: aws.String("TCP"), SSLCertificateId: aws.String("def-456")},
+			listeners: []elbtypes.Listener{
+				{InstancePort: aws.Int32(443), InstanceProtocol: aws.String("HTTP"), LoadBalancerPort: 443, Protocol: aws.String("HTTP"), SSLCertificateId: aws.String("abc-123")},
+				{InstancePort: aws.Int32(80), InstanceProtocol: aws.String("TCP"), LoadBalancerPort: 80, Protocol: aws.String("TCP"), SSLCertificateId: aws.String("def-456")},
 			},
-			listenerDescriptions: []*elb.ListenerDescription{
-				{Listener: &elb.Listener{InstancePort: aws.Int64(443), InstanceProtocol: aws.String("HTTP"), LoadBalancerPort: aws.Int64(443), Protocol: aws.String("HTTP"), SSLCertificateId: aws.String("abc-123")}},
+			listenerDescriptions: []elbtypes.ListenerDescription{
+				{Listener: &elbtypes.Listener{InstancePort: aws.Int32(443), InstanceProtocol: aws.String("HTTP"), LoadBalancerPort: 443, Protocol: aws.String("HTTP"), SSLCertificateId: aws.String("abc-123")}},
 			},
-			toCreate: []*elb.Listener{
-				{InstancePort: aws.Int64(80), InstanceProtocol: aws.String("TCP"), LoadBalancerPort: aws.Int64(80), Protocol: aws.String("TCP"), SSLCertificateId: aws.String("def-456")},
+			toCreate: []elbtypes.Listener{
+				{InstancePort: aws.Int32(80), InstanceProtocol: aws.String("TCP"), LoadBalancerPort: 80, Protocol: aws.String("TCP"), SSLCertificateId: aws.String("def-456")},
 			},
-			toDelete: []*int64{},
+			toDelete: []int32{},
 		},
 		{
 			name:             "no listeners to create",
 			loadBalancerName: "lb_three",
-			listeners: []*elb.Listener{
-				{InstancePort: aws.Int64(443), InstanceProtocol: aws.String("HTTP"), LoadBalancerPort: aws.Int64(443), Protocol: aws.String("HTTP"), SSLCertificateId: aws.String("abc-123")},
+			listeners: []elbtypes.Listener{
+				{InstancePort: aws.Int32(443), InstanceProtocol: aws.String("HTTP"), LoadBalancerPort: 443, Protocol: aws.String("HTTP"), SSLCertificateId: aws.String("abc-123")},
 			},
-			listenerDescriptions: []*elb.ListenerDescription{
-				{Listener: &elb.Listener{InstancePort: aws.Int64(80), InstanceProtocol: aws.String("TCP"), LoadBalancerPort: aws.Int64(80), Protocol: aws.String("TCP")}},
-				{Listener: &elb.Listener{InstancePort: aws.Int64(443), InstanceProtocol: aws.String("HTTP"), LoadBalancerPort: aws.Int64(443), Protocol: aws.String("HTTP"), SSLCertificateId: aws.String("abc-123")}},
+			listenerDescriptions: []elbtypes.ListenerDescription{
+				{Listener: &elbtypes.Listener{InstancePort: aws.Int32(80), InstanceProtocol: aws.String("TCP"), LoadBalancerPort: 80, Protocol: aws.String("TCP")}},
+				{Listener: &elbtypes.Listener{InstancePort: aws.Int32(443), InstanceProtocol: aws.String("HTTP"), LoadBalancerPort: 443, Protocol: aws.String("HTTP"), SSLCertificateId: aws.String("abc-123")}},
 			},
-			toDelete: []*int64{
-				aws.Int64(80),
-			},
-			toCreate: []*elb.Listener{},
+			toDelete: []int32{80},
+			toCreate: []elbtypes.Listener{},
 		},
 		{
 			name:             "nil actual listener",
 			loadBalancerName: "lb_four",
-			listeners: []*elb.Listener{
-				{InstancePort: aws.Int64(443), InstanceProtocol: aws.String("HTTP"), LoadBalancerPort: aws.Int64(443), Protocol: aws.String("HTTP")},
+			listeners: []elbtypes.Listener{
+				{InstancePort: aws.Int32(443), InstanceProtocol: aws.String("HTTP"), LoadBalancerPort: 443, Protocol: aws.String("HTTP")},
 			},
-			listenerDescriptions: []*elb.ListenerDescription{
-				{Listener: &elb.Listener{InstancePort: aws.Int64(443), InstanceProtocol: aws.String("HTTP"), LoadBalancerPort: aws.Int64(443), Protocol: aws.String("HTTP"), SSLCertificateId: aws.String("abc-123")}},
+			listenerDescriptions: []elbtypes.ListenerDescription{
+				{Listener: &elbtypes.Listener{InstancePort: aws.Int32(443), InstanceProtocol: aws.String("HTTP"), LoadBalancerPort: 443, Protocol: aws.String("HTTP"), SSLCertificateId: aws.String("abc-123")}},
 				{Listener: nil},
 			},
-			toDelete: []*int64{
-				aws.Int64(443),
-			},
-			toCreate: []*elb.Listener{
-				{InstancePort: aws.Int64(443), InstanceProtocol: aws.String("HTTP"), LoadBalancerPort: aws.Int64(443), Protocol: aws.String("HTTP")},
+			toDelete: []int32{443},
+			toCreate: []elbtypes.Listener{
+				{InstancePort: aws.Int32(443), InstanceProtocol: aws.String("HTTP"), LoadBalancerPort: 443, Protocol: aws.String("HTTP")},
 			},
 		},
 	}
@@ -302,37 +296,37 @@ func TestSyncElbListeners(t *testing.T) {
 func TestElbListenersAreEqual(t *testing.T) {
 	tests := []struct {
 		name             string
-		expected, actual *elb.Listener
+		expected, actual elbtypes.Listener
 		equal            bool
 	}{
 		{
 			name:     "should be equal",
-			expected: &elb.Listener{InstancePort: aws.Int64(80), InstanceProtocol: aws.String("TCP"), LoadBalancerPort: aws.Int64(80), Protocol: aws.String("TCP")},
-			actual:   &elb.Listener{InstancePort: aws.Int64(80), InstanceProtocol: aws.String("TCP"), LoadBalancerPort: aws.Int64(80), Protocol: aws.String("TCP")},
+			expected: elbtypes.Listener{InstancePort: aws.Int32(80), InstanceProtocol: aws.String("TCP"), LoadBalancerPort: 80, Protocol: aws.String("TCP")},
+			actual:   elbtypes.Listener{InstancePort: aws.Int32(80), InstanceProtocol: aws.String("TCP"), LoadBalancerPort: 80, Protocol: aws.String("TCP")},
 			equal:    true,
 		},
 		{
 			name:     "instance port should be different",
-			expected: &elb.Listener{InstancePort: aws.Int64(443), InstanceProtocol: aws.String("TCP"), LoadBalancerPort: aws.Int64(80), Protocol: aws.String("TCP")},
-			actual:   &elb.Listener{InstancePort: aws.Int64(80), InstanceProtocol: aws.String("TCP"), LoadBalancerPort: aws.Int64(80), Protocol: aws.String("TCP")},
+			expected: elbtypes.Listener{InstancePort: aws.Int32(443), InstanceProtocol: aws.String("TCP"), LoadBalancerPort: 80, Protocol: aws.String("TCP")},
+			actual:   elbtypes.Listener{InstancePort: aws.Int32(80), InstanceProtocol: aws.String("TCP"), LoadBalancerPort: 80, Protocol: aws.String("TCP")},
 			equal:    false,
 		},
 		{
 			name:     "instance protocol should be different",
-			expected: &elb.Listener{InstancePort: aws.Int64(80), InstanceProtocol: aws.String("HTTP"), LoadBalancerPort: aws.Int64(80), Protocol: aws.String("TCP")},
-			actual:   &elb.Listener{InstancePort: aws.Int64(80), InstanceProtocol: aws.String("TCP"), LoadBalancerPort: aws.Int64(80), Protocol: aws.String("TCP")},
+			expected: elbtypes.Listener{InstancePort: aws.Int32(80), InstanceProtocol: aws.String("HTTP"), LoadBalancerPort: 80, Protocol: aws.String("TCP")},
+			actual:   elbtypes.Listener{InstancePort: aws.Int32(80), InstanceProtocol: aws.String("TCP"), LoadBalancerPort: 80, Protocol: aws.String("TCP")},
 			equal:    false,
 		},
 		{
 			name:     "load balancer port should be different",
-			expected: &elb.Listener{InstancePort: aws.Int64(443), InstanceProtocol: aws.String("TCP"), LoadBalancerPort: aws.Int64(443), Protocol: aws.String("TCP")},
-			actual:   &elb.Listener{InstancePort: aws.Int64(443), InstanceProtocol: aws.String("TCP"), LoadBalancerPort: aws.Int64(80), Protocol: aws.String("TCP")},
+			expected: elbtypes.Listener{InstancePort: aws.Int32(443), InstanceProtocol: aws.String("TCP"), LoadBalancerPort: 443, Protocol: aws.String("TCP")},
+			actual:   elbtypes.Listener{InstancePort: aws.Int32(443), InstanceProtocol: aws.String("TCP"), LoadBalancerPort: 80, Protocol: aws.String("TCP")},
 			equal:    false,
 		},
 		{
 			name:     "protocol should be different",
-			expected: &elb.Listener{InstancePort: aws.Int64(443), InstanceProtocol: aws.String("TCP"), LoadBalancerPort: aws.Int64(80), Protocol: aws.String("TCP")},
-			actual:   &elb.Listener{InstancePort: aws.Int64(443), InstanceProtocol: aws.String("TCP"), LoadBalancerPort: aws.Int64(80), Protocol: aws.String("HTTP")},
+			expected: elbtypes.Listener{InstancePort: aws.Int32(443), InstanceProtocol: aws.String("TCP"), LoadBalancerPort: 80, Protocol: aws.String("TCP")},
+			actual:   elbtypes.Listener{InstancePort: aws.Int32(443), InstanceProtocol: aws.String("TCP"), LoadBalancerPort: 80, Protocol: aws.String("HTTP")},
 			equal:    false,
 		},
 	}
@@ -347,10 +341,10 @@ func TestElbListenersAreEqual(t *testing.T) {
 func TestBuildTargetGroupName(t *testing.T) {
 	type args struct {
 		serviceName    types.NamespacedName
-		servicePort    int64
-		nodePort       int64
-		targetProtocol string
-		targetType     string
+		servicePort    int32
+		nodePort       int32
+		targetProtocol elbv2types.ProtocolEnum
+		targetType     elbv2types.TargetTypeEnum
 		nlbConfig      nlbPortMapping
 	}
 	tests := []struct {
@@ -366,8 +360,8 @@ func TestBuildTargetGroupName(t *testing.T) {
 				serviceName:    types.NamespacedName{Namespace: "default", Name: "service-a"},
 				servicePort:    80,
 				nodePort:       8080,
-				targetProtocol: "TCP",
-				targetType:     "instance",
+				targetProtocol: elbv2types.ProtocolEnumTcp,
+				targetType:     elbv2types.TargetTypeEnumInstance,
 				nlbConfig:      nlbPortMapping{},
 			},
 			want: "k8s-default-servicea-7fa2e07508",
@@ -379,8 +373,8 @@ func TestBuildTargetGroupName(t *testing.T) {
 				serviceName:    types.NamespacedName{Namespace: "default", Name: "service-a"},
 				servicePort:    80,
 				nodePort:       8080,
-				targetProtocol: "TCP",
-				targetType:     "instance",
+				targetProtocol: elbv2types.ProtocolEnumTcp,
+				targetType:     elbv2types.TargetTypeEnumInstance,
 				nlbConfig:      nlbPortMapping{},
 			},
 			want: "k8s-default-servicea-719ee635da",
@@ -392,8 +386,8 @@ func TestBuildTargetGroupName(t *testing.T) {
 				serviceName:    types.NamespacedName{Namespace: "another", Name: "service-a"},
 				servicePort:    80,
 				nodePort:       8080,
-				targetProtocol: "TCP",
-				targetType:     "instance",
+				targetProtocol: elbv2types.ProtocolEnumTcp,
+				targetType:     elbv2types.TargetTypeEnumInstance,
 				nlbConfig:      nlbPortMapping{},
 			},
 			want: "k8s-another-servicea-f66e09847d",
@@ -405,8 +399,8 @@ func TestBuildTargetGroupName(t *testing.T) {
 				serviceName:    types.NamespacedName{Namespace: "default", Name: "service-b"},
 				servicePort:    80,
 				nodePort:       8080,
-				targetProtocol: "TCP",
-				targetType:     "instance",
+				targetProtocol: elbv2types.ProtocolEnumTcp,
+				targetType:     elbv2types.TargetTypeEnumInstance,
 				nlbConfig:      nlbPortMapping{},
 			},
 			want: "k8s-default-serviceb-196c19c881",
@@ -418,8 +412,8 @@ func TestBuildTargetGroupName(t *testing.T) {
 				serviceName:    types.NamespacedName{Namespace: "default", Name: "service-a"},
 				servicePort:    9090,
 				nodePort:       8080,
-				targetProtocol: "TCP",
-				targetType:     "instance",
+				targetProtocol: elbv2types.ProtocolEnumTcp,
+				targetType:     elbv2types.TargetTypeEnumInstance,
 				nlbConfig:      nlbPortMapping{},
 			},
 			want: "k8s-default-servicea-06876706cb",
@@ -431,8 +425,8 @@ func TestBuildTargetGroupName(t *testing.T) {
 				serviceName:    types.NamespacedName{Namespace: "default", Name: "service-a"},
 				servicePort:    80,
 				nodePort:       9090,
-				targetProtocol: "TCP",
-				targetType:     "instance",
+				targetProtocol: elbv2types.ProtocolEnumTcp,
+				targetType:     elbv2types.TargetTypeEnumInstance,
 				nlbConfig:      nlbPortMapping{},
 			},
 			want: "k8s-default-servicea-119f844ec0",
@@ -444,8 +438,8 @@ func TestBuildTargetGroupName(t *testing.T) {
 				serviceName:    types.NamespacedName{Namespace: "default", Name: "service-a"},
 				servicePort:    80,
 				nodePort:       8080,
-				targetProtocol: "UDP",
-				targetType:     "instance",
+				targetProtocol: elbv2types.ProtocolEnumUdp,
+				targetType:     elbv2types.TargetTypeEnumInstance,
 				nlbConfig:      nlbPortMapping{},
 			},
 			want: "k8s-default-servicea-3868761686",
@@ -457,8 +451,8 @@ func TestBuildTargetGroupName(t *testing.T) {
 				serviceName:    types.NamespacedName{Namespace: "default", Name: "service-a"},
 				servicePort:    80,
 				nodePort:       8080,
-				targetProtocol: "TCP",
-				targetType:     "ip",
+				targetProtocol: elbv2types.ProtocolEnumTcp,
+				targetType:     elbv2types.TargetTypeEnumIp,
 				nlbConfig:      nlbPortMapping{},
 			},
 			want: "k8s-default-servicea-0fa31f4b0f",
@@ -470,8 +464,8 @@ func TestBuildTargetGroupName(t *testing.T) {
 				serviceName:    types.NamespacedName{Namespace: "default", Name: "service-a"},
 				servicePort:    80,
 				nodePort:       8080,
-				targetProtocol: "TCP",
-				targetType:     "ip",
+				targetProtocol: elbv2types.ProtocolEnumTcp,
+				targetType:     elbv2types.TargetTypeEnumIp,
 				nlbConfig: nlbPortMapping{
 					HealthCheckConfig: healthCheckConfig{
 						Protocol: "HTTP",
@@ -604,7 +598,7 @@ func TestCloud_findInstancesForELB(t *testing.T) {
 	awsServices.instances = append(awsServices.instances, newInstance)
 	want = map[InstanceID]*ec2types.Instance{
 		"i-self": awsServices.selfInstance,
-		InstanceID(aws.StringValue(newInstance.InstanceId)): newInstance,
+		InstanceID(aws.ToString(newInstance.InstanceId)): newInstance,
 	}
 	got, err = c.findInstancesForELB(context.TODO(), []*v1.Node{defaultNode, newNode}, nil)
 	assert.NoError(t, err)
@@ -630,56 +624,56 @@ func TestCloud_findInstancesForELB(t *testing.T) {
 
 func TestCloud_chunkTargetDescriptions(t *testing.T) {
 	type args struct {
-		targets   []*elbv2.TargetDescription
+		targets   []elbv2types.TargetDescription
 		chunkSize int
 	}
 	tests := []struct {
 		name string
 		args args
-		want [][]*elbv2.TargetDescription
+		want [][]elbv2types.TargetDescription
 	}{
 		{
 			name: "can be evenly chunked",
 			args: args{
-				targets: []*elbv2.TargetDescription{
+				targets: []elbv2types.TargetDescription{
 					{
 						Id:   aws.String("i-abcdefg1"),
-						Port: aws.Int64(8080),
+						Port: aws.Int32(8080),
 					},
 					{
 						Id:   aws.String("i-abcdefg2"),
-						Port: aws.Int64(8080),
+						Port: aws.Int32(8080),
 					},
 					{
 						Id:   aws.String("i-abcdefg3"),
-						Port: aws.Int64(8080),
+						Port: aws.Int32(8080),
 					},
 					{
 						Id:   aws.String("i-abcdefg4"),
-						Port: aws.Int64(8080),
+						Port: aws.Int32(8080),
 					},
 				},
 				chunkSize: 2,
 			},
-			want: [][]*elbv2.TargetDescription{
+			want: [][]elbv2types.TargetDescription{
 				{
 					{
 						Id:   aws.String("i-abcdefg1"),
-						Port: aws.Int64(8080),
+						Port: aws.Int32(8080),
 					},
 					{
 						Id:   aws.String("i-abcdefg2"),
-						Port: aws.Int64(8080),
+						Port: aws.Int32(8080),
 					},
 				},
 				{
 					{
 						Id:   aws.String("i-abcdefg3"),
-						Port: aws.Int64(8080),
+						Port: aws.Int32(8080),
 					},
 					{
 						Id:   aws.String("i-abcdefg4"),
-						Port: aws.Int64(8080),
+						Port: aws.Int32(8080),
 					},
 				},
 			},
@@ -687,46 +681,46 @@ func TestCloud_chunkTargetDescriptions(t *testing.T) {
 		{
 			name: "cannot be evenly chunked",
 			args: args{
-				targets: []*elbv2.TargetDescription{
+				targets: []elbv2types.TargetDescription{
 					{
 						Id:   aws.String("i-abcdefg1"),
-						Port: aws.Int64(8080),
+						Port: aws.Int32(8080),
 					},
 					{
 						Id:   aws.String("i-abcdefg2"),
-						Port: aws.Int64(8080),
+						Port: aws.Int32(8080),
 					},
 					{
 						Id:   aws.String("i-abcdefg3"),
-						Port: aws.Int64(8080),
+						Port: aws.Int32(8080),
 					},
 					{
 						Id:   aws.String("i-abcdefg4"),
-						Port: aws.Int64(8080),
+						Port: aws.Int32(8080),
 					},
 				},
 				chunkSize: 3,
 			},
-			want: [][]*elbv2.TargetDescription{
+			want: [][]elbv2types.TargetDescription{
 				{
 					{
 						Id:   aws.String("i-abcdefg1"),
-						Port: aws.Int64(8080),
+						Port: aws.Int32(8080),
 					},
 					{
 						Id:   aws.String("i-abcdefg2"),
-						Port: aws.Int64(8080),
+						Port: aws.Int32(8080),
 					},
 					{
 						Id:   aws.String("i-abcdefg3"),
-						Port: aws.Int64(8080),
+						Port: aws.Int32(8080),
 					},
 				},
 				{
 
 					{
 						Id:   aws.String("i-abcdefg4"),
-						Port: aws.Int64(8080),
+						Port: aws.Int32(8080),
 					},
 				},
 			},
@@ -734,43 +728,43 @@ func TestCloud_chunkTargetDescriptions(t *testing.T) {
 		{
 			name: "chunkSize equal to total count",
 			args: args{
-				targets: []*elbv2.TargetDescription{
+				targets: []elbv2types.TargetDescription{
 					{
 						Id:   aws.String("i-abcdefg1"),
-						Port: aws.Int64(8080),
+						Port: aws.Int32(8080),
 					},
 					{
 						Id:   aws.String("i-abcdefg2"),
-						Port: aws.Int64(8080),
+						Port: aws.Int32(8080),
 					},
 					{
 						Id:   aws.String("i-abcdefg3"),
-						Port: aws.Int64(8080),
+						Port: aws.Int32(8080),
 					},
 					{
 						Id:   aws.String("i-abcdefg4"),
-						Port: aws.Int64(8080),
+						Port: aws.Int32(8080),
 					},
 				},
 				chunkSize: 4,
 			},
-			want: [][]*elbv2.TargetDescription{
+			want: [][]elbv2types.TargetDescription{
 				{
 					{
 						Id:   aws.String("i-abcdefg1"),
-						Port: aws.Int64(8080),
+						Port: aws.Int32(8080),
 					},
 					{
 						Id:   aws.String("i-abcdefg2"),
-						Port: aws.Int64(8080),
+						Port: aws.Int32(8080),
 					},
 					{
 						Id:   aws.String("i-abcdefg3"),
-						Port: aws.Int64(8080),
+						Port: aws.Int32(8080),
 					},
 					{
 						Id:   aws.String("i-abcdefg4"),
-						Port: aws.Int64(8080),
+						Port: aws.Int32(8080),
 					},
 				},
 			},
@@ -778,43 +772,43 @@ func TestCloud_chunkTargetDescriptions(t *testing.T) {
 		{
 			name: "chunkSize greater than total count",
 			args: args{
-				targets: []*elbv2.TargetDescription{
+				targets: []elbv2types.TargetDescription{
 					{
 						Id:   aws.String("i-abcdefg1"),
-						Port: aws.Int64(8080),
+						Port: aws.Int32(8080),
 					},
 					{
 						Id:   aws.String("i-abcdefg2"),
-						Port: aws.Int64(8080),
+						Port: aws.Int32(8080),
 					},
 					{
 						Id:   aws.String("i-abcdefg3"),
-						Port: aws.Int64(8080),
+						Port: aws.Int32(8080),
 					},
 					{
 						Id:   aws.String("i-abcdefg4"),
-						Port: aws.Int64(8080),
+						Port: aws.Int32(8080),
 					},
 				},
 				chunkSize: 10,
 			},
-			want: [][]*elbv2.TargetDescription{
+			want: [][]elbv2types.TargetDescription{
 				{
 					{
 						Id:   aws.String("i-abcdefg1"),
-						Port: aws.Int64(8080),
+						Port: aws.Int32(8080),
 					},
 					{
 						Id:   aws.String("i-abcdefg2"),
-						Port: aws.Int64(8080),
+						Port: aws.Int32(8080),
 					},
 					{
 						Id:   aws.String("i-abcdefg3"),
-						Port: aws.Int64(8080),
+						Port: aws.Int32(8080),
 					},
 					{
 						Id:   aws.String("i-abcdefg4"),
-						Port: aws.Int64(8080),
+						Port: aws.Int32(8080),
 					},
 				},
 			},
@@ -830,7 +824,7 @@ func TestCloud_chunkTargetDescriptions(t *testing.T) {
 		{
 			name: "chunk empty slice",
 			args: args{
-				targets:   []*elbv2.TargetDescription{},
+				targets:   []elbv2types.TargetDescription{},
 				chunkSize: 2,
 			},
 			want: nil,
@@ -847,38 +841,38 @@ func TestCloud_chunkTargetDescriptions(t *testing.T) {
 
 func TestCloud_diffTargetGroupTargets(t *testing.T) {
 	type args struct {
-		expectedTargets []*elbv2.TargetDescription
-		actualTargets   []*elbv2.TargetDescription
+		expectedTargets []*elbv2types.TargetDescription
+		actualTargets   []*elbv2types.TargetDescription
 	}
 	tests := []struct {
 		name                    string
 		args                    args
-		wantTargetsToRegister   []*elbv2.TargetDescription
-		wantTargetsToDeregister []*elbv2.TargetDescription
+		wantTargetsToRegister   []elbv2types.TargetDescription
+		wantTargetsToDeregister []elbv2types.TargetDescription
 	}{
 		{
 			name: "all targets to register",
 			args: args{
-				expectedTargets: []*elbv2.TargetDescription{
+				expectedTargets: []*elbv2types.TargetDescription{
 					{
 						Id:   aws.String("i-abcdef1"),
-						Port: aws.Int64(8080),
+						Port: aws.Int32(8080),
 					},
 					{
 						Id:   aws.String("i-abcdef2"),
-						Port: aws.Int64(8080),
+						Port: aws.Int32(8080),
 					},
 				},
 				actualTargets: nil,
 			},
-			wantTargetsToRegister: []*elbv2.TargetDescription{
+			wantTargetsToRegister: []elbv2types.TargetDescription{
 				{
 					Id:   aws.String("i-abcdef1"),
-					Port: aws.Int64(8080),
+					Port: aws.Int32(8080),
 				},
 				{
 					Id:   aws.String("i-abcdef2"),
-					Port: aws.Int64(8080),
+					Port: aws.Int32(8080),
 				},
 			},
 			wantTargetsToDeregister: nil,
@@ -887,79 +881,79 @@ func TestCloud_diffTargetGroupTargets(t *testing.T) {
 			name: "all targets to deregister",
 			args: args{
 				expectedTargets: nil,
-				actualTargets: []*elbv2.TargetDescription{
+				actualTargets: []*elbv2types.TargetDescription{
 					{
 						Id:   aws.String("i-abcdef1"),
-						Port: aws.Int64(8080),
+						Port: aws.Int32(8080),
 					},
 					{
 						Id:   aws.String("i-abcdef2"),
-						Port: aws.Int64(8080),
+						Port: aws.Int32(8080),
 					},
 				},
 			},
 			wantTargetsToRegister: nil,
-			wantTargetsToDeregister: []*elbv2.TargetDescription{
+			wantTargetsToDeregister: []elbv2types.TargetDescription{
 				{
 					Id:   aws.String("i-abcdef1"),
-					Port: aws.Int64(8080),
+					Port: aws.Int32(8080),
 				},
 				{
 					Id:   aws.String("i-abcdef2"),
-					Port: aws.Int64(8080),
+					Port: aws.Int32(8080),
 				},
 			},
 		},
 		{
 			name: "some targets to register and deregister",
 			args: args{
-				expectedTargets: []*elbv2.TargetDescription{
+				expectedTargets: []*elbv2types.TargetDescription{
 					{
 						Id:   aws.String("i-abcdef1"),
-						Port: aws.Int64(8080),
+						Port: aws.Int32(8080),
 					},
 					{
 						Id:   aws.String("i-abcdef4"),
-						Port: aws.Int64(8080),
+						Port: aws.Int32(8080),
 					},
 					{
 						Id:   aws.String("i-abcdef5"),
-						Port: aws.Int64(8080),
+						Port: aws.Int32(8080),
 					},
 				},
-				actualTargets: []*elbv2.TargetDescription{
+				actualTargets: []*elbv2types.TargetDescription{
 					{
 						Id:   aws.String("i-abcdef1"),
-						Port: aws.Int64(8080),
+						Port: aws.Int32(8080),
 					},
 					{
 						Id:   aws.String("i-abcdef2"),
-						Port: aws.Int64(8080),
+						Port: aws.Int32(8080),
 					},
 					{
 						Id:   aws.String("i-abcdef3"),
-						Port: aws.Int64(8080),
+						Port: aws.Int32(8080),
 					},
 				},
 			},
-			wantTargetsToRegister: []*elbv2.TargetDescription{
+			wantTargetsToRegister: []elbv2types.TargetDescription{
 				{
 					Id:   aws.String("i-abcdef4"),
-					Port: aws.Int64(8080),
+					Port: aws.Int32(8080),
 				},
 				{
 					Id:   aws.String("i-abcdef5"),
-					Port: aws.Int64(8080),
+					Port: aws.Int32(8080),
 				},
 			},
-			wantTargetsToDeregister: []*elbv2.TargetDescription{
+			wantTargetsToDeregister: []elbv2types.TargetDescription{
 				{
 					Id:   aws.String("i-abcdef2"),
-					Port: aws.Int64(8080),
+					Port: aws.Int32(8080),
 				},
 				{
 					Id:   aws.String("i-abcdef3"),
-					Port: aws.Int64(8080),
+					Port: aws.Int32(8080),
 				},
 			},
 		},
@@ -975,32 +969,32 @@ func TestCloud_diffTargetGroupTargets(t *testing.T) {
 		{
 			name: "expected and actual targets equals",
 			args: args{
-				expectedTargets: []*elbv2.TargetDescription{
+				expectedTargets: []*elbv2types.TargetDescription{
 					{
 						Id:   aws.String("i-abcdef1"),
-						Port: aws.Int64(8080),
+						Port: aws.Int32(8080),
 					},
 					{
 						Id:   aws.String("i-abcdef2"),
-						Port: aws.Int64(8080),
+						Port: aws.Int32(8080),
 					},
 					{
 						Id:   aws.String("i-abcdef3"),
-						Port: aws.Int64(8080),
+						Port: aws.Int32(8080),
 					},
 				},
-				actualTargets: []*elbv2.TargetDescription{
+				actualTargets: []*elbv2types.TargetDescription{
 					{
 						Id:   aws.String("i-abcdef1"),
-						Port: aws.Int64(8080),
+						Port: aws.Int32(8080),
 					},
 					{
 						Id:   aws.String("i-abcdef2"),
-						Port: aws.Int64(8080),
+						Port: aws.Int32(8080),
 					},
 					{
 						Id:   aws.String("i-abcdef3"),
-						Port: aws.Int64(8080),
+						Port: aws.Int32(8080),
 					},
 				},
 			},
@@ -1021,12 +1015,12 @@ func TestCloud_diffTargetGroupTargets(t *testing.T) {
 func TestCloud_computeTargetGroupExpectedTargets(t *testing.T) {
 	type args struct {
 		instanceIDs []string
-		port        int64
+		port        int32
 	}
 	tests := []struct {
 		name string
 		args args
-		want []*elbv2.TargetDescription
+		want []*elbv2types.TargetDescription
 	}{
 		{
 			name: "no instance",
@@ -1034,7 +1028,7 @@ func TestCloud_computeTargetGroupExpectedTargets(t *testing.T) {
 				instanceIDs: nil,
 				port:        8080,
 			},
-			want: []*elbv2.TargetDescription{},
+			want: []*elbv2types.TargetDescription{},
 		},
 		{
 			name: "one instance",
@@ -1042,10 +1036,10 @@ func TestCloud_computeTargetGroupExpectedTargets(t *testing.T) {
 				instanceIDs: []string{"i-abcdef1"},
 				port:        8080,
 			},
-			want: []*elbv2.TargetDescription{
+			want: []*elbv2types.TargetDescription{
 				{
 					Id:   aws.String("i-abcdef1"),
-					Port: aws.Int64(8080),
+					Port: aws.Int32(8080),
 				},
 			},
 		},
@@ -1055,18 +1049,18 @@ func TestCloud_computeTargetGroupExpectedTargets(t *testing.T) {
 				instanceIDs: []string{"i-abcdef1", "i-abcdef2", "i-abcdef3"},
 				port:        8080,
 			},
-			want: []*elbv2.TargetDescription{
+			want: []*elbv2types.TargetDescription{
 				{
 					Id:   aws.String("i-abcdef1"),
-					Port: aws.Int64(8080),
+					Port: aws.Int32(8080),
 				},
 				{
 					Id:   aws.String("i-abcdef2"),
-					Port: aws.Int64(8080),
+					Port: aws.Int32(8080),
 				},
 				{
 					Id:   aws.String("i-abcdef3"),
-					Port: aws.Int64(8080),
+					Port: aws.Int32(8080),
 				},
 			},
 		},

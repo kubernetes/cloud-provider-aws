@@ -21,8 +21,8 @@ import (
 	"fmt"
 	"sync"
 
+	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/ec2"
-	"github.com/aws/aws-sdk-go/aws"
 	"k8s.io/klog/v2"
 )
 
@@ -120,11 +120,11 @@ func (z *zoneCache) populate(ctx context.Context) error {
 	}
 
 	for _, zone := range zones {
-		name := aws.StringValue(zone.ZoneName)
+		name := aws.ToString(zone.ZoneName)
 		z.zoneNameToDetails[name] = zoneDetails{
 			name:     name,
-			id:       aws.StringValue(zone.ZoneId),
-			zoneType: aws.StringValue(zone.ZoneType),
+			id:       aws.ToString(zone.ZoneId),
+			zoneType: aws.ToString(zone.ZoneType),
 		}
 	}
 

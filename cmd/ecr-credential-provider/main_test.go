@@ -29,6 +29,8 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/ecr/types"
 	"github.com/aws/aws-sdk-go-v2/service/ecrpublic"
 	publictypes "github.com/aws/aws-sdk-go-v2/service/ecrpublic/types"
+	"github.com/aws/aws-sdk-go-v2/service/sts"
+	ststypes "github.com/aws/aws-sdk-go-v2/service/sts/types"
 	"github.com/stretchr/testify/mock"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	v1 "k8s.io/kubelet/pkg/apis/credentialprovider/v1"
@@ -40,6 +42,15 @@ type MockedECR struct {
 
 func (m *MockedECR) GetAuthorizationToken(ctx context.Context, params *ecr.GetAuthorizationTokenInput, optFns ...func(*ecr.Options)) (*ecr.GetAuthorizationTokenOutput, error) {
 	args := m.Called(ctx, params)
+
+	opts := ecr.Options{}
+	for _, fn := range optFns {
+		fn(&opts)
+	}
+	if opts.Credentials != nil {
+		opts.Credentials.Retrieve(ctx)
+	}
+
 	if args.Get(1) != nil {
 		return args.Get(0).(*ecr.GetAuthorizationTokenOutput), args.Get(1).(error)
 	}
@@ -57,6 +68,18 @@ func (m *MockedECRPublic) GetAuthorizationToken(ctx context.Context, params *ecr
 		return args.Get(0).(*ecrpublic.GetAuthorizationTokenOutput), args.Get(1).(error)
 	}
 	return args.Get(0).(*ecrpublic.GetAuthorizationTokenOutput), nil
+}
+
+type MockedSTS struct {
+	mock.Mock
+}
+
+func (m *MockedSTS) AssumeRoleWithWebIdentity(ctx context.Context, params *sts.AssumeRoleWithWebIdentityInput, optFns ...func(*sts.Options)) (*sts.AssumeRoleWithWebIdentityOutput, error) {
+	args := m.Called(ctx, params)
+	if args.Get(1) != nil {
+		return args.Get(0).(*sts.AssumeRoleWithWebIdentityOutput), args.Get(1).(error)
+	}
+	return args.Get(0).(*sts.AssumeRoleWithWebIdentityOutput), nil
 }
 
 func generatePrivateGetAuthorizationTokenOutput(user string, password string, proxy string, expiration *time.Time) *ecr.GetAuthorizationTokenOutput {
@@ -159,7 +182,7 @@ func Test_GetCredentials_Private(t *testing.T) {
 			p := &ecrPlugin{ecr: &mockECR}
 			mockECR.On("GetAuthorizationToken", mock.Anything, mock.Anything).Return(testcase.getAuthorizationTokenOutput, testcase.getAuthorizationTokenError)
 
-			creds, err := p.GetCredentials(context.TODO(), testcase.image, testcase.args)
+			creds, err := p.GetCredentials(context.TODO(), &v1.CredentialProviderRequest{Image: testcase.image}, testcase.args)
 
 			if testcase.expectedError != nil && (testcase.expectedError.Error() != err.Error()) {
 				t.Fatalf("expected %s, got %s", testcase.expectedError.Error(), err.Error())
@@ -182,7 +205,101 @@ func Test_GetCredentials_Private(t *testing.T) {
 	}
 }
 
-func generatePublicGetAuthorizationTokenOutput(user string, password string, proxy string, expiration *time.Time) *ecrpublic.GetAuthorizationTokenOutput {
+func Test_GetCredentials_PrivateForServiceAccount(t *testing.T) {
+	testcases := []struct {
+		name                            string
+		request                         *v1.CredentialProviderRequest
+		args                            []string
+		expectedAssumeArn               string
+		getAuthorizationTokenOutput     *ecr.GetAuthorizationTokenOutput
+		getAuthorizationTokenError      error
+		assumeRoleWithWebIdentityOutput *sts.AssumeRoleWithWebIdentityOutput
+		assumeRoleWithWebIdentityError  error
+		response                        *v1.CredentialProviderResponse
+		expectedError                   error
+	}{
+		{
+			name:                        "success",
+			request:                     &v1.CredentialProviderRequest{Image: "123456789123.dkr.ecr.us-west-2.amazonaws.com", ServiceAccountToken: "DEADBEEF=", ServiceAccountAnnotations: map[string]string{"eks.amazonaws.com/ecr-role-arn": "arn:expected"}},
+			expectedAssumeArn:           "arn:expected",
+			getAuthorizationTokenOutput: generatePrivateGetAuthorizationTokenOutput("user", "pass", "", nil),
+			assumeRoleWithWebIdentityOutput: &sts.AssumeRoleWithWebIdentityOutput{
+				Credentials: &ststypes.Credentials{
+					AccessKeyId:     aws.String("access-key-id"),
+					SecretAccessKey: aws.String("secret-access-key"),
+					SessionToken:    aws.String("session-token"),
+				},
+			},
+			response: generateResponse("123456789123.dkr.ecr.us-west-2.amazonaws.com", "user", "pass"),
+		},
+		{
+			name:                        "no arn provided",
+			request:                     &v1.CredentialProviderRequest{Image: "123456789123.dkr.ecr.us-west-2.amazonaws.com", ServiceAccountToken: "DEADBEEF="},
+			expectedAssumeArn:           "arn:expected",
+			getAuthorizationTokenOutput: generatePrivateGetAuthorizationTokenOutput("user", "pass", "", nil),
+			assumeRoleWithWebIdentityOutput: &sts.AssumeRoleWithWebIdentityOutput{
+				Credentials: &ststypes.Credentials{
+					AccessKeyId:     aws.String("access-key-id"),
+					SecretAccessKey: aws.String("secret-access-key"),
+					SessionToken:    aws.String("session-token"),
+				},
+			},
+			response:      generateResponse("123456789123.dkr.ecr.us-west-2.amazonaws.com", "user", "pass"),
+			expectedError: errors.New("no arn provided, cannot assume role using ServiceAccountToken"),
+		},
+		{
+			name:                           "assume error",
+			request:                        &v1.CredentialProviderRequest{Image: "123456789123.dkr.ecr.us-west-2.amazonaws.com", ServiceAccountToken: "DEADBEEF=", ServiceAccountAnnotations: map[string]string{"eks.amazonaws.com/ecr-role-arn": "arn:expected"}},
+			expectedAssumeArn:              "arn:expected",
+			getAuthorizationTokenOutput:    generatePrivateGetAuthorizationTokenOutput("user", "pass", "", nil),
+			assumeRoleWithWebIdentityError: errors.New("injected error"),
+			response:                       generateResponse("123456789123.dkr.ecr.us-west-2.amazonaws.com", "user", "pass"),
+			expectedError:                  errors.New("injected error"),
+		},
+	}
+	for _, testcase := range testcases {
+		t.Run(testcase.name, func(t *testing.T) {
+			mockECR := MockedECR{}
+			mockSTS := MockedSTS{}
+			p := &ecrPlugin{ecr: &mockECR, sts: &mockSTS}
+			mockECR.On("GetAuthorizationToken", mock.Anything, mock.Anything).Return(testcase.getAuthorizationTokenOutput, testcase.getAuthorizationTokenError)
+
+			expectedInput := sts.AssumeRoleWithWebIdentityInput{
+				RoleArn:          aws.String(testcase.expectedAssumeArn),
+				RoleSessionName:  aws.String("ecr-credential-provider"),
+				WebIdentityToken: aws.String(testcase.request.ServiceAccountToken),
+			}
+			mockSTS.On("AssumeRoleWithWebIdentity", mock.Anything, &expectedInput).Return(testcase.assumeRoleWithWebIdentityOutput, testcase.assumeRoleWithWebIdentityError)
+			creds, err := p.GetCredentials(context.TODO(), testcase.request, testcase.args)
+			if err != nil {
+				if testcase.expectedError == nil {
+					t.Fatalf("got unexpected error %s", err.Error())
+
+				}
+
+				if testcase.expectedError.Error() != err.Error() {
+					t.Fatalf("expected %s, got %s", testcase.expectedError.Error(), err.Error())
+				}
+			}
+
+			if testcase.expectedError == nil {
+				if creds.CacheKeyType != testcase.response.CacheKeyType {
+					t.Fatalf("Unexpected CacheKeyType. Expected: %s, got: %s", testcase.response.CacheKeyType, creds.CacheKeyType)
+				}
+
+				if creds.Auth[testcase.request.Image] != testcase.response.Auth[testcase.request.Image] {
+					t.Fatalf("Unexpected Auth. Expected: %s, got: %s", testcase.response.Auth[testcase.request.Image], creds.Auth[testcase.request.Image])
+				}
+
+				if creds.CacheDuration.Duration != testcase.response.CacheDuration.Duration {
+					t.Fatalf("Unexpected CacheDuration. Expected: %s, got: %s", testcase.response.CacheDuration.Duration, creds.CacheDuration.Duration)
+				}
+			}
+		})
+	}
+}
+
+func generatePublicGetAuthorizationTokenOutput(user string, password string, expiration *time.Time) *ecrpublic.GetAuthorizationTokenOutput {
 	creds := []byte(fmt.Sprintf("%s:%s", user, password))
 	data := &publictypes.AuthorizationData{
 		AuthorizationToken: aws.String(base64.StdEncoding.EncodeToString(creds)),
@@ -207,8 +324,15 @@ func Test_GetCredentials_Public(t *testing.T) {
 		{
 			name:                        "success",
 			image:                       "public.ecr.aws",
-			getAuthorizationTokenOutput: generatePublicGetAuthorizationTokenOutput("user", "pass", "", nil),
+			getAuthorizationTokenOutput: generatePublicGetAuthorizationTokenOutput("user", "pass", nil),
 			response:                    generateResponse("public.ecr.aws", "user", "pass"),
+		},
+		{
+			name:                        "empty image",
+			image:                       "",
+			getAuthorizationTokenOutput: &ecrpublic.GetAuthorizationTokenOutput{},
+			getAuthorizationTokenError:  nil,
+			expectedError:               errors.New("image in plugin request was empty"),
 		},
 		{
 			name:                        "empty authorization data",
@@ -257,7 +381,7 @@ func Test_GetCredentials_Public(t *testing.T) {
 			p := &ecrPlugin{ecrPublic: &mockECRPublic}
 			mockECRPublic.On("GetAuthorizationToken", mock.Anything, mock.Anything).Return(testcase.getAuthorizationTokenOutput, testcase.getAuthorizationTokenError)
 
-			creds, err := p.GetCredentials(context.TODO(), testcase.image, testcase.args)
+			creds, err := p.GetCredentials(context.TODO(), &v1.CredentialProviderRequest{Image: testcase.image}, testcase.args)
 
 			if testcase.expectedError != nil && (testcase.expectedError.Error() != err.Error()) {
 				t.Fatalf("expected %s, got %s", testcase.expectedError.Error(), err.Error())
