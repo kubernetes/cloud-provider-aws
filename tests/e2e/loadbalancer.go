@@ -307,7 +307,23 @@ var _ = Describe("[cloud-provider-aws-e2e] loadbalancer", func() {
 
 			By("creating backend server pods")
 			_, err = e2e.LBJig.Run(e2e.buildReplicationController(tc.requireAffinity))
-			framework.ExpectNoError(err)
+			if err != nil {
+				serviceName := e2e.LBJig.Name
+				if e2e.svc != nil {
+					serviceName = e2e.svc.Name
+				}
+				framework.Logf("ERROR: LoadBalancer provisioning failed for service %q: %v", serviceName, err)
+				framework.Logf("ERROR: LoadBalancer provisioning timeout reached after %v", loadBalancerCreateTimeout)
+
+				// Ensure we have detailed debugging information before failing
+				framework.Logf("=== LoadBalancer Provisioning Failure Debug Information ===")
+				gatherEventosOnFailure(e2e.ctx, e2e.kubeClient, e2e.LBJig.Namespace, e2e.LBJig.Name)
+				framework.Logf("=== End of LoadBalancer Provisioning Failure Debug Information ===")
+
+				// Fail the test immediately to prevent further execution
+				framework.ExpectNoError(err, "LoadBalancer provisioning failed - check debug information above")
+			}
+
 			framework.Logf("[K8S] Backend pods created, affinity required: %t", tc.requireAffinity)
 
 			if tc.hookPostServiceCreate != nil {
@@ -323,15 +339,31 @@ var _ = Describe("[cloud-provider-aws-e2e] loadbalancer", func() {
 				framework.Failf("Service is nil after LoadBalancer provisioning for service %s", e2e.LBJig.Name)
 			}
 			if len(e2e.svc.Spec.Ports) == 0 {
+				framework.Logf("=== Service Ports Error Debug Information ===")
+				framework.Logf("Service spec: %+v", e2e.svc.Spec)
+				gatherEventosOnFailure(e2e.ctx, e2e.kubeClient, e2e.LBJig.Namespace, e2e.LBJig.Name)
+				framework.Logf("=== End of Service Ports Error Debug Information ===")
 				framework.Failf("No ports found in service spec for service %s/%s", e2e.svc.Namespace, e2e.svc.Name)
 			}
 			if len(e2e.svc.Status.LoadBalancer.Ingress) == 0 {
+				framework.Logf("=== LoadBalancer Ingress Error Debug Information ===")
+				framework.Logf("Service status: %+v", e2e.svc.Status)
+				gatherEventosOnFailure(e2e.ctx, e2e.kubeClient, e2e.LBJig.Namespace, e2e.LBJig.Name)
+				framework.Logf("=== End of LoadBalancer Ingress Error Debug Information ===")
 				framework.Failf("No ingress found in LoadBalancer status for service %s/%s", e2e.svc.Namespace, e2e.svc.Name)
 			}
 
 			svcPort := int(e2e.svc.Spec.Ports[0].Port)
 			ingressAddress := e2eservice.GetIngressPoint(&e2e.svc.Status.LoadBalancer.Ingress[0])
 			framework.Logf("[LB-INFO] Ingress address: %s, port: %d", ingressAddress, svcPort)
+
+			if ingressAddress == "" {
+				framework.Logf("=== Empty Ingress Address Debug Information ===")
+				framework.Logf("LoadBalancer ingress[0]: %+v", e2e.svc.Status.LoadBalancer.Ingress[0])
+				gatherEventosOnFailure(e2e.ctx, e2e.kubeClient, e2e.LBJig.Namespace, e2e.LBJig.Name)
+				framework.Logf("=== End of Empty Ingress Address Debug Information ===")
+				framework.Failf("LoadBalancer ingress address is empty for service %s/%s", e2e.svc.Namespace, e2e.svc.Name)
+			}
 
 			if tc.hookPreTest != nil {
 				By("executing pre-test hook")
@@ -839,4 +871,88 @@ func inClusterTestReachableHTTP(cs clientset.Interface, namespace, nodeName, tar
 	}
 
 	return nil
+}
+
+// Gather information from the cluster to help debug failures.
+// - Resource events
+// - All namespace events
+// - Cloud controller manager logs
+// - Service status
+func gatherResourceEvents(ctx context.Context, cs clientset.Interface, namespace, resourceName string) {
+	framework.Logf("=== Collecting resource events for debugging ===")
+	events, err := cs.CoreV1().Events(namespace).List(ctx, metav1.ListOptions{
+		FieldSelector: "involvedObject.name=" + resourceName,
+	})
+	if err != nil {
+		framework.Logf("Error getting events for resource %q: %v", resourceName, err)
+	} else {
+		framework.Logf("Resource events for %q:", resourceName)
+		for _, event := range events.Items {
+			framework.Logf("  [%s] %s/%s: %s - %s", event.Type, event.Reason, event.InvolvedObject.Name, event.Message, event.FirstTimestamp)
+		}
+	}
+}
+
+func gatherAllEvents(ctx context.Context, cs clientset.Interface, namespace, resourceName string) {
+	framework.Logf("=== Collecting all namespace events ===")
+	allEvents, err := cs.CoreV1().Events(namespace).List(ctx, metav1.ListOptions{})
+	if err != nil {
+		framework.Logf("Error getting all namespace events: %v", err)
+	} else {
+		framework.Logf("All events in namespace %q:", namespace)
+		for _, event := range allEvents.Items {
+			if strings.Contains(event.Message, "loadbalancer") || strings.Contains(event.Message, "LoadBalancer") ||
+				strings.Contains(event.Reason, "LoadBalancer") || strings.Contains(event.Source.Component, "cloud-controller-manager") {
+				framework.Logf("  [%s] %s/%s/%s: %s - %s", event.Type, event.Source.Component, event.Reason, event.InvolvedObject.Name, event.Message, event.FirstTimestamp)
+			}
+		}
+	}
+}
+
+func gatherControllerLogs(ctx context.Context, cs clientset.Interface, namespace, resourceName string) {
+	framework.Logf("=== Collecting cloud controller manager logs ===")
+	ccmPods, err := cs.CoreV1().Pods("").List(ctx, metav1.ListOptions{
+		LabelSelector: "app=cloud-controller-manager",
+	})
+	if err != nil {
+		framework.Logf("Error listing cloud controller manager pods: %v", err)
+	} else {
+		for _, pod := range ccmPods.Items {
+			framework.Logf("Found CCM pod: %s/%s (phase: %s)", pod.Namespace, pod.Name, pod.Status.Phase)
+
+			// Get recent logs (last 50 lines)
+			tailLines := int64(50)
+			logOpts := &v1.PodLogOptions{
+				TailLines: &tailLines,
+				Previous:  false,
+			}
+			logs, err1 := cs.CoreV1().Pods(pod.Namespace).GetLogs(pod.Name, logOpts).DoRaw(ctx)
+			if err1 != nil {
+				framework.Logf("Error getting logs for CCM pod %s/%s: %v", pod.Namespace, pod.Name, err)
+			} else {
+				framework.Logf("Recent logs from CCM pod %s/%s:", pod.Namespace, pod.Name)
+				framework.Logf("%s", string(logs))
+			}
+		}
+	}
+}
+
+func gatherServiceStatus(ctx context.Context, cs clientset.Interface, namespace, resourceName string) {
+	framework.Logf("=== Service Status ===")
+	currentSvc, err := cs.CoreV1().Services(namespace).Get(ctx, resourceName, metav1.GetOptions{})
+	if err != nil {
+		framework.Logf("Error getting current service status: %v", err)
+	} else {
+		framework.Logf("Service %s status:", currentSvc.Name)
+		framework.Logf("  Annotations: %+v", currentSvc.Annotations)
+		framework.Logf("  LoadBalancer status: %+v", currentSvc.Status.LoadBalancer)
+		framework.Logf("  Conditions: %+v", currentSvc.Status.Conditions)
+	}
+}
+
+func gatherEventosOnFailure(ctx context.Context, cs clientset.Interface, namespace, resourceName string) {
+	gatherResourceEvents(ctx, cs, namespace, resourceName)
+	gatherAllEvents(ctx, cs, namespace, resourceName)
+	gatherControllerLogs(ctx, cs, namespace, resourceName)
+	gatherServiceStatus(ctx, cs, namespace, resourceName)
 }
