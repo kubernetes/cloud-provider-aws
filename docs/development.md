@@ -184,37 +184,13 @@ make e2e.test
 ./e2e.test --ginkgo.v  --ginkgo.focus="loadbalancer.*NLB"
 ```
 
-### Troubleshooting Test Failures
-
-#### Common E2E Test Issues
-
-**LoadBalancer Provisioning Timeouts**
-- **Symptom**: Tests fail after few minutes with LoadBalancer provisioning timeout
-- **Debug**: Check the test logs for detailed AWS events, service status, and cloud-controller-manager logs
-- **Common causes**: AWS service limits, IAM permissions, subnet/VPC configuration issues
-
-**AWS Permissions**
-- **Symptom**: Tests fail with AWS API access denied errors
-- **Solution**: Ensure your AWS credentials have the necessary permissions for ELB, EC2, and IAM operations
-- **Required permissions**: See [AWS IAM Policy](../examples/existing-cluster/base/aws-load-balancer-controller-policy.json)
-
-**Test Environment Issues**
-- **Symptom**: Tests fail to find worker nodes or services
-- **Debug**: Check that `kubectl get nodes` shows worker nodes with proper labels
-- **Solution**: Ensure cluster has nodes with `node-role.kubernetes.io/worker` or `node-role.kubernetes.io/node` labels
-
-For detailed debugging information, E2E tests automatically collect:
-- Kubernetes events related to the service
-- Cloud controller manager logs
-- Service status and configuration
-- AWS resource states
-
-
 ## CI Test Infrastructure
 
 The cloud-provider-aws project uses [Prow][prow] as to the CI/CD (Continuous Integration/Continuous Delivery) system to schedule CI jobs, and use [kops][kops] to create the cluster used by jobs.
 
-The Prow test grid dashboard is available at [testgrid.k8s.io/amazon-ec2][test-grid] ([here][dash-grid-e2e] is the directly link to the e2e test suite).
+The Prow test grid dashboard is available at [testgrid.k8s.io/amazon-ec2][test-grid] ([here][test-grid-e2e] is the directly link to the e2e test suite).
+
+The CI jobs are defined in the [kubernetes/test-infra repository][k-test-infra-ccm].
 
 The e2e test suite is defined in [tests/e2e](https://github.com/kubernetes/cloud-provider-aws/tree/master/tests/e2e).
 
@@ -223,3 +199,4 @@ The e2e test suite is defined in [tests/e2e](https://github.com/kubernetes/cloud
 [kops]: https://github.com/kubernetes/kops/tree/master
 [test-grid]: https://testgrid.k8s.io/amazon-ec2
 [test-grid-e2e]: https://testgrid.k8s.io/amazon-ec2#ci-cloud-provider-aws-e2e
+[k-test-infra-ccm]: https://github.com/kubernetes/test-infra/blob/master/config/jobs/kubernetes/cloud-provider-aws/cloud-provider-aws-presubmit.yaml
