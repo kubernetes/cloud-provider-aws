@@ -143,7 +143,7 @@ cd cloud-provider-aws
 make && make test
 ```
 
-### Run the tests!
+### Run the e2e tests!
 
 You can run the tests with the following:
 
@@ -159,3 +159,44 @@ make test-e2e
 
 > [!NOTE]
 > If tests fail and the cluster isn't deleted, you can manually delete with `kops delete cluster --name ENTER_NAME`. The S3 kops state bucket will include all clusters not cleaned up.
+
+### Run the e2e tests in clusters not provisioned by kops
+
+E2E tests require a running Kubernetes cluster with AWS cloud provider configured.
+
+Prerequisites:
+- AWS credentials configured
+- kubernetes configuration pointing to a cluster with cloud-provider-aws deployed
+
+Steps:
+
+- Build the test utility:
+```bash
+make e2e.test
+```
+- A binary `e2e.test` is expected to be created under the root of the project:
+- Check available e2e tests (optional):
+```bash
+./e2e.test --ginkgo.dry-run
+```
+- Run specific e2e tests (Load Balancer with NLB):
+```bash
+./e2e.test --ginkgo.v  --ginkgo.focus="loadbalancer.*NLB"
+```
+
+## CI Test Infrastructure
+
+The cloud-provider-aws project uses [Prow][prow] as to the CI/CD (Continuous Integration/Continuous Delivery) system to schedule CI jobs, and use [kops][kops] to create the cluster used by jobs.
+
+The Prow test grid dashboard is available at [testgrid.k8s.io/amazon-ec2][test-grid] ([here][test-grid-e2e] is the directly link to the e2e test suite).
+
+The CI jobs are defined in the [kubernetes/test-infra repository][k-test-infra-ccm].
+
+The e2e test suite is defined in [tests/e2e](https://github.com/kubernetes/cloud-provider-aws/tree/master/tests/e2e).
+
+
+[prow]: https://github.com/kubernetes-sigs/prow
+[kops]: https://github.com/kubernetes/kops/tree/master
+[test-grid]: https://testgrid.k8s.io/amazon-ec2
+[test-grid-e2e]: https://testgrid.k8s.io/amazon-ec2#ci-cloud-provider-aws-e2e
+[k-test-infra-ccm]: https://github.com/kubernetes/test-infra/blob/master/config/jobs/kubernetes/cloud-provider-aws/cloud-provider-aws-presubmit.yaml
