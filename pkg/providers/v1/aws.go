@@ -216,6 +216,12 @@ const ServiceAnnotationLoadBalancerHCTimeout = "service.beta.kubernetes.io/aws-l
 // service to specify, in seconds, the interval between health checks.
 const ServiceAnnotationLoadBalancerHCInterval = "service.beta.kubernetes.io/aws-load-balancer-healthcheck-interval"
 
+// ServiceAnnotationLoadBalancerTargetGroupAttributes is the annotation used on the
+// service to specify a comma-separated list of key-value pairs which will be applied as
+// target group attributes.
+// For example: "preserve_client_ip.enabled=false,proxy_protocol_v2.enabled=true"
+const ServiceAnnotationLoadBalancerTargetGroupAttributes = "service.beta.kubernetes.io/aws-load-balancer-target-group-attributes"
+
 // ServiceAnnotationLoadBalancerEIPAllocations is the annotation used on the
 // service to specify a comma separated list of EIP allocations to use as
 // static IP addresses for the NLB. Only supported on elbv2 (NLB)
@@ -265,6 +271,20 @@ const (
 	localZoneType               = "local-zone"
 	wavelengthZoneType          = "wavelength-zone"
 	regularAvailabilityZoneType = "availability-zone"
+)
+
+// Target Group Attributes
+// https://pkg.go.dev/github.com/aws/aws-sdk-go-v2/service/elasticloadbalancingv2@main/types#TargetGroupAttribute
+const (
+	// TargetGroupAttributePreserveClientIPEnabled is the target group attribute preserve_client_ip.enabled.
+	// Indicates whether client IP preservation is enabled.
+	// Valid values are true or false.
+	TargetGroupAttributePreserveClientIPEnabled = "preserve_client_ip.enabled"
+
+	// TargetGroupAttributeProxyProtocolV2Enabled is the target group attribute proxy_protocol_v2.enabled.
+	// Indicates whether Proxy Protocol version 2 is enabled.
+	// Valid values are true or false.
+	TargetGroupAttributeProxyProtocolV2Enabled = "proxy_protocol_v2.enabled"
 )
 
 // awsTagNameMasterRoles is a set of well-known AWS tag names that indicate the instance is a master
