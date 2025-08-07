@@ -194,9 +194,12 @@ The CI jobs are defined in the [kubernetes/test-infra repository][k-test-infra-c
 
 The e2e test suite is defined in [tests/e2e](https://github.com/kubernetes/cloud-provider-aws/tree/master/tests/e2e).
 
+When you need to investigate CI infrastructure issues (such as build timeouts, resource constraints, or job failures), you can use the Grafana instance available at [monitoring-eks.prow.k8s.io][monitoring-eks]. The [Build Dashboard][monitoring-eks-dash-build] is commonly used to monitor resource usage from build jobs.
 
 [prow]: https://github.com/kubernetes-sigs/prow
 [kops]: https://github.com/kubernetes/kops/tree/master
 [test-grid]: https://testgrid.k8s.io/amazon-ec2
 [test-grid-e2e]: https://testgrid.k8s.io/amazon-ec2#ci-cloud-provider-aws-e2e
 [k-test-infra-ccm]: https://github.com/kubernetes/test-infra/blob/master/config/jobs/kubernetes/cloud-provider-aws/cloud-provider-aws-presubmit.yaml
+[monitoring-eks]: https://monitoring-eks.prow.k8s.io/
+[monitoring-eks-dash-build]: https://monitoring-eks.prow.k8s.io/d/96Q8oOOZk/builds
