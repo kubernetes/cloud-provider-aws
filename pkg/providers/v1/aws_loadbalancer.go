@@ -819,6 +819,9 @@ func (c *Cloud) updateInstanceSecurityGroupsForNLB(ctx context.Context, lbName s
 			if err != nil {
 				return fmt.Errorf("error finding instance group: %q", err)
 			}
+			if sg == nil {
+				return fmt.Errorf("error finding security group: %s", sgID)
+			}
 			clusterSGs[sgID] = sg
 		}
 	}
@@ -1508,13 +1511,16 @@ func (c *Cloud) ensureSSLNegotiationPolicy(ctx context.Context, loadBalancer *el
 		},
 	})
 	if err != nil {
+		// If DescribeLoadBalancerPolicies returns a PolicyNotFoundException, we must proceed and create the policy.
 		var notFoundErr *elbtypes.PolicyNotFoundException
 		if !errors.As(err, &notFoundErr) {
 			return fmt.Errorf("error describing security policies on load balancer: %q", err)
 		}
 	}
 
-	if len(result.PolicyDescriptions) > 0 {
+	// If DescribeLoadBalancerPolicies yielded a PolicyNotFoundException, result will be nil,
+	// so we must check before dereferencing
+	if result != nil && len(result.PolicyDescriptions) > 0 {
 		return nil
 	}
 
