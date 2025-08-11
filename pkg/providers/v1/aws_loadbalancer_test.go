@@ -1071,3 +1071,50 @@ func TestCloud_computeTargetGroupExpectedTargets(t *testing.T) {
 		})
 	}
 }
+
+// Make sure that errors returned by DescribeLoadBalancerPolicies are
+// handled gracefully, and don't progress further into the function
+func TestEnsureSSLNegotiationPolicyErrorHandling(t *testing.T) {
+	awsServices := NewFakeAWSServices(TestClusterID)
+	c, err := newAWSCloud(config.CloudConfig{}, awsServices)
+	if err != nil {
+		t.Errorf("Error building aws cloud: %v", err)
+		return
+	}
+
+	tests := []struct {
+		name         string
+		loadBalancer *elbtypes.LoadBalancerDescription
+		policyName   string
+		expectError  bool
+	}{
+		{
+			name: "Expect LoadBalancerAttributeNotFoundException, error",
+			loadBalancer: &elbtypes.LoadBalancerDescription{
+				LoadBalancerName: aws.String(""),
+			},
+			policyName:  "",
+			expectError: true,
+		},
+		{
+			name: "Expect PolicyNotFoundException, nil error",
+			loadBalancer: &elbtypes.LoadBalancerDescription{
+				LoadBalancerName: aws.String("test-lb"),
+			},
+			policyName:  "",
+			expectError: false,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			err := c.ensureSSLNegotiationPolicy(context.TODO(), test.loadBalancer, test.policyName)
+			if test.expectError && err == nil {
+				t.Errorf("Expected error but got none")
+			}
+			if !test.expectError && err != nil {
+				t.Errorf("Expected no error but got: %v", err)
+			}
+		})
+	}
+}
