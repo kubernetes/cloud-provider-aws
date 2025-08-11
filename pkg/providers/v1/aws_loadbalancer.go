@@ -816,7 +816,7 @@ func (c *Cloud) updateInstanceSecurityGroupsForNLB(ctx context.Context, lbName s
 	{
 		for sgID := range desiredSGIDs.Difference(sets.StringKeySet(clusterSGs)) {
 			sg, err := c.findSecurityGroup(ctx, sgID)
-			if err != nil {
+			if err != nil || sg == nil {
 				return fmt.Errorf("error finding instance group: %q", err)
 			}
 			clusterSGs[sgID] = sg
@@ -1512,6 +1512,7 @@ func (c *Cloud) ensureSSLNegotiationPolicy(ctx context.Context, loadBalancer *el
 		if !errors.As(err, &notFoundErr) {
 			return fmt.Errorf("error describing security policies on load balancer: %q", err)
 		}
+		return nil
 	}
 
 	if len(result.PolicyDescriptions) > 0 {

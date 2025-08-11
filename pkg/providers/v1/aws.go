@@ -1004,7 +1004,7 @@ func (c *Cloud) GetZoneByProviderID(ctx context.Context, providerID string) (clo
 	}
 
 	instance, err := c.getInstanceByID(ctx, string(instanceID))
-	if err != nil {
+	if err != nil || instance == nil {
 		return cloudprovider.Zone{}, err
 	}
 	return c.getInstanceZone(instance), nil
@@ -1078,7 +1078,7 @@ func (c *Cloud) buildSelfAWSInstance(ctx context.Context) (*awsInstance, error) 
 	defer instanceIDMetadata.Content.Close()
 
 	instance, err := c.getInstanceByID(ctx, string(instanceIDBytes))
-	if err != nil {
+	if err != nil || instance == nil {
 		return nil, fmt.Errorf("error finding instance %s: %q", string(instanceIDBytes), err)
 	}
 	return newAWSInstance(c.ec2, instance), nil
@@ -3146,7 +3146,7 @@ func (c *Cloud) UpdateLoadBalancer(ctx context.Context, clusterName string, serv
 // Returns the instance with the specified ID
 func (c *Cloud) getInstanceByID(ctx context.Context, instanceID string) (*ec2types.Instance, error) {
 	instances, err := c.getInstancesByIDs(ctx, []string{instanceID})
-	if err != nil {
+	if err != nil || instances == nil {
 		return nil, err
 	}
 
@@ -3345,13 +3345,6 @@ func (c *Cloud) getFullInstance(ctx context.Context, nodeName types.NodeName) (*
 	}
 	awsInstance := newAWSInstance(c.ec2, instance)
 	return awsInstance, instance, err
-}
-
-// extract private ip address from node name
-func nodeNameToIPAddress(nodeName string) string {
-	nodeName = strings.TrimPrefix(nodeName, privateDNSNamePrefix)
-	nodeName = strings.Split(nodeName, ".")[0]
-	return strings.ReplaceAll(nodeName, "-", ".")
 }
 
 func (c *Cloud) nodeNameToInstanceID(nodeName types.NodeName) (InstanceID, error) {
