@@ -29,15 +29,27 @@ type awsValidationInput struct {
 	annotations map[string]string
 }
 
-// ensureLoadBalancerValidation validates the Service configuration early of making any changes or API calls to AWS.
+// ensureLoadBalancerValidation validates the Service configuration early on EnsureLoadBalancer.
+// It validates the Service annotations and other constraints provided by the user are valid and supported by the controller.
+// It does not validate the AWS constraints.
+//
+// input:
+// v: awsValidationInput containing the required configuration to validate the Service object.
+//
+// returns:
+// - error: validation errors.
 func ensureLoadBalancerValidation(v *awsValidationInput) error {
+	// Validate Service annotations.
 	if err := validateServiceAnnotations(v); err != nil {
 		return err
 	}
+
+	// TODO: migrate other validations from EnsureLoadBalancer to this function.
 	return nil
 }
 
-// validateServiceAnnotations validates the service annotations.
+// validateServiceAnnotations validates the service annotations constraints provided by the user
+// are valid and supported by the controller.
 func validateServiceAnnotations(v *awsValidationInput) error {
 	isNLB := isNLB(v.annotations)
 
@@ -53,8 +65,14 @@ func validateServiceAnnotations(v *awsValidationInput) error {
 	return nil
 }
 
-// validateServiceAnnotationTargetGroupAttributes validates the target group attributes set through annotations.
+// validateServiceAnnotationTargetGroupAttributes validates the target group attributes set through annotation:
 // Annotation: service.beta.kubernetes.io/aws-load-balancer-target-group-attributes
+//
+// input:
+// v: awsValidationInput containing the required configuration to validate the Service object.
+//
+// returns:
+// - error: validation errors.
 func validateServiceAnnotationTargetGroupAttributes(v *awsValidationInput) error {
 	errPrefix := "error validating target group attributes"
 
