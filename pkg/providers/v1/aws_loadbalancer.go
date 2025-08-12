@@ -1507,15 +1507,21 @@ func (c *Cloud) ensureSSLNegotiationPolicy(ctx context.Context, loadBalancer *el
 			fmt.Sprintf(SSLNegotiationPolicyNameFormat, policyName),
 		},
 	})
+	policyNotFoundError := false
 	if err != nil {
 		var notFoundErr *elbtypes.PolicyNotFoundException
 		if !errors.As(err, &notFoundErr) {
 			return fmt.Errorf("error describing security policies on load balancer: %q", err)
 		}
-		return nil
+		policyNotFoundError = true
 	}
 
-	if len(result.PolicyDescriptions) > 0 {
+	// If DescribeLoadBalancerPolicies returns a PolicyNotFoundException, we must proceed and create the policy.
+	//
+	// The result of DescribeLoadBalancerPolicies will be nil, so we should only check
+	// result.PolicyDescriptions if DescribeLoadBalancerPolicies did not yield an error.
+	if (!policyNotFoundError) && (result != nil && len(result.PolicyDescriptions) > 0) {
+		// if policynotfound, would return false
 		return nil
 	}
 

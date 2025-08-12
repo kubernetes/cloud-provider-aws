@@ -605,7 +605,7 @@ func (e *FakeELB) ConfigureHealthCheck(ctx context.Context, input *elb.Configure
 // CreateLoadBalancerPolicy is not implemented but is required for interface
 // conformance
 func (e *FakeELB) CreateLoadBalancerPolicy(ctx context.Context, input *elb.CreateLoadBalancerPolicyInput, opts ...func(*elb.Options)) (*elb.CreateLoadBalancerPolicyOutput, error) {
-	panic("Not implemented")
+	return &elb.CreateLoadBalancerPolicyOutput{}, nil
 }
 
 // SetLoadBalancerPoliciesForBackendServer is not implemented but is required
