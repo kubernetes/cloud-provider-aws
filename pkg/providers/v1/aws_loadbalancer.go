@@ -816,7 +816,7 @@ func (c *Cloud) updateInstanceSecurityGroupsForNLB(ctx context.Context, lbName s
 	{
 		for sgID := range desiredSGIDs.Difference(sets.StringKeySet(clusterSGs)) {
 			sg, err := c.findSecurityGroup(ctx, sgID)
-			if err != nil {
+			if err != nil || sg == nil {
 				return fmt.Errorf("error finding instance group: %q", err)
 			}
 			clusterSGs[sgID] = sg
@@ -1507,14 +1507,21 @@ func (c *Cloud) ensureSSLNegotiationPolicy(ctx context.Context, loadBalancer *el
 			fmt.Sprintf(SSLNegotiationPolicyNameFormat, policyName),
 		},
 	})
+	policyNotFoundError := false
 	if err != nil {
 		var notFoundErr *elbtypes.PolicyNotFoundException
 		if !errors.As(err, &notFoundErr) {
 			return fmt.Errorf("error describing security policies on load balancer: %q", err)
 		}
+		policyNotFoundError = true
 	}
 
-	if len(result.PolicyDescriptions) > 0 {
+	// If DescribeLoadBalancerPolicies returns a PolicyNotFoundException, we must proceed and create the policy.
+	//
+	// The result of DescribeLoadBalancerPolicies will be nil, so we should only check
+	// result.PolicyDescriptions if DescribeLoadBalancerPolicies did not yield an error.
+	if (!policyNotFoundError) && (result != nil && len(result.PolicyDescriptions) > 0) {
+		// if policynotfound, would return false
 		return nil
 	}
 

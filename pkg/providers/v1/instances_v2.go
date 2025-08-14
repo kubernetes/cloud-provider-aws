@@ -22,6 +22,7 @@ package aws
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"k8s.io/cloud-provider-aws/pkg/providers/v1/variant"
 	"strconv"
@@ -33,6 +34,9 @@ import (
 )
 
 func (c *Cloud) getProviderID(ctx context.Context, node *v1.Node) (string, error) {
+	if node == nil {
+		return "", errors.New("error getting provider id, node is nil")
+	}
 	if node.Spec.ProviderID != "" {
 		return node.Spec.ProviderID, nil
 	}
@@ -147,7 +151,7 @@ func (c *Cloud) InstanceMetadata(ctx context.Context, node *v1.Node) (*cloudprov
 		}
 	} else {
 		instance, err := c.getInstanceByID(ctx, string(instanceID))
-		if err != nil {
+		if err != nil || instance == nil {
 			return nil, fmt.Errorf("failed to get instance by ID %s: %w", instanceID, err)
 		}
 
