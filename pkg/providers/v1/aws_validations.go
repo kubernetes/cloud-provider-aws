@@ -1,0 +1,98 @@
+/*
+Copyright 2025 The Kubernetes Authors.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+*/
+
+package aws
+
+import (
+	"fmt"
+
+	v1 "k8s.io/api/core/v1"
+)
+
+// validationInput is the input parameters for validations.
+// TODO: ensure validations receive copy of values preventing mutation.
+type awsValidationInput struct {
+	apiService  *v1.Service
+	annotations map[string]string
+}
+
+// ensureLoadBalancerValidation validates the Service configuration early of making any changes or API calls to AWS.
+func ensureLoadBalancerValidation(v *awsValidationInput) error {
+	if err := validateServiceAnnotations(v); err != nil {
+		return err
+	}
+	return nil
+}
+
+// validateServiceAnnotations validates the service annotations.
+func validateServiceAnnotations(v *awsValidationInput) error {
+	isNLB := isNLB(v.annotations)
+
+	// ServiceAnnotationLoadBalancerTargetGroupAttributes
+	if _, present := v.annotations[ServiceAnnotationLoadBalancerTargetGroupAttributes]; present {
+		if !isNLB {
+			return fmt.Errorf("target group annotations attribute is only supported for NLB")
+		}
+		if err := validateServiceAnnotationTargetGroupAttributes(v); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// validateServiceAnnotationTargetGroupAttributes validates the target group attributes set through annotations.
+// Annotation: service.beta.kubernetes.io/aws-load-balancer-target-group-attributes
+func validateServiceAnnotationTargetGroupAttributes(v *awsValidationInput) error {
+	errPrefix := "error validating target group attributes"
+
+	// Attributes are in format key=value separated by comma.
+	annotationGroupAttributes := getKeyValuePropertiesFromAnnotation(v.annotations, ServiceAnnotationLoadBalancerTargetGroupAttributes)
+	targetGroupAttributes := make(map[string]string, len(annotationGroupAttributes))
+
+	for attrKey, attrValue := range annotationGroupAttributes {
+		if _, ok := targetGroupAttributes[attrKey]; ok {
+			return fmt.Errorf("%s: %q is set twice in the annotation", errPrefix, attrKey)
+		}
+		if len(attrValue) == 0 {
+			return fmt.Errorf("%s: attribute value is empty for %q", errPrefix, attrKey)
+		}
+
+		switch attrKey {
+		case tgAttrPreserveClientIPEnabled:
+			if attrValue != "true" && attrValue != "false" {
+				return fmt.Errorf("%s: invalid attribute value for %q: %s", errPrefix, attrKey, attrValue)
+			}
+			// AWS restriction: Client IP preservation can't be disabled for UDP and TCP_UDP target groups.
+			for _, port := range v.apiService.Spec.Ports {
+				if (port.Protocol == v1.ProtocolUDP || port.Protocol == "TCP_UDP") && attrValue == "false" {
+					return fmt.Errorf("%s: client IP preservation can't be disabled for UDP ports", errPrefix)
+				}
+			}
+			targetGroupAttributes[attrKey] = attrValue
+
+		case tgAttrProxyProtocolV2Enabled:
+			if attrValue != "true" && attrValue != "false" {
+				return fmt.Errorf("%s: invalid attribute value for %q: %s", errPrefix, attrKey, attrValue)
+			}
+			targetGroupAttributes[attrKey] = attrValue
+
+		default:
+			return fmt.Errorf("%s: the attribute %q is not supported by the controller or is invalid", errPrefix, attrKey)
+		}
+	}
+
+	return nil
+}
