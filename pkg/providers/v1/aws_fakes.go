@@ -32,6 +32,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/ec2"
 	ec2types "github.com/aws/aws-sdk-go-v2/service/ec2/types"
 	elb "github.com/aws/aws-sdk-go-v2/service/elasticloadbalancing"
+	elbtypes "github.com/aws/aws-sdk-go-v2/service/elasticloadbalancing/types"
 	elbv2 "github.com/aws/aws-sdk-go-v2/service/elasticloadbalancingv2"
 	"github.com/aws/aws-sdk-go-v2/service/kms"
 	"k8s.io/klog/v2"
@@ -604,7 +605,7 @@ func (e *FakeELB) ConfigureHealthCheck(ctx context.Context, input *elb.Configure
 // CreateLoadBalancerPolicy is not implemented but is required for interface
 // conformance
 func (e *FakeELB) CreateLoadBalancerPolicy(ctx context.Context, input *elb.CreateLoadBalancerPolicyInput, opts ...func(*elb.Options)) (*elb.CreateLoadBalancerPolicyOutput, error) {
-	panic("Not implemented")
+	return &elb.CreateLoadBalancerPolicyOutput{}, nil
 }
 
 // SetLoadBalancerPoliciesForBackendServer is not implemented but is required
@@ -622,7 +623,13 @@ func (e *FakeELB) SetLoadBalancerPoliciesOfListener(ctx context.Context, input *
 // DescribeLoadBalancerPolicies is not implemented but is required for
 // interface conformance
 func (e *FakeELB) DescribeLoadBalancerPolicies(ctx context.Context, input *elb.DescribeLoadBalancerPoliciesInput, opts ...func(*elb.Options)) (*elb.DescribeLoadBalancerPoliciesOutput, error) {
-	panic("Not implemented")
+	if aws.ToString(input.LoadBalancerName) == "" {
+		return nil, &elbtypes.LoadBalancerAttributeNotFoundException{}
+	}
+	if len(input.PolicyNames) == 0 || input.PolicyNames[0] == "k8s-SSLNegotiationPolicy-" {
+		return nil, &elbtypes.PolicyNotFoundException{}
+	}
+	return &elb.DescribeLoadBalancerPoliciesOutput{}, nil
 }
 
 // DescribeLoadBalancerAttributes is not implemented but is required for
