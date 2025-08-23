@@ -1155,11 +1155,25 @@ func TestcreateSubnetMappings(t *testing.T) {
 			expectedSubnetMappings: []elbv2types.SubnetMapping{
 				{
 					SubnetId: "subnet-1234"
-					AllocationId: "10.1.2.3"
+					PrivateIPv4Address: "10.1.2.3"
 				},
 				{
 					SubnetId: "subnet-3456"
-					AllocationId: "10.2.3.4"
+					PrivateIPv4Address: "10.2.3.4"
+				}
+			}
+		},
+		{
+			name: "No private ips and allocation ids"
+			subnetIDs: []string{"subnet-1234", "subnet-3456"}
+			allocationIDs: []string{}
+			privateIPv4Addresses: []string{}
+			expectedSubnetMappings: []elbv2types.SubnetMapping{
+				{
+					SubnetId: "subnet-1234"
+				},
+				{
+					SubnetId: "subnet-3456"
 				}
 			}
 		}
