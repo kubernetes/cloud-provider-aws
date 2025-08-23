@@ -1120,3 +1120,55 @@ func TestEnsureSSLNegotiationPolicyErrorHandling(t *testing.T) {
 		})
 	}
 }
+
+func TestcreateSubnetMappings(t *testing.T) {
+	subnetIDs []string, )
+
+	tests := []struct {
+		name string
+		subnetIDs    []string
+		allocationIDs []string
+		privateIPv4Addresses []string
+		expectedSubnetMappings []elbv2types.SubnetMapping
+	}{
+		{
+			name: "Add allocation ids"
+			subnetIDs: []string{"subnet-1234", "subnet-3456"}
+			allocationIDs: []string{"eipalloc-2345", "eipalloc-4567"}
+			privateIPv4Addresses: []string{}
+			expectedSubnetMappings: []elbv2types.SubnetMapping{
+				{
+					SubnetId: "subnet-1234"
+					AllocationId: "eipalloc-2345"
+				},
+				{
+					SubnetId: "subnet-3456"
+					AllocationId: "eipalloc-4567"
+				}
+			}
+		},
+		{
+			name: "Add Private ip address"
+			subnetIDs: []string{"subnet-1234", "subnet-3456"}
+			allocationIDs: []string{}
+			privateIPv4Addresses: []string{"10.1.2.3","10.2.3.4"}
+			expectedSubnetMappings: []elbv2types.SubnetMapping{
+				{
+					SubnetId: "subnet-1234"
+					AllocationId: "10.1.2.3"
+				},
+				{
+					SubnetId: "subnet-3456"
+					AllocationId: "10.2.3.4"
+				}
+			}
+		}
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			actualSubnetMappings := c.createSubnetMappings(tt.subnetIDs, tt.allocationIDs, tt.privateIPv4Addresses)
+			assert.Equal(t, tt.expectedSubnetMappings, actualSubnetMappings)
+		})
+	}
+}
