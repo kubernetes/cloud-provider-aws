@@ -1121,9 +1121,7 @@ func TestEnsureSSLNegotiationPolicyErrorHandling(t *testing.T) {
 	}
 }
 
-func TestcreateSubnetMappings(t *testing.T) {
-	subnetIDs []string, )
-
+func TestCreateSubnetMappings(t *testing.T) {
 	tests := []struct {
 		name string
 		subnetIDs    []string
@@ -1132,56 +1130,56 @@ func TestcreateSubnetMappings(t *testing.T) {
 		expectedSubnetMappings []elbv2types.SubnetMapping
 	}{
 		{
-			name: "Add allocation ids"
-			subnetIDs: []string{"subnet-1234", "subnet-3456"}
-			allocationIDs: []string{"eipalloc-2345", "eipalloc-4567"}
-			privateIPv4Addresses: []string{}
+			name: "Add allocation ids",
+			subnetIDs: []string{"subnet-1234", "subnet-3456"},
+			allocationIDs: []string{"eipalloc-2345", "eipalloc-4567"},
+			privateIPv4Addresses: []string{},
 			expectedSubnetMappings: []elbv2types.SubnetMapping{
 				{
-					SubnetId: "subnet-1234"
-					AllocationId: "eipalloc-2345"
+					SubnetId: aws.String("subnet-1234"),
+					AllocationId: aws.String("eipalloc-2345"),
 				},
 				{
-					SubnetId: "subnet-3456"
-					AllocationId: "eipalloc-4567"
-				}
-			}
+					SubnetId: aws.String("subnet-3456"),
+					AllocationId: aws.String("eipalloc-4567"),
+				},
+			},
 		},
 		{
-			name: "Add Private ip address"
-			subnetIDs: []string{"subnet-1234", "subnet-3456"}
-			allocationIDs: []string{}
-			privateIPv4Addresses: []string{"10.1.2.3","10.2.3.4"}
+			name: "Add Private ip address",
+			subnetIDs: []string{"subnet-1234", "subnet-3456"},
+			allocationIDs: []string{},
+			privateIPv4Addresses: []string{"10.1.2.3","10.2.3.4"},
 			expectedSubnetMappings: []elbv2types.SubnetMapping{
 				{
-					SubnetId: "subnet-1234"
-					PrivateIPv4Address: "10.1.2.3"
+					SubnetId: aws.String("subnet-1234"),
+					PrivateIPv4Address: aws.String("10.1.2.3"),
 				},
 				{
-					SubnetId: "subnet-3456"
-					PrivateIPv4Address: "10.2.3.4"
-				}
-			}
+					SubnetId: aws.String("subnet-3456"),
+					PrivateIPv4Address: aws.String("10.2.3.4"),
+				},
+			},
 		},
 		{
-			name: "No private ips and allocation ids"
-			subnetIDs: []string{"subnet-1234", "subnet-3456"}
-			allocationIDs: []string{}
-			privateIPv4Addresses: []string{}
+			name: "No private ips and allocation ids",
+			subnetIDs: []string{"subnet-1234", "subnet-3456"},
+			allocationIDs: []string{},
+			privateIPv4Addresses: []string{},
 			expectedSubnetMappings: []elbv2types.SubnetMapping{
 				{
-					SubnetId: "subnet-1234"
+					SubnetId: aws.String("subnet-1234"),
 				},
 				{
-					SubnetId: "subnet-3456"
-				}
-			}
-		}
+					SubnetId: aws.String("subnet-3456"),
+				},
+			},
+		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			actualSubnetMappings := c.createSubnetMappings(tt.subnetIDs, tt.allocationIDs, tt.privateIPv4Addresses)
+			actualSubnetMappings := createSubnetMappings(tt.subnetIDs, tt.allocationIDs, tt.privateIPv4Addresses)
 			assert.Equal(t, tt.expectedSubnetMappings, actualSubnetMappings)
 		})
 	}
