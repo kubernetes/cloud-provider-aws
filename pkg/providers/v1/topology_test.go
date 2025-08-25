@@ -27,10 +27,12 @@ import (
 )
 
 func TestDoesInstanceTypeRequireResponse(t *testing.T) {
+	// for supported instance types see: https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/ec2-instance-topology-prerequisites.html
 	instanceTypesRequireResponse := []string{
 		"hpc6a.48xlarge", "hpc6id.32xlarge", "hpc7a.12xlarge", "hpc7a.24xlarge", "hpc7a.48xlarge", "hpc7a.96xlarge", "hpc7g.4xlarge", "hpc7g.8xlarge", "hpc7g.16xlarge",
-		"p3dn.24xlarge", "p4d.24xlarge", "p4de.24xlarge", "p5.48xlarge", "p5e.48xlarge", "p5en.48xlarge",
-		"trn1.2xlarge", "trn1.32xlarge", "trn1n.32xlarge", "trn2.48xlarge", "trn2u.48xlarge", "inf2.48xlarge",
+		"p3dn.24xlarge", "p4d.24xlarge", "p4de.24xlarge", "p5.48xlarge", "p5e.48xlarge", "p5en.48xlarge", "p6e-gb200.36xlarge",
+		"trn1.2xlarge", "trn1.32xlarge", "trn1n.32xlarge", "trn2.48xlarge", "trn2u.48xlarge",
+		"p6-b200.48xlarge",
 	}
 	t.Run("Should return true for instance types that require response", func(t *testing.T) {
 		topologyManager := NewInstanceTopologyManager(nil, &config.CloudConfig{})
@@ -43,6 +45,7 @@ func TestDoesInstanceTypeRequireResponse(t *testing.T) {
 
 	instanceTypesNoRequireResponse := []string{
 		"m6g.large", "t3.large", "c3.large", "m5.large",
+		"inf2.48xlarge",
 	}
 	t.Run("Should return false for instance types that don't require response", func(t *testing.T) {
 		topologyManager := NewInstanceTopologyManager(nil, &config.CloudConfig{})
