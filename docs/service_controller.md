@@ -33,3 +33,56 @@ The service controller is responsible for watch for service and node object chan
 | service.beta.kubernetes.io/aws-load-balancer-healthcheck-protocol              | [tcp\|http\|https]                  | tcp | NLB | Specifies the protocol to use for the target group health check. |
 | service.beta.kubernetes.io/aws-load-balancer-subnets                           | Comma-separated list                | -   | ELB,NLB | Specifies the Availability Zone configuration for the load balancer. The values are comma separated list of subnetID or subnetName from different AZs. |
 | service.beta.kubernetes.io/aws-load-balancer-target-node-labels                | Comma-separated list of key=value   | -   | ELB,NLB | Specifies a comma-separated list of key-value pairs which will be used to select the target nodes for the load balancer. |
+| service.beta.kubernetes.io/aws-load-balancer-target-group-attributes          | Comma-separated list of key=value   | -   | NLB | Specifies a comma-separated list of key-value pairs which will be applied as target group attributes. For example: "preserve_client_ip.enabled=false". The list of supported values is available [here](#tg-supported-attributes). |
+
+
+## Target group attributes for Service type-loadBalancer NLB <a name="tg-supported-attributes"></a>
+
+The following target group attributes are supported by the controller using the annotation `service.beta.kubernetes.io/aws-load-balancer-target-group-attributes`:
+
+| Attribute | Values | Description |
+| -- | -- | -- |
+| preserve_client_ip.enabled | [true\|false] | Whether to preserve client IP addresses when terminating connections at the target group level |
+| proxy_protocol_v2.enabled | [true\|false] | Whether to enable proxy protocol v2 on the target group |
+
+**Format:** Attributes are specified as `key=value` pairs, separated by commas.
+
+**Example:**
+```yaml
+service.beta.kubernetes.io/aws-load-balancer-target-group-attributes: preserve_client_ip.enabled=true,proxy_protocol_v2.enabled=false
+```
+
+### Usage Example 1 - working with hairpin connection on internal NLB
+
+The following Service example changes the Target Group Traffic Control attribute "Preserve client IP addresses" from the default (`true`, when target type is instance) to `false`:
+
+```yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: $SVC_NAME
+  namespace: ${APP_NAMESPACE}
+  annotations:
+    service.beta.kubernetes.io/aws-load-balancer-type: nlb
+    service.beta.kubernetes.io/aws-load-balancer-internal: true
+    service.beta.kubernetes.io/aws-load-balancer-target-group-attributes: preserve_client_ip.enabled=false
+[...]
+```
+
+### Usage Example 2 - working with hairpin connection on internal NLB tracking source IP address
+
+The following example allow users to fine tune the Services for a backend which requires tracking the original source IP address of internal Load Balancers NLB with support of hairpin connections:
+
+
+```yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: $SVC_NAME
+  namespace: ${APP_NAMESPACE}
+  annotations:
+    service.beta.kubernetes.io/aws-load-balancer-type: nlb
+    service.beta.kubernetes.io/aws-load-balancer-internal: true
+    service.beta.kubernetes.io/aws-load-balancer-target-group-attributes: preserve_client_ip.enabled=false,proxy_protocol_v2.enabled=true
+[...]
+```
