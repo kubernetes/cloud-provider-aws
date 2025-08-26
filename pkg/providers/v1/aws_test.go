@@ -487,14 +487,14 @@ func testHasNodeAddress(t *testing.T, addrs []v1.NodeAddress, addressType v1.Nod
 }
 
 func makeMinimalInstance(instanceID string) ec2types.Instance {
-	return makeInstance(instanceID, "", "", "", "", nil, false)
+	return makeInstance(instanceID, "", "", "", "", nil, false, nil)
 }
 
-func makeInstance(instanceID string, privateIP, publicIP, privateDNSName, publicDNSName string, ipv6s []string, setNetInterface bool) ec2types.Instance {
+func makeInstance(instanceID string, privateIP, publicIP, privateDNSName, publicDNSName string, ipv6s []string, setNetInterface bool, additionalTags []ec2types.Tag) ec2types.Instance {
 	var tag ec2types.Tag
 	tag.Key = aws.String(TagNameKubernetesClusterLegacy)
 	tag.Value = aws.String(TestClusterID)
-	tags := []ec2types.Tag{tag}
+	tags := append(additionalTags, tag)
 
 	instance := ec2types.Instance{
 		InstanceId:       &instanceID,
@@ -584,7 +584,7 @@ func TestNodeAddressesByProviderID(t *testing.T) {
 		},
 	} {
 		t.Run(tc.Name, func(t *testing.T) {
-			instance := makeInstance(tc.InstanceID, tc.PrivateIP, tc.PublicIP, tc.PrivateDNSName, tc.PublicDNSName, tc.Ipv6s, tc.SetNetInterface)
+			instance := makeInstance(tc.InstanceID, tc.PrivateIP, tc.PublicIP, tc.PrivateDNSName, tc.PublicDNSName, tc.Ipv6s, tc.SetNetInterface, nil)
 			aws1, _ := mockInstancesResp(&instance, []*ec2types.Instance{&instance})
 			_, err := aws1.NodeAddressesByProviderID(context.TODO(), "i-xxx")
 			if err == nil {
@@ -690,7 +690,7 @@ func TestNodeAddresses(t *testing.T) {
 		},
 	} {
 		t.Run(tc.Name, func(t *testing.T) {
-			instance := makeInstance(tc.InstanceID, tc.PrivateIP, tc.PublicIP, tc.PrivateDNSName, tc.PublicDNSName, tc.Ipv6s, tc.SetNetInterface)
+			instance := makeInstance(tc.InstanceID, tc.PrivateIP, tc.PublicIP, tc.PrivateDNSName, tc.PublicDNSName, tc.Ipv6s, tc.SetNetInterface, nil)
 			aws1, _ := mockInstancesResp(&instance, []*ec2types.Instance{&instance})
 			_, err := aws1.NodeAddresses(context.TODO(), "instance-mismatch.ec2.internal")
 			if err == nil {
