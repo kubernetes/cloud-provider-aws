@@ -2192,6 +2192,19 @@ func TestEnsureLoadBalancerHealthCheck(t *testing.T) {
 				Target:             aws.String("TCP:8080"),
 			},
 		},
+		{
+			name: "healthcheck protocol written lowercase should be converted to uppercase",
+			annotations: map[string]string{
+				ServiceAnnotationLoadBalancerHealthCheckProtocol: "tcp",
+			},
+			want: elbtypes.HealthCheck{
+				HealthyThreshold:   aws.Int32(2),
+				UnhealthyThreshold: aws.Int32(6),
+				Timeout:            aws.Int32(5),
+				Interval:           aws.Int32(10),
+				Target:             aws.String("TCP:8080"),
+			},
+		},
 	}
 	lbName := "myLB"
 	// this HC will always differ from the expected HC and thus it is expected an
