@@ -177,9 +177,17 @@ func (c *Cloud) ensureLoadBalancerv2(ctx context.Context, namespacedName types.N
 			}
 		}
 
+		var privateIPv4Addresses []string
+		if privateIpList, present := annotations[ServiceAnnotationLoadBalancerPrivateIPv4Addresses]; present {
+			privateIPv4Addresses = strings.Split(privateIpList, ",")
+			if len(privateIPv4Addresses) != len(discoveredSubnetIDs) {
+				return nil, fmt.Errorf("error creating load balancer: Must have same number of Private IPv4Addresses (%d) and SubnetIDs (%d)", len(privateIPv4Addresses), len(discoveredSubnetIDs))
+			}
+		}
+
 		// We are supposed to specify one subnet per AZ.
 		// TODO: What happens if we have more than one subnet per AZ?
-		createRequest.SubnetMappings = createSubnetMappings(discoveredSubnetIDs, allocationIDs)
+		createRequest.SubnetMappings = createSubnetMappings(discoveredSubnetIDs, allocationIDs, privateIPv4Addresses)
 
 		for k, v := range tags {
 			createRequest.Tags = append(createRequest.Tags, elbv2types.Tag{
@@ -1466,13 +1474,16 @@ func elbListenersAreEqual(actual, expected elbtypes.Listener) bool {
 	return true
 }
 
-func createSubnetMappings(subnetIDs []string, allocationIDs []string) []elbv2types.SubnetMapping {
+func createSubnetMappings(subnetIDs []string, allocationIDs []string, privateIPv4Addresses []string) []elbv2types.SubnetMapping {
 	response := []elbv2types.SubnetMapping{}
 
 	for index, id := range subnetIDs {
 		sm := elbv2types.SubnetMapping{SubnetId: aws.String(id)}
 		if len(allocationIDs) > 0 {
 			sm.AllocationId = aws.String(allocationIDs[index])
+		}
+		if len(privateIPv4Addresses) > 0 {
+			sm.PrivateIPv4Address = aws.String(privateIPv4Addresses[index])
 		}
 		response = append(response, sm)
 	}
