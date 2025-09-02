@@ -13,5 +13,5 @@ data:
     {{- end }}
 kind: ConfigMap
 metadata:
-  name: {{- include "aws-cloud-config.name" . }}
+  name: {{ include "aws-cloud-config.name" . }}
 {{- end }}

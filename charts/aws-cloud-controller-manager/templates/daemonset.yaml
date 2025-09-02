@@ -32,6 +32,10 @@ spec:
       hostNetwork: true
       {{- end }}
       securityContext: {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
       containers:
         - name: {{ .Chart.Name }}
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
@@ -40,7 +44,7 @@ spec:
             {{- $args = append $args "--cloud-config=/etc/cloudconfig.cfg" }}
           {{- end }}
           args:
-            {{- range $args }}
+            {{- range .Values.args }}
             - {{ . }}
             {{- end }}
           resources:
@@ -66,8 +70,8 @@ spec:
       {{- end }}
       {{- end }}
       {{- if .Values.cloudConfig.enabled  }}
-        - name: {{- include "aws-cloud-config.name" . }}
+        - name: {{ include "aws-cloud-config.name" . }}
           configMap:
-            name: {{- include "aws-cloud-config.name" . }}
+            name: {{ include "aws-cloud-config.name" . }}
       {{- end }}
 ---
