@@ -145,7 +145,7 @@ func getKeyValuePropertiesFromAnnotation(annotations map[string]string, annotati
 }
 
 // ensureLoadBalancerv2 ensures a v2 load balancer is created
-func (c *Cloud) ensureLoadBalancerv2(ctx context.Context, namespacedName types.NamespacedName, loadBalancerName string, mappings []nlbPortMapping, instanceIDs, discoveredSubnetIDs []string, internalELB bool, annotations map[string]string) (*elbv2types.LoadBalancer, error) {
+func (c *Cloud) ensureLoadBalancerv2(ctx context.Context, namespacedName types.NamespacedName, loadBalancerName string, mappings []nlbPortMapping, instanceIDs, discoveredSubnetIDs []string, internalELB bool, annotations map[string]string, securityGroups []string) (*elbv2types.LoadBalancer, error) {
 	loadBalancer, err := c.describeLoadBalancerv2(ctx, loadBalancerName)
 	if err != nil {
 		return nil, err
@@ -180,6 +180,9 @@ func (c *Cloud) ensureLoadBalancerv2(ctx context.Context, namespacedName types.N
 		// We are supposed to specify one subnet per AZ.
 		// TODO: What happens if we have more than one subnet per AZ?
 		createRequest.SubnetMappings = createSubnetMappings(discoveredSubnetIDs, allocationIDs)
+
+		// Enable provisioning NLB with security groups when enabled.
+		createRequest.SecurityGroups = securityGroups
 
 		for k, v := range tags {
 			createRequest.Tags = append(createRequest.Tags, elbv2types.Tag{
@@ -1207,8 +1210,8 @@ func (c *Cloud) ensureLoadBalancer(ctx context.Context, namespacedName types.Nam
 
 		{
 			// Sync subnets
-			expected := sets.New[string](subnetIDs...)
-			actual := sets.New[string](loadBalancer.Subnets...)
+			expected := sets.New(subnetIDs...)
+			actual := sets.New(loadBalancer.Subnets...)
 
 			additions := expected.Difference(actual)
 			removals := actual.Difference(expected)
