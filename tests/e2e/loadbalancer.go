@@ -21,6 +21,8 @@ import (
 	"time"
 
 	. "github.com/onsi/ginkgo/v2"
+	"github.com/onsi/gomega"
+	appsv1 "k8s.io/api/apps/v1"
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/intstr"
@@ -200,7 +202,7 @@ var _ = Describe("[cloud-provider-aws-e2e] loadbalancer", func() {
 					LoadBalancerArn: aws.String(lbARN),
 				})
 				framework.ExpectNoError(err, "failed to describe target groups")
-				framework.ExpectEqual(len(targetGroups.TargetGroups), 1)
+				gomega.Expect(len(targetGroups.TargetGroups)).To(gomega.Equal(1))
 
 				targetGroupAttributes, err := elbClient.DescribeTargetGroupAttributes(e2e.ctx, &elbv2.DescribeTargetGroupAttributesInput{
 					TargetGroupArn: aws.String(aws.ToString(targetGroups.TargetGroups[0].TargetGroupArn)),
@@ -248,14 +250,14 @@ var _ = Describe("[cloud-provider-aws-e2e] loadbalancer", func() {
 
 	serviceNameBase := "lbconfig-test"
 	for _, tc := range cases {
-		It(tc.name, func() {
+		It(tc.name, func(ctx context.Context) {
 			By("setting up test environment and discovering worker nodes")
 			e2e := newE2eTestConfig(cs)
 			e2e.discoverClusterWorkerNode()
 			framework.Logf("[SETUP] Test case: %s", tc.name)
 			framework.Logf("[SETUP] Worker nodes discovered: %d nodes, selector: %s, sample node: %s", e2e.nodeCount, e2e.nodeSelector, e2e.nodeSingleSample)
 
-			loadBalancerCreateTimeout := e2eservice.GetServiceLoadBalancerCreationTimeout(cs)
+			loadBalancerCreateTimeout := e2eservice.GetServiceLoadBalancerCreationTimeout(ctx, cs)
 			framework.Logf("[CONFIG] AWS load balancer timeout: %s", loadBalancerCreateTimeout)
 
 			By("building service configuration with annotations")
@@ -285,7 +287,7 @@ var _ = Describe("[cloud-provider-aws-e2e] loadbalancer", func() {
 
 			By("waiting for AWS load balancer provisioning")
 			var err error
-			e2e.svc, err = e2e.LBJig.WaitForLoadBalancer(loadBalancerCreateTimeout)
+			e2e.svc, err = e2e.LBJig.WaitForLoadBalancer(ctx, loadBalancerCreateTimeout)
 			// Collect comprehensive debugging information when LoadBalancer provisioning fails
 			if err != nil {
 				serviceName := e2e.LBJig.Name
@@ -306,7 +308,7 @@ var _ = Describe("[cloud-provider-aws-e2e] loadbalancer", func() {
 			framework.Logf("[AWS] Load balancer provisioned successfully")
 
 			By("creating backend server pods")
-			_, err = e2e.LBJig.Run(e2e.buildReplicationController(tc.requireAffinity))
+			_, err = e2e.LBJig.Run(ctx, e2e.buildDeployment(tc.requireAffinity))
 			if err != nil {
 				serviceName := e2e.LBJig.Name
 				if e2e.svc != nil {
@@ -382,13 +384,13 @@ var _ = Describe("[cloud-provider-aws-e2e] loadbalancer", func() {
 			} else {
 				By("testing HTTP connectivity for external/internet-facing load balancer")
 				framework.Logf("[TEST] Running external connectivity test to %s:%d", ingressAddress, svcPort)
-				e2eservice.TestReachableHTTP(ingressAddress, svcPort, e2eservice.LoadBalancerLagTimeoutAWS)
+				e2eservice.TestReachableHTTP(ctx, ingressAddress, svcPort, e2eservice.LoadBalancerLagTimeoutAWS)
 			}
 			framework.Logf("[TEST] HTTP connectivity test completed successfully")
 
 			// Update the service to cluster IP
 			By("cleaning up: converting service to ClusterIP")
-			_, err = e2e.LBJig.UpdateService(func(s *v1.Service) {
+			_, err = e2e.LBJig.UpdateService(ctx, func(s *v1.Service) {
 				s.Spec.Type = v1.ServiceTypeClusterIP
 			})
 			framework.ExpectNoError(err)
@@ -396,7 +398,7 @@ var _ = Describe("[cloud-provider-aws-e2e] loadbalancer", func() {
 			// Wait for the load balancer to be destroyed asynchronously
 			By("cleaning up: waiting for load balancer destruction")
 			framework.Logf("[CLEANUP] Waiting for load balancer destruction")
-			_, err = e2e.LBJig.WaitForLoadBalancerDestroy(ingressAddress, svcPort, loadBalancerCreateTimeout)
+			_, err = e2e.LBJig.WaitForLoadBalancerDestroy(ctx, ingressAddress, svcPort, loadBalancerCreateTimeout)
 			framework.ExpectNoError(err)
 			framework.Logf("[CLEANUP] Load balancer destroyed successfully")
 		})
@@ -487,27 +489,24 @@ func (e2e *e2eTestConfig) buildService(portCount int, extraAnnotations map[strin
 	return svc
 }
 
-// buildReplicationController creates a replication controller wrapper for the test framework.
-// buildReplicationController is based on newRCTemplate() from the e2e test framework, which not provide
+// buildDeployment creates a deployment configuration to the network load balancer test framework.
+// buildDeployment is based on newDTemplate() from the e2e test framework, which not provide
 // customization to bind in non-privileged ports.
-// TODO(mtulio): v1.33+[2][3] moved from RC to Deployments on tests, we must do the same to use Run()
-// when the test framework is updated.
-// [1] https://github.com/kubernetes/kubernetes/blob/89d95c9713a8fd189e8ad555120838b3c4f888d1/test/e2e/framework/service/jig.go#L636
-// [2] https://github.com/kubernetes/kubernetes/issues/119021
-// [3] https://github.com/kubernetes/cloud-provider-aws/blob/master/tests/e2e/go.mod#L14
-func (e2e *e2eTestConfig) buildReplicationController(affinity bool) func(rc *v1.ReplicationController) {
-	return func(rc *v1.ReplicationController) {
+func (e2e *e2eTestConfig) buildDeployment(affinity bool) func(deployment *appsv1.Deployment) {
+	return func(deployment *appsv1.Deployment) {
 		var replicas int32 = 1
 		var grace int64 = 3
-		rc.ObjectMeta = metav1.ObjectMeta{
+		deployment.ObjectMeta = metav1.ObjectMeta{
 			Namespace: e2e.LBJig.Namespace,
 			Name:      e2e.LBJig.Name,
 			Labels:    e2e.LBJig.Labels,
 		}
-		rc.Spec = v1.ReplicationControllerSpec{
+		deployment.Spec = appsv1.DeploymentSpec{
 			Replicas: &replicas,
-			Selector: e2e.LBJig.Labels,
-			Template: &v1.PodTemplateSpec{
+			Selector: &metav1.LabelSelector{
+				MatchLabels: e2e.LBJig.Labels,
+			},
+			Template: v1.PodTemplateSpec{
 				ObjectMeta: metav1.ObjectMeta{
 					Labels: e2e.LBJig.Labels,
 				},
@@ -537,7 +536,7 @@ func (e2e *e2eTestConfig) buildReplicationController(affinity bool) func(rc *v1.
 			},
 		}
 		if affinity {
-			rc.Spec.Template.Spec.Affinity = &v1.Affinity{
+			deployment.Spec.Template.Spec.Affinity = &v1.Affinity{
 				NodeAffinity: &v1.NodeAffinity{
 					RequiredDuringSchedulingIgnoredDuringExecution: &v1.NodeSelector{
 						NodeSelectorTerms: []v1.NodeSelectorTerm{

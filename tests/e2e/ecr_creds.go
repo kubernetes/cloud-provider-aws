@@ -32,7 +32,7 @@ var _ = gingko.Describe("[cloud-provider-aws-e2e] ecr", func() {
 	gingko.It("should start pod using public ecr image", func(ctx context.Context) {
 		gingko.By("creating a pod")
 		podclient := e2epod.NewPodClient(f)
-		podclient.CreateSync(&v1.Pod{
+		podclient.CreateSync(ctx, &v1.Pod{
 			ObjectMeta: metav1.ObjectMeta{
 				Name: "ecr-test-pod",
 			},
