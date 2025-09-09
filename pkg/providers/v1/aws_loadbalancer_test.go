@@ -1558,9 +1558,9 @@ func TestCloud_ensureTargetGroupAttributes(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			mockClient := &mockELBV2ClientForTargetGroupAttributes{
 				MockedFakeELBV2: &MockedFakeELBV2{
-					LoadBalancers:          []elbv2types.LoadBalancer{},
-					TargetGroups:           []elbv2types.TargetGroup{},
-					Listeners:              []elbv2types.Listener{},
+					LoadBalancers:          []*elbv2types.LoadBalancer{},
+					TargetGroups:           []*elbv2types.TargetGroup{},
+					Listeners:              []*elbv2types.Listener{},
 					LoadBalancerAttributes: make(map[string]map[string]string),
 					Tags:                   make(map[string][]elbv2types.Tag),
 					RegisteredInstances:    make(map[string][]string),
@@ -1593,7 +1593,7 @@ func TestCloud_reconcileTargetGroupsAttributes(t *testing.T) {
 		name                              string
 		lbARN                             string
 		annotations                       map[string]string
-		targetGroups                      []elbv2types.TargetGroup
+		targetGroups                      []*elbv2types.TargetGroup
 		describeTargetGroupsError         error
 		describeTargetGroupAttributesFunc func(ctx context.Context, input *elbv2.DescribeTargetGroupAttributesInput, optFns ...func(*elbv2.Options)) (*elbv2.DescribeTargetGroupAttributesOutput, error)
 		modifyTargetGroupAttributesFunc   func(ctx context.Context, input *elbv2.ModifyTargetGroupAttributesInput, optFns ...func(*elbv2.Options)) (*elbv2.ModifyTargetGroupAttributesOutput, error)
@@ -1616,13 +1616,13 @@ func TestCloud_reconcileTargetGroupsAttributes(t *testing.T) {
 			name:         "no target groups found - success",
 			lbARN:        testLBARN,
 			annotations:  map[string]string{},
-			targetGroups: []elbv2types.TargetGroup{},
+			targetGroups: []*elbv2types.TargetGroup{},
 		},
 		{
 			name:        "single target group - success",
 			lbARN:       testLBARN,
 			annotations: map[string]string{ServiceAnnotationLoadBalancerTargetGroupAttributes: "preserve_client_ip.enabled=true"},
-			targetGroups: []elbv2types.TargetGroup{
+			targetGroups: []*elbv2types.TargetGroup{
 				{
 					TargetGroupArn:   aws.String(testTG1ARN),
 					LoadBalancerArns: []string{testLBARN},
@@ -1646,7 +1646,7 @@ func TestCloud_reconcileTargetGroupsAttributes(t *testing.T) {
 			name:        "multiple target groups - success",
 			lbARN:       testLBARN,
 			annotations: map[string]string{ServiceAnnotationLoadBalancerTargetGroupAttributes: "proxy_protocol_v2.enabled=true"},
-			targetGroups: []elbv2types.TargetGroup{
+			targetGroups: []*elbv2types.TargetGroup{
 				{
 					TargetGroupArn:   aws.String(testTG1ARN),
 					LoadBalancerArns: []string{testLBARN},
@@ -1676,7 +1676,7 @@ func TestCloud_reconcileTargetGroupsAttributes(t *testing.T) {
 			name:        "partial failure - some target groups fail",
 			lbARN:       testLBARN,
 			annotations: map[string]string{ServiceAnnotationLoadBalancerTargetGroupAttributes: "preserve_client_ip.enabled=true"},
-			targetGroups: []elbv2types.TargetGroup{
+			targetGroups: []*elbv2types.TargetGroup{
 				{
 					TargetGroupArn:   aws.String(testTG1ARN),
 					LoadBalancerArns: []string{testLBARN},
@@ -1710,7 +1710,7 @@ func TestCloud_reconcileTargetGroupsAttributes(t *testing.T) {
 			name:        "all target groups fail",
 			lbARN:       testLBARN,
 			annotations: map[string]string{ServiceAnnotationLoadBalancerTargetGroupAttributes: "preserve_client_ip.enabled=true"},
-			targetGroups: []elbv2types.TargetGroup{
+			targetGroups: []*elbv2types.TargetGroup{
 				{
 					TargetGroupArn:   aws.String(testTG1ARN),
 					LoadBalancerArns: []string{testLBARN},
@@ -1733,7 +1733,7 @@ func TestCloud_reconcileTargetGroupsAttributes(t *testing.T) {
 			name:        "ModifyTargetGroupAttributes fails for some target groups",
 			lbARN:       testLBARN,
 			annotations: map[string]string{ServiceAnnotationLoadBalancerTargetGroupAttributes: "preserve_client_ip.enabled=true"},
-			targetGroups: []elbv2types.TargetGroup{
+			targetGroups: []*elbv2types.TargetGroup{
 				{
 					TargetGroupArn:   aws.String(testTG1ARN),
 					LoadBalancerArns: []string{testLBARN},
@@ -1767,7 +1767,7 @@ func TestCloud_reconcileTargetGroupsAttributes(t *testing.T) {
 			name:        "buildTargetGroupAttributes fails due to nil existing attributes",
 			lbARN:       testLBARN,
 			annotations: map[string]string{ServiceAnnotationLoadBalancerTargetGroupAttributes: "preserve_client_ip.enabled=true"},
-			targetGroups: []elbv2types.TargetGroup{
+			targetGroups: []*elbv2types.TargetGroup{
 				{
 					TargetGroupArn:   aws.String(testTG1ARN),
 					LoadBalancerArns: []string{testLBARN},
@@ -1786,7 +1786,7 @@ func TestCloud_reconcileTargetGroupsAttributes(t *testing.T) {
 			name:        "no annotations - success",
 			lbARN:       testLBARN,
 			annotations: map[string]string{}, // No target group attributes annotation
-			targetGroups: []elbv2types.TargetGroup{
+			targetGroups: []*elbv2types.TargetGroup{
 				{
 					TargetGroupArn:   aws.String(testTG1ARN),
 					LoadBalancerArns: []string{testLBARN},

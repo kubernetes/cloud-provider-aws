@@ -343,3 +343,275 @@ func TestUntagResource(t *testing.T) {
 		})
 	}
 }
+
+func TestHasClusterTagOwned(t *testing.T) {
+	tests := []struct {
+		name          string
+		clusterID     string
+		tags          []ec2types.Tag
+		expected      bool
+		expectedError string
+	}{
+		{
+			name:      "empty cluster ID returns error",
+			clusterID: "",
+			tags: []ec2types.Tag{
+				{
+					Key:   aws.String("kubernetes.io/cluster/test-cluster"),
+					Value: aws.String("owned"),
+				},
+			},
+			expected:      false,
+			expectedError: "cannot check cluster tag owned: clusterID is empty",
+		},
+		{
+			name:      "legacy tag with matching cluster ID returns true",
+			clusterID: "test-cluster",
+			tags: []ec2types.Tag{
+				{
+					Key:   aws.String("KubernetesCluster"),
+					Value: aws.String("test-cluster"),
+				},
+			},
+			expected: true,
+		},
+		{
+			name:      "legacy tag with non-matching cluster ID returns false",
+			clusterID: "test-cluster",
+			tags: []ec2types.Tag{
+				{
+					Key:   aws.String("KubernetesCluster"),
+					Value: aws.String("other-cluster"),
+				},
+			},
+			expected: false,
+		},
+		{
+			name:      "new tag with owned value returns true",
+			clusterID: "test-cluster",
+			tags: []ec2types.Tag{
+				{
+					Key:   aws.String("kubernetes.io/cluster/test-cluster"),
+					Value: aws.String("owned"),
+				},
+			},
+			expected: true,
+		},
+		{
+			name:      "new tag with shared value returns false",
+			clusterID: "test-cluster",
+			tags: []ec2types.Tag{
+				{
+					Key:   aws.String("kubernetes.io/cluster/test-cluster"),
+					Value: aws.String("shared"),
+				},
+			},
+			expected: false,
+		},
+		{
+			name:      "new tag with wrong cluster ID returns false",
+			clusterID: "test-cluster",
+			tags: []ec2types.Tag{
+				{
+					Key:   aws.String("kubernetes.io/cluster/other-cluster"),
+					Value: aws.String("owned"),
+				},
+			},
+			expected: false,
+		},
+		{
+			name:      "no matching tags returns false",
+			clusterID: "test-cluster",
+			tags: []ec2types.Tag{
+				{
+					Key:   aws.String("some-other-tag"),
+					Value: aws.String("some-value"),
+				},
+			},
+			expected: false,
+		},
+		{
+			name:      "empty tags list returns false",
+			clusterID: "test-cluster",
+			tags:      []ec2types.Tag{},
+			expected:  false,
+		},
+		{
+			name:      "both legacy and new tags present - legacy matches",
+			clusterID: "test-cluster",
+			tags: []ec2types.Tag{
+				{
+					Key:   aws.String("KubernetesCluster"),
+					Value: aws.String("test-cluster"),
+				},
+				{
+					Key:   aws.String("kubernetes.io/cluster/test-cluster"),
+					Value: aws.String("shared"),
+				},
+			},
+			expected: true,
+		},
+		{
+			name:      "both legacy and new tags present - new matches",
+			clusterID: "test-cluster",
+			tags: []ec2types.Tag{
+				{
+					Key:   aws.String("KubernetesCluster"),
+					Value: aws.String("other-cluster"),
+				},
+				{
+					Key:   aws.String("kubernetes.io/cluster/test-cluster"),
+					Value: aws.String("owned"),
+				},
+			},
+			expected: true,
+		},
+		{
+			name:      "both legacy and new tags present - neither matches",
+			clusterID: "test-cluster",
+			tags: []ec2types.Tag{
+				{
+					Key:   aws.String("KubernetesCluster"),
+					Value: aws.String("other-cluster"),
+				},
+				{
+					Key:   aws.String("kubernetes.io/cluster/test-cluster"),
+					Value: aws.String("shared"),
+				},
+			},
+			expected: false,
+		},
+		{
+			name:      "tags with nil key returns false",
+			clusterID: "test-cluster",
+			tags: []ec2types.Tag{
+				{
+					Key:   nil,
+					Value: aws.String("test-cluster"),
+				},
+			},
+			expected: false,
+		},
+		{
+			name:      "tags with nil value returns false",
+			clusterID: "test-cluster",
+			tags: []ec2types.Tag{
+				{
+					Key:   aws.String("KubernetesCluster"),
+					Value: nil,
+				},
+			},
+			expected: false,
+		},
+		{
+			name:      "legacy tag with empty value returns false",
+			clusterID: "test-cluster",
+			tags: []ec2types.Tag{
+				{
+					Key:   aws.String("KubernetesCluster"),
+					Value: aws.String(""),
+				},
+			},
+			expected: false,
+		},
+		{
+			name:      "new tag with empty value returns false",
+			clusterID: "test-cluster",
+			tags: []ec2types.Tag{
+				{
+					Key:   aws.String("kubernetes.io/cluster/test-cluster"),
+					Value: aws.String(""),
+				},
+			},
+			expected: false,
+		},
+		{
+			name:      "multiple tags with one legacy match",
+			clusterID: "test-cluster",
+			tags: []ec2types.Tag{
+				{
+					Key:   aws.String("some-tag"),
+					Value: aws.String("some-value"),
+				},
+				{
+					Key:   aws.String("KubernetesCluster"),
+					Value: aws.String("test-cluster"),
+				},
+				{
+					Key:   aws.String("other-tag"),
+					Value: aws.String("other-value"),
+				},
+			},
+			expected: true,
+		},
+		{
+			name:      "multiple tags with one new match",
+			clusterID: "test-cluster",
+			tags: []ec2types.Tag{
+				{
+					Key:   aws.String("some-tag"),
+					Value: aws.String("some-value"),
+				},
+				{
+					Key:   aws.String("kubernetes.io/cluster/test-cluster"),
+					Value: aws.String("owned"),
+				},
+				{
+					Key:   aws.String("other-tag"),
+					Value: aws.String("other-value"),
+				},
+			},
+			expected: true,
+		},
+		{
+			name:      "case sensitivity - legacy tag key case mismatch",
+			clusterID: "test-cluster",
+			tags: []ec2types.Tag{
+				{
+					Key:   aws.String("kubernetescluster"),
+					Value: aws.String("test-cluster"),
+				},
+			},
+			expected: false,
+		},
+		{
+			name:      "case sensitivity - new tag key case mismatch",
+			clusterID: "test-cluster",
+			tags: []ec2types.Tag{
+				{
+					Key:   aws.String("Kubernetes.io/cluster/test-cluster"),
+					Value: aws.String("owned"),
+				},
+			},
+			expected: false,
+		},
+		{
+			name:      "case sensitivity - new tag value case mismatch",
+			clusterID: "test-cluster",
+			tags: []ec2types.Tag{
+				{
+					Key:   aws.String("kubernetes.io/cluster/test-cluster"),
+					Value: aws.String("Owned"),
+				},
+			},
+			expected: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			tagging := awsTagging{
+				ClusterID: tt.clusterID,
+			}
+
+			result, err := tagging.hasClusterTagOwned(tt.tags)
+			if tt.expectedError != "" {
+				assert.Error(t, err)
+				assert.Contains(t, err.Error(), tt.expectedError)
+			} else {
+				assert.NoError(t, err)
+			}
+			assert.Equal(t, tt.expected, result, "hasClusterTagOwned returned unexpected result")
+		})
+	}
+}
