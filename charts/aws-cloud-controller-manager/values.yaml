@@ -6,7 +6,7 @@ args:
 
 image:
     repository: registry.k8s.io/provider-aws/cloud-controller-manager
-    tag: v1.33.0
+    tag: v1.34.0
 
 # Specify image pull secrets
 imagePullSecrets: []
