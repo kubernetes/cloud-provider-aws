@@ -370,6 +370,142 @@ func TestDescribeInstanceBatching(t *testing.T) {
 	mockedEC2API.AssertNumberOfCalls(t, "DescribeInstances", 1)
 }
 
+// TestDescribeInstanceBatchingWithInstanceDoesntExist will test where one of the instance doesn't exist
+func TestDescribeInstanceBatchingWithInstanceDoesntExist(t *testing.T) {
+	mockedEC2API := newMockedEC2API()
+	batcher := newdescribeInstanceBatcher(context.Background(), &awsSdkEC2{ec2: mockedEC2API})
+
+	mockedEC2API.On("DescribeInstances", mock.Anything).Return(&ec2.DescribeInstancesOutput{
+		Reservations: []ec2types.Reservation{
+			{
+				Instances: []ec2types.Instance{
+					{
+						InstanceId: aws.String("Test-1"),
+					},
+					{
+						InstanceId: aws.String("Test-2"),
+					},
+					{
+						InstanceId: aws.String("Test-3"),
+					},
+				},
+			},
+		},
+	}, nil)
+
+	type result struct {
+		input              string
+		output             []*ec2types.Instance
+		err                error
+		isInstanceNotFound bool
+	}
+
+	// Add extra space to channel so that we can ensure there were only 3 responses
+	resCh := make(chan result, 5)
+	helper := func(wg *sync.WaitGroup, input string, isInstanceNotFound bool) {
+		defer wg.Done()
+		res, err := batcher.DescribeInstances(context.Background(), &ec2.DescribeInstancesInput{InstanceIds: []string{input}})
+		resCh <- result{input: input, output: res, err: err, isInstanceNotFound: isInstanceNotFound}
+	}
+
+	wg := sync.WaitGroup{}
+	wg.Add(3)
+	go helper(&wg, "Test-1", false)
+	go helper(&wg, "Test-2", false)
+	go helper(&wg, "Test-4", true)
+	wg.Wait()
+	close(resCh)
+
+	assert.Len(t, resCh, 3)
+	for res := range resCh {
+		assert.NoError(t, res.err)
+		if !res.isInstanceNotFound {
+			assert.Len(t, res.output, 1)
+			assert.Equal(t, res.input, *res.output[0].InstanceId)
+		} else {
+			assert.Len(t, res.output, 0)
+		}
+	}
+
+	mockedEC2API.AssertNumberOfCalls(t, "DescribeInstances", 1)
+}
+
+// TestDescribeInstanceBatchingWithBatchedRequestFail will test where batched request fails but individual request succeeds
+func TestDescribeInstanceBatchingWithBatchedRequestFail(t *testing.T) {
+	mockedEC2API := newMockedEC2API()
+	batcher := newdescribeInstanceBatcher(context.Background(), &awsSdkEC2{ec2: mockedEC2API})
+	var nilResp *ec2.DescribeInstancesOutput
+	mockedEC2API.On("DescribeInstances", &ec2.DescribeInstancesInput{
+		InstanceIds: []string{"Test-1", "Test-2"},
+	}).Return(nilResp, errors.New("instances not found"))
+	mockedEC2API.On("DescribeInstances", &ec2.DescribeInstancesInput{
+		InstanceIds: []string{"Test-2", "Test-1"},
+	}).Return(nilResp, errors.New("instances not found"))
+	mockedEC2API.On("DescribeInstances",
+		&ec2.DescribeInstancesInput{
+			InstanceIds: []string{"Test-1"},
+		},
+	).Return(
+		&ec2.DescribeInstancesOutput{
+			Reservations: []ec2types.Reservation{
+				{
+					Instances: []ec2types.Instance{
+						{
+							InstanceId: aws.String("Test-1"),
+						},
+					},
+				},
+			},
+		},
+		nil,
+	)
+	mockedEC2API.On("DescribeInstances",
+		&ec2.DescribeInstancesInput{
+			InstanceIds: []string{"Test-2"},
+		},
+	).Return(
+		&ec2.DescribeInstancesOutput{
+			Reservations: []ec2types.Reservation{},
+		},
+		nil,
+	)
+
+	type result struct {
+		input              string
+		output             []*ec2types.Instance
+		err                error
+		isInstanceNotFound bool
+	}
+
+	// Add extra space to channel so that we can ensure there were only 3 responses
+	resCh := make(chan result, 5)
+	helper := func(wg *sync.WaitGroup, input string, isInstanceNotFound bool) {
+		defer wg.Done()
+		res, err := batcher.DescribeInstances(context.Background(), &ec2.DescribeInstancesInput{InstanceIds: []string{input}})
+		resCh <- result{input: input, output: res, err: err, isInstanceNotFound: isInstanceNotFound}
+	}
+
+	wg := sync.WaitGroup{}
+	wg.Add(2)
+	go helper(&wg, "Test-1", false)
+	go helper(&wg, "Test-2", true)
+	wg.Wait()
+	close(resCh)
+
+	assert.Len(t, resCh, 2)
+	for res := range resCh {
+		assert.NoError(t, res.err)
+		if !res.isInstanceNotFound {
+			assert.Len(t, res.output, 1)
+			assert.Equal(t, res.input, *res.output[0].InstanceId)
+		} else {
+			assert.Len(t, res.output, 0)
+		}
+	}
+
+	mockedEC2API.AssertNumberOfCalls(t, "DescribeInstances", 3)
+}
+
 func getCloudWithMockedDescribeInstances(instanceExists bool, instanceState ec2types.InstanceStateName, instanceID string) *Cloud {
 	mockedEC2API := newMockedEC2API()
 	c := &Cloud{ec2: &awsSdkEC2{ec2: mockedEC2API}, describeInstanceBatcher: newdescribeInstanceBatcher(context.Background(), &awsSdkEC2{ec2: mockedEC2API})}
