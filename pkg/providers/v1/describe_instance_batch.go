@@ -57,6 +57,9 @@ func (b *describeInstanceBatcher) DescribeInstances(ctx context.Context, input *
 		return nil, fmt.Errorf("expected to receive a single instance only, found %d", len(input.InstanceIds))
 	}
 	result := b.batcher.Add(ctx, input)
+	if result.Output == nil {
+		return nil, result.Err
+	}
 	return []*ec2types.Instance{result.Output}, result.Err
 }
 
@@ -74,7 +77,8 @@ func describeInstanceHasher(ctx context.Context, input *ec2.DescribeInstancesInp
 func execDescribeInstanceBatch(ec2api iface.EC2) batcher.BatchExecutor[ec2.DescribeInstancesInput, ec2types.Instance] {
 	return func(ctx context.Context, inputs []*ec2.DescribeInstancesInput) []batcher.Result[ec2types.Instance] {
 		results := make([]batcher.Result[ec2types.Instance], len(inputs))
-		firstInput := inputs[0]
+
+		firstInput := *inputs[0]
 		// aggregate instanceIDs into 1 input
 		for _, input := range inputs[1:] {
 			firstInput.InstanceIds = append(firstInput.InstanceIds, input.InstanceIds...)
@@ -92,7 +96,7 @@ func execDescribeInstanceBatch(ec2api iface.EC2) batcher.BatchExecutor[ec2.Descr
 				go func(input *ec2.DescribeInstancesInput) {
 					defer wg.Done()
 					out, err := ec2api.DescribeInstances(ctx, input)
-					if err != nil {
+					if err != nil || len(out) == 0 {
 						results[idx] = batcher.Result[ec2types.Instance]{Output: nil, Err: err}
 						return
 					}
@@ -104,7 +108,11 @@ func execDescribeInstanceBatch(ec2api iface.EC2) batcher.BatchExecutor[ec2.Descr
 			instanceIDToOutputMap := map[string]ec2types.Instance{}
 			lo.ForEach(output, func(o ec2types.Instance, _ int) { instanceIDToOutputMap[lo.FromPtr(o.InstanceId)] = o })
 			for idx, input := range inputs {
-				o := instanceIDToOutputMap[input.InstanceIds[0]]
+				o, ok := instanceIDToOutputMap[input.InstanceIds[0]]
+				if !ok {
+					results[idx] = batcher.Result[ec2types.Instance]{Output: nil}
+					continue
+				}
 				results[idx] = batcher.Result[ec2types.Instance]{Output: &o}
 			}
 		}
