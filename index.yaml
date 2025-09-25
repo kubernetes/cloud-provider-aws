@@ -2,6 +2,18 @@ apiVersion: v1
 entries:
   aws-cloud-controller-manager:
   - apiVersion: v1
+    appVersion: v1.34.0
+    created: "2025-09-25T03:32:28.977124326Z"
+    description: Installs Cloud Controller Manager for AWS Cloud Provider
+    digest: 3a006837a5fb38458739b7928ea57140513150b7ce737cf4eb04bdd7961b9001
+    maintainers:
+    - email: nic@amazon.com
+      name: Nick Turner
+    name: aws-cloud-controller-manager
+    urls:
+    - https://github.com/kubernetes/cloud-provider-aws/releases/download/helm-chart-aws-cloud-controller-manager-0.0.10/aws-cloud-controller-manager-0.0.10.tgz
+    version: 0.0.10
+  - apiVersion: v1
     appVersion: v1.33.0
     created: "2025-07-25T04:26:38.144225217Z"
     description: Installs Cloud Controller Manager for AWS Cloud Provider
@@ -105,4 +117,4 @@ entries:
     urls:
     - https://github.com/kubernetes/cloud-provider-aws/releases/download/helm-chart-aws-cloud-controller-manager-0.0.2/aws-cloud-controller-manager-0.0.2.tgz
     version: 0.0.2
-generated: "2025-07-25T04:26:38.144259191Z"
+generated: "2025-09-25T03:32:28.977160323Z"
