@@ -178,8 +178,8 @@ func (c *Cloud) ensureLoadBalancerv2(ctx context.Context, namespacedName types.N
 		}
 
 		var privateIPv4Addresses []string
-		if privateIpList, present := annotations[ServiceAnnotationLoadBalancerPrivateIPv4Addresses]; present {
-			privateIPv4Addresses = strings.Split(privateIpList, ",")
+		if privateIPList, present := annotations[ServiceAnnotationLoadBalancerPrivateIPv4Addresses]; present {
+			privateIPv4Addresses = strings.Split(privateIPList, ",")
 			if len(privateIPv4Addresses) != len(discoveredSubnetIDs) {
 				return nil, fmt.Errorf("error creating load balancer: Must have same number of Private IPv4Addresses (%d) and SubnetIDs (%d)", len(privateIPv4Addresses), len(discoveredSubnetIDs))
 			}
