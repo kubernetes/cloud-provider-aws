@@ -153,3 +153,6 @@ roleName: extension-apiserver-authentication-reader
 
 extraVolumes: []
 extraVolumeMounts: []
+
+cloudConfig:
+  enabled: false

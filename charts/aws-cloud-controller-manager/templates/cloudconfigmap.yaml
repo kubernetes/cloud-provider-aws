@@ -1,0 +1,17 @@
+---
+{{- if .Values.cloudConfig.enabled }}
+apiVersion: v1
+data:
+  cloudconfig.cfg: |
+    {{- range $key, $value := .Values.cloudConfig }}
+    {{- if not (eq $key "enabled") }}
+    [{{ camelcase $key }}]
+      {{- range $subKey, $subValue := $value }}
+    {{ $subKey }}={{ $subValue }}
+      {{- end }}
+    {{- end }}
+    {{- end }}
+kind: ConfigMap
+metadata:
+  name: {{ include "aws-cloud-config.name" . }}
+{{- end }}
