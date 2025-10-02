@@ -180,7 +180,7 @@ Copyright © 2015 Steve Francia <spf@spf13.com>
 
 -----
 
-** aws/aws-sdk-go-v2; version 1.24.4 -- https://github.com/aws/aws-sdk-go-v2/
+** aws/aws-sdk-go-v2; version 1.24.7 -- https://github.com/aws/aws-sdk-go-v2/
 ** Etcd; version v3.1.0-alpha.1 -- https://github.com/coreos/etcd/tree/v3.1.0-alpha.1
 ** github.com/coreos/go-semver; version 0.2 -- https://github.com/coreos/go-semver
 ** github.com/coreos/go-systemd/; version 10 -- https://github.com/coreos/go-systemd/
