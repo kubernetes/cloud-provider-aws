@@ -167,7 +167,104 @@ func TestInstanceShutdown(t *testing.T) {
 
 func TestInstanceMetadata(t *testing.T) {
 	t.Run("Should return populated InstanceMetadata", func(t *testing.T) {
-		instance := makeInstance("i-00000000000000000", "192.168.0.1", "1.2.3.4", "instance-same.ec2.internal", "instance-same.ec2.external", nil, true)
+		instance := makeInstance("i-00000000000000000", "192.168.0.1", "1.2.3.4", "instance-same.ec2.internal", "instance-same.ec2.external", nil, true, nil)
+		c, _ := mockInstancesResp(&instance, []*ec2types.Instance{&instance})
+		var mockedTopologyManager MockedInstanceTopologyManager
+		c.instanceTopologyManager = &mockedTopologyManager
+		mockedTopologyManager.On("GetNodeTopology", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(&ec2types.InstanceTopology{
+			AvailabilityZone: aws.String("us-west-2b"),
+			GroupName:        new(string),
+			InstanceId:       aws.String("i-123456789"),
+			InstanceType:     new(string),
+			NetworkNodes:     []string{"nn-123456789", "nn-234567890", "nn-345678901"},
+			ZoneId:           aws.String("az2"),
+		}, nil)
+		node := &v1.Node{
+			Spec: v1.NodeSpec{
+				ProviderID: fmt.Sprintf("aws:///us-west-2c/1abc-2def/%s", *instance.InstanceId),
+			},
+		}
+
+		result, err := c.InstanceMetadata(context.TODO(), node)
+		if err != nil {
+			t.Errorf("Should not error getting InstanceMetadata: %s", err)
+		}
+
+		mockedTopologyManager.AssertNumberOfCalls(t, "GetNodeTopology", 1)
+		assert.Equal(t, "aws:///us-west-2c/1abc-2def/i-00000000000000000", result.ProviderID)
+		assert.Equal(t, "c3.large", result.InstanceType)
+		assert.Equal(t, []v1.NodeAddress{
+			{Type: "InternalIP", Address: "192.168.0.1"},
+			{Type: "ExternalIP", Address: "1.2.3.4"},
+			{Type: "InternalDNS", Address: "instance-same.ec2.internal"},
+			{Type: "Hostname", Address: "instance-same.ec2.internal"},
+			{Type: "ExternalDNS", Address: "instance-same.ec2.external"},
+		}, result.NodeAddresses)
+		assert.Equal(t, "us-west-2a", result.Zone)
+		assert.Equal(t, "us-west-2", result.Region)
+		assert.Equal(t, map[string]string{
+			LabelZoneID:                  "az1",
+			LabelNetworkNodePrefix + "1": "nn-123456789",
+			LabelNetworkNodePrefix + "2": "nn-234567890",
+			LabelNetworkNodePrefix + "3": "nn-345678901",
+		}, result.AdditionalLabels)
+	})
+
+	t.Run("Should return populated InstanceMetadata with asg label when asg tag is present", func(t *testing.T) {
+		asgTag := ec2types.Tag{
+			Key:   aws.String("aws:autoscaling:groupName"),
+			Value: aws.String("test-asg"),
+		}
+		instance := makeInstance("i-00000000000000000", "192.168.0.1", "1.2.3.4", "instance-same.ec2.internal", "instance-same.ec2.external", nil, true, []ec2types.Tag{asgTag})
+		c, _ := mockInstancesResp(&instance, []*ec2types.Instance{&instance})
+		var mockedTopologyManager MockedInstanceTopologyManager
+		c.instanceTopologyManager = &mockedTopologyManager
+		mockedTopologyManager.On("GetNodeTopology", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(&ec2types.InstanceTopology{
+			AvailabilityZone: aws.String("us-west-2b"),
+			GroupName:        new(string),
+			InstanceId:       aws.String("i-123456789"),
+			InstanceType:     new(string),
+			NetworkNodes:     []string{"nn-123456789", "nn-234567890", "nn-345678901"},
+			ZoneId:           aws.String("az2"),
+		}, nil)
+		node := &v1.Node{
+			Spec: v1.NodeSpec{
+				ProviderID: fmt.Sprintf("aws:///us-west-2c/1abc-2def/%s", *instance.InstanceId),
+			},
+		}
+
+		result, err := c.InstanceMetadata(context.TODO(), node)
+		if err != nil {
+			t.Errorf("Should not error getting InstanceMetadata: %s", err)
+		}
+
+		mockedTopologyManager.AssertNumberOfCalls(t, "GetNodeTopology", 1)
+		assert.Equal(t, "aws:///us-west-2c/1abc-2def/i-00000000000000000", result.ProviderID)
+		assert.Equal(t, "c3.large", result.InstanceType)
+		assert.Equal(t, []v1.NodeAddress{
+			{Type: "InternalIP", Address: "192.168.0.1"},
+			{Type: "ExternalIP", Address: "1.2.3.4"},
+			{Type: "InternalDNS", Address: "instance-same.ec2.internal"},
+			{Type: "Hostname", Address: "instance-same.ec2.internal"},
+			{Type: "ExternalDNS", Address: "instance-same.ec2.external"},
+		}, result.NodeAddresses)
+		assert.Equal(t, "us-west-2a", result.Zone)
+		assert.Equal(t, "us-west-2", result.Region)
+		assert.Equal(t, map[string]string{
+			LabelZoneID:                  "az1",
+			LabelNetworkNodePrefix + "1": "nn-123456789",
+			LabelNetworkNodePrefix + "2": "nn-234567890",
+			LabelNetworkNodePrefix + "3": "nn-345678901",
+			LabelAutoScalingGroupName:    "test-asg",
+		}, result.AdditionalLabels)
+	})
+
+	t.Run("Should return populated InstanceMetadata without asg label when asg tag value is empty", func(t *testing.T) {
+		asgTag := ec2types.Tag{
+			Key:   aws.String("aws:autoscaling:groupName"),
+			Value: aws.String(""),
+		}
+		instance := makeInstance("i-00000000000000000", "192.168.0.1", "1.2.3.4", "instance-same.ec2.internal", "instance-same.ec2.external", nil, true, []ec2types.Tag{asgTag})
 		c, _ := mockInstancesResp(&instance, []*ec2types.Instance{&instance})
 		var mockedTopologyManager MockedInstanceTopologyManager
 		c.instanceTopologyManager = &mockedTopologyManager
@@ -211,7 +308,7 @@ func TestInstanceMetadata(t *testing.T) {
 	})
 
 	t.Run("Should skip additional labels if already set", func(t *testing.T) {
-		instance := makeInstance("i-00000000000000000", "192.168.0.1", "1.2.3.4", "instance-same.ec2.internal", "instance-same.ec2.external", nil, true)
+		instance := makeInstance("i-00000000000000000", "192.168.0.1", "1.2.3.4", "instance-same.ec2.internal", "instance-same.ec2.external", nil, true, nil)
 		c, _ := mockInstancesResp(&instance, []*ec2types.Instance{&instance})
 		var mockedTopologyManager MockedInstanceTopologyManager
 		c.instanceTopologyManager = &mockedTopologyManager
@@ -239,7 +336,7 @@ func TestInstanceMetadata(t *testing.T) {
 	})
 
 	t.Run("Should swallow errors if getting node topology fails if instance type not expected to be supported", func(t *testing.T) {
-		instance := makeInstance("i-00000000000000000", "192.168.0.1", "1.2.3.4", "instance-same.ec2.internal", "instance-same.ec2.external", nil, true)
+		instance := makeInstance("i-00000000000000000", "192.168.0.1", "1.2.3.4", "instance-same.ec2.internal", "instance-same.ec2.external", nil, true, nil)
 		c, _ := mockInstancesResp(&instance, []*ec2types.Instance{&instance})
 		var mockedTopologyManager MockedInstanceTopologyManager
 		c.instanceTopologyManager = &mockedTopologyManager
@@ -264,7 +361,7 @@ func TestInstanceMetadata(t *testing.T) {
 	})
 
 	t.Run("Should not swallow errors if getting node topology fails if instance type is expected to be supported", func(t *testing.T) {
-		instance := makeInstance("i-00000000000000000", "192.168.0.1", "1.2.3.4", "instance-same.ec2.internal", "instance-same.ec2.external", nil, true)
+		instance := makeInstance("i-00000000000000000", "192.168.0.1", "1.2.3.4", "instance-same.ec2.internal", "instance-same.ec2.external", nil, true, nil)
 		c, _ := mockInstancesResp(&instance, []*ec2types.Instance{&instance})
 		var mockedTopologyManager MockedInstanceTopologyManager
 		c.instanceTopologyManager = &mockedTopologyManager
@@ -286,7 +383,7 @@ func TestInstanceMetadata(t *testing.T) {
 	})
 
 	t.Run("Should limit ec2:DescribeInstances calls to a single request per instance", func(t *testing.T) {
-		instance := makeInstance("i-00000000000001234", "192.168.0.1", "1.2.3.4", "instance-same.ec2.internal", "instance-same.ec2.external", nil, true)
+		instance := makeInstance("i-00000000000001234", "192.168.0.1", "1.2.3.4", "instance-same.ec2.internal", "instance-same.ec2.external", nil, true, nil)
 		c, awsServices := mockInstancesResp(&instance, []*ec2types.Instance{&instance})
 
 		// Add mock for DescribeInstanceTopology on the EC2 mock
