@@ -72,7 +72,7 @@ func (c *Cloud) getAdditionalLabels(ctx context.Context, zoneName string, instan
 	// If zone ID label is already set, skip.
 	if _, ok := existingLabels[LabelZoneID]; !ok {
 		// Add the zone ID to the additional labels
-		zoneID, err := c.zoneCache.getZoneIDByZoneName(zoneName)
+		zoneID, err := c.zoneCache.getZoneIDByZoneName(ctx, zoneName)
 		if err != nil {
 			return nil, err
 		}

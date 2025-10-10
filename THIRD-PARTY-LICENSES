@@ -180,7 +180,7 @@ Copyright © 2015 Steve Francia <spf@spf13.com>
 
 -----
 
-** aws/aws-sdk-go; version 1.15.7 -- https://github.com/aws/aws-sdk-go/
+** aws/aws-sdk-go-v2; version 1.24.4 -- https://github.com/aws/aws-sdk-go-v2/
 ** Etcd; version v3.1.0-alpha.1 -- https://github.com/coreos/etcd/tree/v3.1.0-alpha.1
 ** github.com/coreos/go-semver; version 0.2 -- https://github.com/coreos/go-semver
 ** github.com/coreos/go-systemd/; version 10 -- https://github.com/coreos/go-systemd/
@@ -412,9 +412,9 @@ WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 See the License for the specific language governing permissions and
 limitations under the License.
 
-* For aws/aws-sdk-go see also this required NOTICE:
+* For aws/aws-sdk-go-v2 see also this required NOTICE:
 AWS SDK for Go
-Copyright 2015 Amazon.com, Inc. or its affiliates. All Rights Reserved. 
+Copyright 2015 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 Copyright 2014-2015 Stripe, Inc.
 * For Etcd see also this required NOTICE:
 CoreOS Project
