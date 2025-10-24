@@ -26,6 +26,9 @@ OUTPUT ?= $(shell pwd)/_output
 INSTALL_PATH ?= $(OUTPUT)/bin
 LDFLAGS ?= -w -s -X k8s.io/component-base/version.gitVersion=$(VERSION) -X main.gitVersion=$(VERSION)
 
+GOLANG_DIRECTIVE_VERSION ?= 1.24.0
+CURL_RETRIES ?= 3
+
 # flags for ecr-credential-provider artifact promotion
 UPLOAD ?= $(OUTPUT)/upload
 GCS_LOCATION ?= gs://k8s-staging-provider-aws/releases/
@@ -120,7 +123,7 @@ e2e.test:
 	mv tests/e2e/e2e.test e2e.test
 
 .PHONY: check
-check: verify-fmt verify-lint vet
+check: verify-fmt verify-lint vet verify-go-directive
 
 .PHONY: develop
 develop: aws-cloud-controller-manager test update-fmt check
@@ -141,6 +144,12 @@ verify-lint:
 .PHONY: verify-codegen
 verify-codegen:
 	./hack/verify-codegen.sh
+
+.PHONY: verify-go-directive
+verify-go-directive:
+	# use the core Cluster API script directly to verify the go directive matches the desired one.
+	# ref: https://github.com/kubernetes-sigs/cluster-api/blob/v1.10.7/hack/verify-go-directive.sh
+	curl --retry $(CURL_RETRIES) -fsL https://raw.githubusercontent.com/kubernetes-sigs/cluster-api/refs/tags/v1.11.0/hack/verify-go-directive.sh | bash -s -- -g $(GOLANG_DIRECTIVE_VERSION)
 
 .PHONY: vet
 vet:
