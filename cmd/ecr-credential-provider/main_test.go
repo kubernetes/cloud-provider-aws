@@ -331,6 +331,12 @@ func Test_parseRegionFromECRPrivateHost(t *testing.T) {
 			host:   "123456789123.dkr.ecr.us-iso-east-1.c2s.ic.gov",
 			region: "us-iso-east-1",
 		},
+		// EUSC
+		{
+			name:   "success",
+			host:   "123456789123.dkr.ecr.eusc-de-east-1.amazonaws.eu",
+			region: "eusc-de-east-1",
+		},
 		// Dual-Stack
 		{
 			name:   "success",
@@ -401,6 +407,10 @@ func TestRegistryPatternMatch(t *testing.T) {
 		{"123456789012.dkr.ecr-fips.lala-land-1.amazonaws.com", true},
 		// .cn
 		{"123456789012.dkr.ecr.lala-land-1.amazonaws.com.cn", true},
+		// .eu
+		{"123456789012.dkr.ecr.eusc-de-east-1.amazonaws.eu", true},
+		// .eu with fips
+		{"123456789012.dkr.ecr-fips.eusc-de-east-1.amazonaws.eu", true},
 		// registry ID too long
 		{"1234567890123.dkr.ecr.lala-land-1.amazonaws.com", false},
 		// registry ID too short
