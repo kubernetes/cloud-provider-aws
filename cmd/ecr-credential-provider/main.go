@@ -182,10 +182,15 @@ func (e *ecrPlugin) getPrivateCredsData(ctx context.Context, imageHost string, i
 func (e *ecrPlugin) buildCredentialsProvider(ctx context.Context, request *v1.CredentialProviderRequest, imageHost string) (aws.CredentialsProvider, error) {
 	var err error
 
-	arn, ok := request.ServiceAccountAnnotations["eks.amazonaws.com/ecr-role-arn"]
-	if !ok {
-		arn = os.Getenv("AWS_ECR_ROLE_ARN")
+	var arn string
+	if candidateARN, ok := request.ServiceAccountAnnotations["eks.amazonaws.com/ecr-role-arn"]; ok {
+		arn = candidateARN
+	} else if candidateARN, ok = os.LookupEnv("AWS_ECR_ROLE_ARN"); ok {
+		arn = candidateARN
+	} else if candidateARN, ok = request.ServiceAccountAnnotations["eks.amazonaws.com/role-arn"]; ok {
+		arn = candidateARN
 	}
+
 	if arn == "" {
 		return nil, errors.New("no arn provided, cannot assume role using ServiceAccountToken")
 	}
