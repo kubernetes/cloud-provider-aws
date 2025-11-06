@@ -207,20 +207,20 @@ func (e *ecrPlugin) buildCredentialsProvider(ctx context.Context, request *v1.Cr
 	}
 
 	return aws.CredentialsProviderFunc(func(ctx context.Context) (aws.Credentials, error) {
-			assumeOutput, err := e.sts.AssumeRoleWithWebIdentity(ctx, &sts.AssumeRoleWithWebIdentityInput{
-				RoleArn:          aws.String(arn),
-				RoleSessionName:  aws.String("ecr-credential-provider"),
-				WebIdentityToken: aws.String(request.ServiceAccountToken),
-			})
-			if err != nil {
-				return aws.Credentials{}, fmt.Errorf("failed to assume role: %w", err)
-			}
-			return aws.Credentials{
-				AccessKeyID:     *assumeOutput.Credentials.AccessKeyId,
-				SecretAccessKey: *assumeOutput.Credentials.SecretAccessKey,
-				SessionToken:    *assumeOutput.Credentials.SessionToken,
-			}, nil
+		assumeOutput, err := e.sts.AssumeRoleWithWebIdentity(ctx, &sts.AssumeRoleWithWebIdentityInput{
+			RoleArn:          aws.String(arn),
+			RoleSessionName:  aws.String("ecr-credential-provider"),
+			WebIdentityToken: aws.String(request.ServiceAccountToken),
 		})
+		if err != nil {
+			return aws.Credentials{}, fmt.Errorf("failed to assume role: %w", err)
+		}
+		return aws.Credentials{
+			AccessKeyID:     *assumeOutput.Credentials.AccessKeyId,
+			SecretAccessKey: *assumeOutput.Credentials.SecretAccessKey,
+			SessionToken:    *assumeOutput.Credentials.SessionToken,
+		}, nil
+	})
 }
 
 func (e *ecrPlugin) GetCredentials(ctx context.Context, request *v1.CredentialProviderRequest, args []string) (*v1.CredentialProviderResponse, error) {

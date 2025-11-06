@@ -259,7 +259,7 @@ func Test_GetCredentials_PrivateForServiceAccount(t *testing.T) {
 					SessionToken:    aws.String("session-token"),
 				},
 			},
-			response:      generateResponse("123456789123.dkr.ecr.us-west-2.amazonaws.com", "user", "pass"),
+			response: generateResponse("123456789123.dkr.ecr.us-west-2.amazonaws.com", "user", "pass"),
 		},
 		{
 			name:                           "assume error",
