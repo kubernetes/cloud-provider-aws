@@ -179,15 +179,18 @@ func (e *ecrPlugin) getPrivateCredsData(ctx context.Context, imageHost string, i
 	}, nil
 }
 
-func (e *ecrPlugin) buildCredentialsProvider(ctx context.Context, request *v1.CredentialProviderRequest, imageHost string) (aws.CredentialsProvider, error) {
-	var err error
+func (e *ecrPlugin) buildCredentialsProvider(ctx context.Context, request *v1.CredentialProviderRequest, imageHost string) aws.CredentialsProvider {
+	if request.ServiceAccountToken == "" {
+		return nil
+	}
 
 	arn, ok := request.ServiceAccountAnnotations["eks.amazonaws.com/ecr-role-arn"]
 	if !ok {
 		arn = os.Getenv("AWS_ECR_ROLE_ARN")
 	}
 	if arn == "" {
-		return nil, errors.New("no arn provided, cannot assume role using ServiceAccountToken")
+		klog.Info("no arn provided, cannot assume role using ServiceAccountToken")
+		return nil
 	}
 
 	if e.sts == nil {
@@ -195,28 +198,29 @@ func (e *ecrPlugin) buildCredentialsProvider(ctx context.Context, request *v1.Cr
 		if imageHost != ecrPublicHost {
 			region = parseRegionFromECRPrivateHost(imageHost)
 		}
-		e.sts, err = stsProvider(ctx, region)
-	}
-	if err != nil {
-		return nil, err
+		sts, err := stsProvider(ctx, region)
+		if err != nil {
+			klog.Errorf("failed to create sts client, cannot assume role: %v", err)
+			return nil
+		}
+		e.sts = sts
 	}
 
 	return aws.CredentialsProviderFunc(func(ctx context.Context) (aws.Credentials, error) {
-			assumeOutput, err := e.sts.AssumeRoleWithWebIdentity(ctx, &sts.AssumeRoleWithWebIdentityInput{
-				RoleArn:          aws.String(arn),
-				RoleSessionName:  aws.String("ecr-credential-provider"),
-				WebIdentityToken: aws.String(request.ServiceAccountToken),
-			})
-			if err != nil {
-				return aws.Credentials{}, fmt.Errorf("failed to assume role: %w", err)
-			}
-			return aws.Credentials{
-				AccessKeyID:     *assumeOutput.Credentials.AccessKeyId,
-				SecretAccessKey: *assumeOutput.Credentials.SecretAccessKey,
-				SessionToken:    *assumeOutput.Credentials.SessionToken,
-			}, nil
-		}),
-		nil
+		assumeOutput, err := e.sts.AssumeRoleWithWebIdentity(ctx, &sts.AssumeRoleWithWebIdentityInput{
+			RoleArn:          aws.String(arn),
+			RoleSessionName:  aws.String("ecr-credential-provider"),
+			WebIdentityToken: aws.String(request.ServiceAccountToken),
+		})
+		if err != nil {
+			return aws.Credentials{}, fmt.Errorf("failed to assume role: %w", err)
+		}
+		return aws.Credentials{
+			AccessKeyID:     *assumeOutput.Credentials.AccessKeyId,
+			SecretAccessKey: *assumeOutput.Credentials.SecretAccessKey,
+			SessionToken:    *assumeOutput.Credentials.SessionToken,
+		}, nil
+	})
 }
 
 func (e *ecrPlugin) GetCredentials(ctx context.Context, request *v1.CredentialProviderRequest, args []string) (*v1.CredentialProviderResponse, error) {
@@ -232,14 +236,7 @@ func (e *ecrPlugin) GetCredentials(ctx context.Context, request *v1.CredentialPr
 		return nil, err
 	}
 
-	var credentialsProvider aws.CredentialsProvider = nil
-	if request.ServiceAccountToken != "" {
-		credentialsProvider, err = e.buildCredentialsProvider(ctx, request, imageHost)
-		if err != nil {
-			return nil, err
-		}
-	}
-
+	credentialsProvider := e.buildCredentialsProvider(ctx, request, imageHost)
 	if imageHost == ecrPublicHost {
 		var optFns = []func(*ecrpublic.Options){}
 		if credentialsProvider != nil {
