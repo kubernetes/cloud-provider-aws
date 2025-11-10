@@ -29,21 +29,21 @@ import (
 	"sync"
 	"time"
 
-	"github.com/aws/aws-sdk-go/aws"
-	"github.com/aws/aws-sdk-go/aws/awserr"
-	"github.com/aws/aws-sdk-go/aws/credentials"
-	"github.com/aws/aws-sdk-go/aws/credentials/stscreds"
-	"github.com/aws/aws-sdk-go/aws/ec2metadata"
-	"github.com/aws/aws-sdk-go/aws/endpoints"
-	"github.com/aws/aws-sdk-go/aws/request"
-	"github.com/aws/aws-sdk-go/aws/session"
-	"github.com/aws/aws-sdk-go/service/autoscaling"
-	"github.com/aws/aws-sdk-go/service/ec2"
-	"github.com/aws/aws-sdk-go/service/ec2/ec2iface"
-	"github.com/aws/aws-sdk-go/service/elb"
-	"github.com/aws/aws-sdk-go/service/elbv2"
-	"github.com/aws/aws-sdk-go/service/kms"
-	"github.com/aws/aws-sdk-go/service/sts"
+	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/aws/retry"
+	awsConfig "github.com/aws/aws-sdk-go-v2/config"
+	"github.com/aws/aws-sdk-go-v2/credentials/stscreds"
+	stscredsv2 "github.com/aws/aws-sdk-go-v2/credentials/stscreds"
+	"github.com/aws/aws-sdk-go-v2/feature/ec2/imds"
+	"github.com/aws/aws-sdk-go-v2/service/autoscaling"
+	"github.com/aws/aws-sdk-go-v2/service/ec2"
+	ec2types "github.com/aws/aws-sdk-go-v2/service/ec2/types"
+	elb "github.com/aws/aws-sdk-go-v2/service/elasticloadbalancing"
+	elbtypes "github.com/aws/aws-sdk-go-v2/service/elasticloadbalancing/types"
+	elbv2 "github.com/aws/aws-sdk-go-v2/service/elasticloadbalancingv2"
+	elbv2types "github.com/aws/aws-sdk-go-v2/service/elasticloadbalancingv2/types"
+	"github.com/aws/aws-sdk-go-v2/service/kms"
+	"github.com/aws/smithy-go"
 	"gopkg.in/gcfg.v1"
 
 	v1 "k8s.io/api/core/v1"
@@ -57,10 +57,10 @@ import (
 	clientset "k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/kubernetes/scheme"
 	v1core "k8s.io/client-go/kubernetes/typed/core/v1"
-	"k8s.io/client-go/pkg/version"
 	"k8s.io/client-go/tools/cache"
 	"k8s.io/client-go/tools/record"
 	cloudprovider "k8s.io/cloud-provider"
+	"k8s.io/cloud-provider-aws/pkg/services"
 	nodehelpers "k8s.io/cloud-provider/node/helpers"
 	servicehelpers "k8s.io/cloud-provider/service/helpers"
 	cloudvolume "k8s.io/cloud-provider/volume"
@@ -330,16 +330,44 @@ const MaxReadThenCreateRetries = 30
 // DefaultVolumeType specifies which storage to use for newly created Volumes
 // TODO: Remove when user/admin can configure volume types and thus we don't
 // need hardcoded defaults.
-const DefaultVolumeType = "gp2"
+const DefaultVolumeType = ec2types.VolumeTypeGp2
 
 // Services is an abstraction over AWS, to allow mocking/other implementations
 type Services interface {
-	Compute(region string) (EC2, error)
-	LoadBalancing(region string) (ELB, error)
-	LoadBalancingV2(region string) (ELBV2, error)
-	Autoscaling(region string) (ASG, error)
-	Metadata() (EC2Metadata, error)
-	KeyManagement(region string) (KMS, error)
+	Compute(ctx context.Context, region string, assumeRoleProvider *stscreds.AssumeRoleProvider) (EC2, error)
+	LoadBalancing(ctx context.Context, regionName string, assumeRoleProvider *stscreds.AssumeRoleProvider) (ELB, error)
+	LoadBalancingV2(ctx context.Context, regionName string, assumeRoleProvider *stscreds.AssumeRoleProvider) (ELBV2, error)
+	Autoscaling(ctx context.Context, region string, assumeRoleProvider *stscredsv2.AssumeRoleProvider) (ASG, error)
+	Metadata(ctx context.Context) (EC2Metadata, error)
+	KeyManagement(ctx context.Context, regionName string, assumeRoleProvider *stscreds.AssumeRoleProvider) (KMS, error)
+}
+
+// EC2API is an interface to satisfy the ec2.Client API.
+// More details about this pattern: https://docs.aws.amazon.com/sdk-for-go/v2/developer-guide/unit-testing.html
+type EC2API interface {
+	AuthorizeSecurityGroupIngress(ctx context.Context, params *ec2.AuthorizeSecurityGroupIngressInput, optFns ...func(*ec2.Options)) (*ec2.AuthorizeSecurityGroupIngressOutput, error)
+	AttachVolume(ctx context.Context, params *ec2.AttachVolumeInput, optFns ...func(*ec2.Options)) (*ec2.AttachVolumeOutput, error)
+	CreateRoute(ctx context.Context, params *ec2.CreateRouteInput, optFns ...func(*ec2.Options)) (*ec2.CreateRouteOutput, error)
+	CreateSecurityGroup(ctx context.Context, params *ec2.CreateSecurityGroupInput, optFns ...func(*ec2.Options)) (*ec2.CreateSecurityGroupOutput, error)
+	CreateTags(ctx context.Context, params *ec2.CreateTagsInput, optFns ...func(*ec2.Options)) (*ec2.CreateTagsOutput, error)
+	CreateVolume(ctx context.Context, params *ec2.CreateVolumeInput, optFns ...func(*ec2.Options)) (*ec2.CreateVolumeOutput, error)
+	DeleteRoute(ctx context.Context, params *ec2.DeleteRouteInput, optFns ...func(*ec2.Options)) (*ec2.DeleteRouteOutput, error)
+	DeleteSecurityGroup(ctx context.Context, params *ec2.DeleteSecurityGroupInput, optFns ...func(*ec2.Options)) (*ec2.DeleteSecurityGroupOutput, error)
+	DeleteTags(ctx context.Context, params *ec2.DeleteTagsInput, optFns ...func(*ec2.Options)) (*ec2.DeleteTagsOutput, error)
+	DeleteVolume(ctx context.Context, params *ec2.DeleteVolumeInput, optFns ...func(*ec2.Options)) (*ec2.DeleteVolumeOutput, error)
+	DescribeAvailabilityZones(ctx context.Context, params *ec2.DescribeAvailabilityZonesInput, optFns ...func(*ec2.Options)) (*ec2.DescribeAvailabilityZonesOutput, error)
+	DescribeInstances(ctx context.Context, params *ec2.DescribeInstancesInput, optFuns ...func(*ec2.Options)) (*ec2.DescribeInstancesOutput, error)
+	DescribeNetworkInterfaces(ctx context.Context, params *ec2.DescribeNetworkInterfacesInput, optFns ...func(*ec2.Options)) (*ec2.DescribeNetworkInterfacesOutput, error)
+	DescribeRouteTables(ctx context.Context, params *ec2.DescribeRouteTablesInput, optFns ...func(*ec2.Options)) (*ec2.DescribeRouteTablesOutput, error)
+	DescribeSecurityGroups(ctx context.Context, params *ec2.DescribeSecurityGroupsInput, optFns ...func(*ec2.Options)) (*ec2.DescribeSecurityGroupsOutput, error)
+	DescribeSubnets(ctx context.Context, params *ec2.DescribeSubnetsInput, optFns ...func(*ec2.Options)) (*ec2.DescribeSubnetsOutput, error)
+	DescribeVolumes(ctx context.Context, params *ec2.DescribeVolumesInput, optFns ...func(*ec2.Options)) (*ec2.DescribeVolumesOutput, error)
+	DescribeVolumesModifications(ctx context.Context, params *ec2.DescribeVolumesModificationsInput, optFns ...func(*ec2.Options)) (*ec2.DescribeVolumesModificationsOutput, error)
+	DescribeVpcs(ctx context.Context, params *ec2.DescribeVpcsInput, optFns ...func(*ec2.Options)) (*ec2.DescribeVpcsOutput, error)
+	DetachVolume(ctx context.Context, params *ec2.DetachVolumeInput, optFns ...func(*ec2.Options)) (*ec2.DetachVolumeOutput, error)
+	ModifyInstanceAttribute(ctx context.Context, params *ec2.ModifyInstanceAttributeInput, optFns ...func(*ec2.Options)) (*ec2.ModifyInstanceAttributeOutput, error)
+	ModifyVolume(ctx context.Context, params *ec2.ModifyVolumeInput, optFns ...func(*ec2.Options)) (*ec2.ModifyVolumeOutput, error)
+	RevokeSecurityGroupIngress(ctx context.Context, params *ec2.RevokeSecurityGroupIngressInput, optFns ...func(*ec2.Options)) (*ec2.RevokeSecurityGroupIngressOutput, error)
 }
 
 // EC2 is an abstraction over AWS', to allow mocking/other implementations
@@ -347,126 +375,124 @@ type Services interface {
 // TODO: Should we rename this to AWS (EBS & ELB are not technically part of EC2)
 type EC2 interface {
 	// Query EC2 for instances matching the filter
-	DescribeInstances(request *ec2.DescribeInstancesInput) ([]*ec2.Instance, error)
+	DescribeInstances(ctx context.Context, request *ec2.DescribeInstancesInput, optFns ...func(*ec2.Options)) ([]ec2types.Instance, error)
 
 	// Attach a volume to an instance
-	AttachVolume(*ec2.AttachVolumeInput) (*ec2.VolumeAttachment, error)
+	AttachVolume(ctx context.Context, request *ec2.AttachVolumeInput, optFns ...func(*ec2.Options)) (*ec2.AttachVolumeOutput, error)
 	// Detach a volume from an instance it is attached to
-	DetachVolume(request *ec2.DetachVolumeInput) (resp *ec2.VolumeAttachment, err error)
+	DetachVolume(ctx context.Context, request *ec2.DetachVolumeInput, optFns ...func(*ec2.Options)) (resp *ec2.DetachVolumeOutput, err error)
 	// Lists volumes
-	DescribeVolumes(request *ec2.DescribeVolumesInput) ([]*ec2.Volume, error)
+	DescribeVolumes(ctx context.Context, request *ec2.DescribeVolumesInput, optFns ...func(*ec2.Options)) ([]ec2types.Volume, error)
 	// Create an EBS volume
-	CreateVolume(request *ec2.CreateVolumeInput) (resp *ec2.Volume, err error)
+	CreateVolume(ctx context.Context, request *ec2.CreateVolumeInput, optFns ...func(*ec2.Options)) (resp *ec2.CreateVolumeOutput, err error)
 	// Delete an EBS volume
-	DeleteVolume(*ec2.DeleteVolumeInput) (*ec2.DeleteVolumeOutput, error)
+	DeleteVolume(ctx context.Context, request *ec2.DeleteVolumeInput, optFns ...func(*ec2.Options)) (*ec2.DeleteVolumeOutput, error)
 
-	ModifyVolume(*ec2.ModifyVolumeInput) (*ec2.ModifyVolumeOutput, error)
+	ModifyVolume(ctx context.Context, request *ec2.ModifyVolumeInput, optFns ...func(*ec2.Options)) (*ec2.ModifyVolumeOutput, error)
 
-	DescribeVolumeModifications(*ec2.DescribeVolumesModificationsInput) ([]*ec2.VolumeModification, error)
+	DescribeVolumeModifications(ctx context.Context, request *ec2.DescribeVolumesModificationsInput, optFns ...func(*ec2.Options)) ([]ec2types.VolumeModification, error)
 
-	DescribeSecurityGroups(request *ec2.DescribeSecurityGroupsInput) ([]*ec2.SecurityGroup, error)
+	DescribeSecurityGroups(ctx context.Context, request *ec2.DescribeSecurityGroupsInput, optFns ...func(*ec2.Options)) ([]ec2types.SecurityGroup, error)
 
-	CreateSecurityGroup(*ec2.CreateSecurityGroupInput) (*ec2.CreateSecurityGroupOutput, error)
-	DeleteSecurityGroup(request *ec2.DeleteSecurityGroupInput) (*ec2.DeleteSecurityGroupOutput, error)
+	CreateSecurityGroup(ctx context.Context, request *ec2.CreateSecurityGroupInput, optFns ...func(*ec2.Options)) (*ec2.CreateSecurityGroupOutput, error)
+	DeleteSecurityGroup(ctx context.Context, request *ec2.DeleteSecurityGroupInput, optFns ...func(*ec2.Options)) (*ec2.DeleteSecurityGroupOutput, error)
 
-	AuthorizeSecurityGroupIngress(*ec2.AuthorizeSecurityGroupIngressInput) (*ec2.AuthorizeSecurityGroupIngressOutput, error)
-	RevokeSecurityGroupIngress(*ec2.RevokeSecurityGroupIngressInput) (*ec2.RevokeSecurityGroupIngressOutput, error)
+	AuthorizeSecurityGroupIngress(ctx context.Context, request *ec2.AuthorizeSecurityGroupIngressInput, optFns ...func(*ec2.Options)) (*ec2.AuthorizeSecurityGroupIngressOutput, error)
+	RevokeSecurityGroupIngress(ctx context.Context, request *ec2.RevokeSecurityGroupIngressInput, optFns ...func(*ec2.Options)) (*ec2.RevokeSecurityGroupIngressOutput, error)
 
-	DescribeSubnets(*ec2.DescribeSubnetsInput) ([]*ec2.Subnet, error)
+	DescribeSubnets(ctx context.Context, request *ec2.DescribeSubnetsInput, optFns ...func(*ec2.Options)) ([]ec2types.Subnet, error)
 
-	DescribeAvailabilityZones(request *ec2.DescribeAvailabilityZonesInput) ([]*ec2.AvailabilityZone, error)
+	DescribeAvailabilityZones(ctx context.Context, request *ec2.DescribeAvailabilityZonesInput, optFns ...func(*ec2.Options)) ([]ec2types.AvailabilityZone, error)
 
-	CreateTags(*ec2.CreateTagsInput) (*ec2.CreateTagsOutput, error)
-	DeleteTags(input *ec2.DeleteTagsInput) (*ec2.DeleteTagsOutput, error)
+	CreateTags(ctx context.Context, request *ec2.CreateTagsInput, optFns ...func(*ec2.Options)) (*ec2.CreateTagsOutput, error)
+	DeleteTags(ctx context.Context, input *ec2.DeleteTagsInput, optFns ...func(*ec2.Options)) (*ec2.DeleteTagsOutput, error)
 
-	DescribeRouteTables(request *ec2.DescribeRouteTablesInput) ([]*ec2.RouteTable, error)
-	CreateRoute(request *ec2.CreateRouteInput) (*ec2.CreateRouteOutput, error)
-	DeleteRoute(request *ec2.DeleteRouteInput) (*ec2.DeleteRouteOutput, error)
+	DescribeRouteTables(ctx context.Context, request *ec2.DescribeRouteTablesInput, optFns ...func(*ec2.Options)) ([]ec2types.RouteTable, error)
+	CreateRoute(ctx context.Context, request *ec2.CreateRouteInput, optFns ...func(*ec2.Options)) (*ec2.CreateRouteOutput, error)
+	DeleteRoute(ctx context.Context, request *ec2.DeleteRouteInput, optFns ...func(*ec2.Options)) (*ec2.DeleteRouteOutput, error)
 
-	ModifyInstanceAttribute(request *ec2.ModifyInstanceAttributeInput) (*ec2.ModifyInstanceAttributeOutput, error)
+	ModifyInstanceAttribute(ctx context.Context, request *ec2.ModifyInstanceAttributeInput, optFns ...func(*ec2.Options)) (*ec2.ModifyInstanceAttributeOutput, error)
 
-	DescribeVpcs(input *ec2.DescribeVpcsInput) (*ec2.DescribeVpcsOutput, error)
+	DescribeVpcs(ctx context.Context, input *ec2.DescribeVpcsInput, optFns ...func(*ec2.Options)) (*ec2.DescribeVpcsOutput, error)
 
-	DescribeNetworkInterfaces(input *ec2.DescribeNetworkInterfacesInput) (*ec2.DescribeNetworkInterfacesOutput, error)
+	DescribeNetworkInterfaces(ctx context.Context, input *ec2.DescribeNetworkInterfacesInput, optFns ...func(*ec2.Options)) (*ec2.DescribeNetworkInterfacesOutput, error)
 }
 
 // ELB is a simple pass-through of AWS' ELB client interface, which allows for testing
 type ELB interface {
-	CreateLoadBalancer(*elb.CreateLoadBalancerInput) (*elb.CreateLoadBalancerOutput, error)
-	DeleteLoadBalancer(*elb.DeleteLoadBalancerInput) (*elb.DeleteLoadBalancerOutput, error)
-	DescribeLoadBalancers(*elb.DescribeLoadBalancersInput) (*elb.DescribeLoadBalancersOutput, error)
-	AddTags(*elb.AddTagsInput) (*elb.AddTagsOutput, error)
-	RegisterInstancesWithLoadBalancer(*elb.RegisterInstancesWithLoadBalancerInput) (*elb.RegisterInstancesWithLoadBalancerOutput, error)
-	DeregisterInstancesFromLoadBalancer(*elb.DeregisterInstancesFromLoadBalancerInput) (*elb.DeregisterInstancesFromLoadBalancerOutput, error)
-	CreateLoadBalancerPolicy(*elb.CreateLoadBalancerPolicyInput) (*elb.CreateLoadBalancerPolicyOutput, error)
-	SetLoadBalancerPoliciesForBackendServer(*elb.SetLoadBalancerPoliciesForBackendServerInput) (*elb.SetLoadBalancerPoliciesForBackendServerOutput, error)
-	SetLoadBalancerPoliciesOfListener(input *elb.SetLoadBalancerPoliciesOfListenerInput) (*elb.SetLoadBalancerPoliciesOfListenerOutput, error)
-	DescribeLoadBalancerPolicies(input *elb.DescribeLoadBalancerPoliciesInput) (*elb.DescribeLoadBalancerPoliciesOutput, error)
+	CreateLoadBalancer(ctx context.Context, input *elb.CreateLoadBalancerInput, optFns ...func(*elb.Options)) (*elb.CreateLoadBalancerOutput, error)
+	DeleteLoadBalancer(ctx context.Context, input *elb.DeleteLoadBalancerInput, optFns ...func(*elb.Options)) (*elb.DeleteLoadBalancerOutput, error)
+	DescribeLoadBalancers(ctx context.Context, input *elb.DescribeLoadBalancersInput, optFns ...func(*elb.Options)) (*elb.DescribeLoadBalancersOutput, error)
+	AddTags(ctx context.Context, input *elb.AddTagsInput, optFns ...func(*elb.Options)) (*elb.AddTagsOutput, error)
+	RegisterInstancesWithLoadBalancer(ctx context.Context, input *elb.RegisterInstancesWithLoadBalancerInput, optFns ...func(*elb.Options)) (*elb.RegisterInstancesWithLoadBalancerOutput, error)
+	DeregisterInstancesFromLoadBalancer(ctx context.Context, input *elb.DeregisterInstancesFromLoadBalancerInput, optFns ...func(*elb.Options)) (*elb.DeregisterInstancesFromLoadBalancerOutput, error)
+	CreateLoadBalancerPolicy(ctx context.Context, input *elb.CreateLoadBalancerPolicyInput, optFns ...func(*elb.Options)) (*elb.CreateLoadBalancerPolicyOutput, error)
+	SetLoadBalancerPoliciesForBackendServer(ctx context.Context, input *elb.SetLoadBalancerPoliciesForBackendServerInput, optFns ...func(*elb.Options)) (*elb.SetLoadBalancerPoliciesForBackendServerOutput, error)
+	SetLoadBalancerPoliciesOfListener(ctx context.Context, input *elb.SetLoadBalancerPoliciesOfListenerInput, optFns ...func(*elb.Options)) (*elb.SetLoadBalancerPoliciesOfListenerOutput, error)
+	DescribeLoadBalancerPolicies(ctx context.Context, input *elb.DescribeLoadBalancerPoliciesInput, optFns ...func(*elb.Options)) (*elb.DescribeLoadBalancerPoliciesOutput, error)
 
-	DetachLoadBalancerFromSubnets(*elb.DetachLoadBalancerFromSubnetsInput) (*elb.DetachLoadBalancerFromSubnetsOutput, error)
-	AttachLoadBalancerToSubnets(*elb.AttachLoadBalancerToSubnetsInput) (*elb.AttachLoadBalancerToSubnetsOutput, error)
+	DetachLoadBalancerFromSubnets(ctx context.Context, input *elb.DetachLoadBalancerFromSubnetsInput, optFns ...func(*elb.Options)) (*elb.DetachLoadBalancerFromSubnetsOutput, error)
+	AttachLoadBalancerToSubnets(ctx context.Context, input *elb.AttachLoadBalancerToSubnetsInput, optFns ...func(*elb.Options)) (*elb.AttachLoadBalancerToSubnetsOutput, error)
 
-	CreateLoadBalancerListeners(*elb.CreateLoadBalancerListenersInput) (*elb.CreateLoadBalancerListenersOutput, error)
-	DeleteLoadBalancerListeners(*elb.DeleteLoadBalancerListenersInput) (*elb.DeleteLoadBalancerListenersOutput, error)
+	CreateLoadBalancerListeners(ctx context.Context, input *elb.CreateLoadBalancerListenersInput, optFns ...func(*elb.Options)) (*elb.CreateLoadBalancerListenersOutput, error)
+	DeleteLoadBalancerListeners(ctx context.Context, input *elb.DeleteLoadBalancerListenersInput, optFns ...func(*elb.Options)) (*elb.DeleteLoadBalancerListenersOutput, error)
 
-	ApplySecurityGroupsToLoadBalancer(*elb.ApplySecurityGroupsToLoadBalancerInput) (*elb.ApplySecurityGroupsToLoadBalancerOutput, error)
+	ApplySecurityGroupsToLoadBalancer(ctx context.Context, input *elb.ApplySecurityGroupsToLoadBalancerInput, optFns ...func(*elb.Options)) (*elb.ApplySecurityGroupsToLoadBalancerOutput, error)
 
-	ConfigureHealthCheck(*elb.ConfigureHealthCheckInput) (*elb.ConfigureHealthCheckOutput, error)
+	ConfigureHealthCheck(ctx context.Context, input *elb.ConfigureHealthCheckInput, optFns ...func(*elb.Options)) (*elb.ConfigureHealthCheckOutput, error)
 
-	DescribeLoadBalancerAttributes(*elb.DescribeLoadBalancerAttributesInput) (*elb.DescribeLoadBalancerAttributesOutput, error)
-	ModifyLoadBalancerAttributes(*elb.ModifyLoadBalancerAttributesInput) (*elb.ModifyLoadBalancerAttributesOutput, error)
+	DescribeLoadBalancerAttributes(ctx context.Context, input *elb.DescribeLoadBalancerAttributesInput, optFns ...func(*elb.Options)) (*elb.DescribeLoadBalancerAttributesOutput, error)
+	ModifyLoadBalancerAttributes(ctx context.Context, input *elb.ModifyLoadBalancerAttributesInput, optFns ...func(*elb.Options)) (*elb.ModifyLoadBalancerAttributesOutput, error)
 }
 
 // ELBV2 is a simple pass-through of AWS' ELBV2 client interface, which allows for testing
 type ELBV2 interface {
-	AddTags(input *elbv2.AddTagsInput) (*elbv2.AddTagsOutput, error)
+	AddTags(ctx context.Context, input *elbv2.AddTagsInput, optFns ...func(*elbv2.Options)) (*elbv2.AddTagsOutput, error)
 
-	CreateLoadBalancer(*elbv2.CreateLoadBalancerInput) (*elbv2.CreateLoadBalancerOutput, error)
-	DescribeLoadBalancers(*elbv2.DescribeLoadBalancersInput) (*elbv2.DescribeLoadBalancersOutput, error)
-	DeleteLoadBalancer(*elbv2.DeleteLoadBalancerInput) (*elbv2.DeleteLoadBalancerOutput, error)
+	CreateLoadBalancer(ctx context.Context, input *elbv2.CreateLoadBalancerInput, optFns ...func(*elbv2.Options)) (*elbv2.CreateLoadBalancerOutput, error)
+	DescribeLoadBalancers(ctx context.Context, input *elbv2.DescribeLoadBalancersInput, optFns ...func(*elbv2.Options)) (*elbv2.DescribeLoadBalancersOutput, error)
+	DeleteLoadBalancer(ctx context.Context, input *elbv2.DeleteLoadBalancerInput, optFns ...func(*elbv2.Options)) (*elbv2.DeleteLoadBalancerOutput, error)
 
-	ModifyLoadBalancerAttributes(*elbv2.ModifyLoadBalancerAttributesInput) (*elbv2.ModifyLoadBalancerAttributesOutput, error)
-	DescribeLoadBalancerAttributes(*elbv2.DescribeLoadBalancerAttributesInput) (*elbv2.DescribeLoadBalancerAttributesOutput, error)
+	ModifyLoadBalancerAttributes(ctx context.Context, input *elbv2.ModifyLoadBalancerAttributesInput, optFns ...func(*elbv2.Options)) (*elbv2.ModifyLoadBalancerAttributesOutput, error)
+	DescribeLoadBalancerAttributes(ctx context.Context, input *elbv2.DescribeLoadBalancerAttributesInput, optFns ...func(*elbv2.Options)) (*elbv2.DescribeLoadBalancerAttributesOutput, error)
 
-	CreateTargetGroup(*elbv2.CreateTargetGroupInput) (*elbv2.CreateTargetGroupOutput, error)
-	DescribeTargetGroups(*elbv2.DescribeTargetGroupsInput) (*elbv2.DescribeTargetGroupsOutput, error)
-	ModifyTargetGroup(*elbv2.ModifyTargetGroupInput) (*elbv2.ModifyTargetGroupOutput, error)
-	DeleteTargetGroup(*elbv2.DeleteTargetGroupInput) (*elbv2.DeleteTargetGroupOutput, error)
+	CreateTargetGroup(ctx context.Context, input *elbv2.CreateTargetGroupInput, optFns ...func(*elbv2.Options)) (*elbv2.CreateTargetGroupOutput, error)
+	DescribeTargetGroups(ctx context.Context, input *elbv2.DescribeTargetGroupsInput, optFns ...func(*elbv2.Options)) (*elbv2.DescribeTargetGroupsOutput, error)
+	ModifyTargetGroup(ctx context.Context, input *elbv2.ModifyTargetGroupInput, optFns ...func(*elbv2.Options)) (*elbv2.ModifyTargetGroupOutput, error)
+	DeleteTargetGroup(ctx context.Context, input *elbv2.DeleteTargetGroupInput, optFns ...func(*elbv2.Options)) (*elbv2.DeleteTargetGroupOutput, error)
 
-	DescribeTargetHealth(input *elbv2.DescribeTargetHealthInput) (*elbv2.DescribeTargetHealthOutput, error)
+	DescribeTargetHealth(ctx context.Context, input *elbv2.DescribeTargetHealthInput, optFns ...func(*elbv2.Options)) (*elbv2.DescribeTargetHealthOutput, error)
 
-	DescribeTargetGroupAttributes(*elbv2.DescribeTargetGroupAttributesInput) (*elbv2.DescribeTargetGroupAttributesOutput, error)
-	ModifyTargetGroupAttributes(*elbv2.ModifyTargetGroupAttributesInput) (*elbv2.ModifyTargetGroupAttributesOutput, error)
+	DescribeTargetGroupAttributes(ctx context.Context, input *elbv2.DescribeTargetGroupAttributesInput, optFns ...func(*elbv2.Options)) (*elbv2.DescribeTargetGroupAttributesOutput, error)
+	ModifyTargetGroupAttributes(ctx context.Context, input *elbv2.ModifyTargetGroupAttributesInput, optFns ...func(*elbv2.Options)) (*elbv2.ModifyTargetGroupAttributesOutput, error)
 
-	RegisterTargets(*elbv2.RegisterTargetsInput) (*elbv2.RegisterTargetsOutput, error)
-	DeregisterTargets(*elbv2.DeregisterTargetsInput) (*elbv2.DeregisterTargetsOutput, error)
+	RegisterTargets(ctx context.Context, input *elbv2.RegisterTargetsInput, optFns ...func(*elbv2.Options)) (*elbv2.RegisterTargetsOutput, error)
+	DeregisterTargets(ctx context.Context, input *elbv2.DeregisterTargetsInput, optFns ...func(*elbv2.Options)) (*elbv2.DeregisterTargetsOutput, error)
 
-	CreateListener(*elbv2.CreateListenerInput) (*elbv2.CreateListenerOutput, error)
-	DescribeListeners(*elbv2.DescribeListenersInput) (*elbv2.DescribeListenersOutput, error)
-	DeleteListener(*elbv2.DeleteListenerInput) (*elbv2.DeleteListenerOutput, error)
-	ModifyListener(*elbv2.ModifyListenerInput) (*elbv2.ModifyListenerOutput, error)
-
-	WaitUntilLoadBalancersDeleted(*elbv2.DescribeLoadBalancersInput) error
+	CreateListener(ctx context.Context, input *elbv2.CreateListenerInput, optFns ...func(*elbv2.Options)) (*elbv2.CreateListenerOutput, error)
+	DescribeListeners(ctx context.Context, input *elbv2.DescribeListenersInput, optFns ...func(*elbv2.Options)) (*elbv2.DescribeListenersOutput, error)
+	DeleteListener(ctx context.Context, input *elbv2.DeleteListenerInput, optFns ...func(*elbv2.Options)) (*elbv2.DeleteListenerOutput, error)
+	ModifyListener(ctx context.Context, input *elbv2.ModifyListenerInput, optFns ...func(*elbv2.Options)) (*elbv2.ModifyListenerOutput, error)
 }
 
 // ASG is a simple pass-through of the Autoscaling client interface, which
 // allows for testing.
 type ASG interface {
-	UpdateAutoScalingGroup(*autoscaling.UpdateAutoScalingGroupInput) (*autoscaling.UpdateAutoScalingGroupOutput, error)
-	DescribeAutoScalingGroups(*autoscaling.DescribeAutoScalingGroupsInput) (*autoscaling.DescribeAutoScalingGroupsOutput, error)
+	UpdateAutoScalingGroup(ctx context.Context, input *autoscaling.UpdateAutoScalingGroupInput, optFns ...func(*autoscaling.Options)) (*autoscaling.UpdateAutoScalingGroupOutput, error)
+	DescribeAutoScalingGroups(ctx context.Context, input *autoscaling.DescribeAutoScalingGroupsInput, optFns ...func(*autoscaling.Options)) (*autoscaling.DescribeAutoScalingGroupsOutput, error)
 }
 
 // KMS is a simple pass-through of the Key Management Service client interface,
 // which allows for testing.
 type KMS interface {
-	DescribeKey(*kms.DescribeKeyInput) (*kms.DescribeKeyOutput, error)
+	DescribeKey(ctx context.Context, input *kms.DescribeKeyInput, optFns ...func(*kms.Options)) (*kms.DescribeKeyOutput, error)
 }
 
 // EC2Metadata is an abstraction over the AWS metadata service.
 type EC2Metadata interface {
 	// Query the EC2 metadata service (used to discover instance-id etc)
-	GetMetadata(path string) (string, error)
-	Region() (string, error)
+	GetMetadata(ctx context.Context, input *imds.GetMetadataInput, optFns ...func(*imds.Options)) (*imds.GetMetadataOutput, error)
+	GetRegion(ctx context.Context, params *imds.GetRegionInput, optFns ...func(*imds.Options)) (*imds.GetRegionOutput, error)
 }
 
 // AWS volume types
@@ -492,7 +518,7 @@ const (
 type VolumeOptions struct {
 	CapacityGB       int
 	Tags             map[string]string
-	VolumeType       string
+	VolumeType       ec2types.VolumeType
 	AvailabilityZone string
 	// IOPSPerGB x CapacityGB will give total IOPS of the volume to create.
 	// Calculated total IOPS will be capped at MaxTotalIOPS.
@@ -509,43 +535,43 @@ type Volumes interface {
 	// Attach the disk to the node with the specified NodeName
 	// nodeName can be empty to mean "the instance on which we are running"
 	// Returns the device (e.g. /dev/xvdf) where we attached the volume
-	AttachDisk(diskName KubernetesVolumeID, nodeName types.NodeName) (string, error)
+	AttachDisk(ctx context.Context, diskName KubernetesVolumeID, nodeName types.NodeName) (string, error)
 	// Detach the disk from the node with the specified NodeName
 	// nodeName can be empty to mean "the instance on which we are running"
 	// Returns the device where the volume was attached
-	DetachDisk(diskName KubernetesVolumeID, nodeName types.NodeName) (string, error)
+	DetachDisk(ctx context.Context, diskName KubernetesVolumeID, nodeName types.NodeName) (string, error)
 
 	// Create a volume with the specified options
-	CreateDisk(volumeOptions *VolumeOptions) (volumeName KubernetesVolumeID, err error)
+	CreateDisk(ctx context.Context, volumeOptions *VolumeOptions) (volumeName KubernetesVolumeID, err error)
 	// Delete the specified volume
 	// Returns true iff the volume was deleted
 	// If the was not found, returns (false, nil)
-	DeleteDisk(volumeName KubernetesVolumeID) (bool, error)
+	DeleteDisk(ctx context.Context, volumeName KubernetesVolumeID) (bool, error)
 
 	// Get labels to apply to volume on creation
-	GetVolumeLabels(volumeName KubernetesVolumeID) (map[string]string, error)
+	GetVolumeLabels(ctx context.Context, volumeName KubernetesVolumeID) (map[string]string, error)
 
 	// Get volume's disk path from volume name
 	// return the device path where the volume is attached
-	GetDiskPath(volumeName KubernetesVolumeID) (string, error)
+	GetDiskPath(ctx context.Context, volumeName KubernetesVolumeID) (string, error)
 
 	// Check if the volume is already attached to the node with the specified NodeName
-	DiskIsAttached(diskName KubernetesVolumeID, nodeName types.NodeName) (bool, error)
+	DiskIsAttached(ctx context.Context, diskName KubernetesVolumeID, nodeName types.NodeName) (bool, error)
 
 	// Check if disks specified in argument map are still attached to their respective nodes.
-	DisksAreAttached(map[types.NodeName][]KubernetesVolumeID) (map[types.NodeName]map[KubernetesVolumeID]bool, error)
+	DisksAreAttached(ctx context.Context, nodeVolumes map[types.NodeName][]KubernetesVolumeID) (map[types.NodeName]map[KubernetesVolumeID]bool, error)
 
 	// Expand the disk to new size
-	ResizeDisk(diskName KubernetesVolumeID, oldSize resource.Quantity, newSize resource.Quantity) (resource.Quantity, error)
+	ResizeDisk(ctx context.Context, diskName KubernetesVolumeID, oldSize resource.Quantity, newSize resource.Quantity) (resource.Quantity, error)
 }
 
 // InstanceGroups is an interface for managing cloud-managed instance groups / autoscaling instance groups
 // TODO: Allow other clouds to implement this
 type InstanceGroups interface {
 	// Set the size to the fixed size
-	ResizeInstanceGroup(instanceGroupName string, size int) error
+	ResizeInstanceGroup(ctx context.Context, instanceGroupName string, size int) error
 	// Queries the cloud provider for information about the specified instance group
-	DescribeInstanceGroup(instanceGroupName string) (InstanceGroupInfo, error)
+	DescribeInstanceGroup(ctx context.Context, instanceGroupName string) (InstanceGroupInfo, error)
 }
 
 // InstanceGroupInfo is returned by InstanceGroups.Describe, and exposes information about the group.
@@ -681,19 +707,19 @@ type CloudConfig struct {
 
 // GetRegion returns the AWS region from the config, if set, or gets it from the metadata
 // service if unset and sets in config
-func (cfg *CloudConfig) GetRegion(metadata EC2Metadata) (string, error) {
+func (cfg *CloudConfig) GetRegion(ctx context.Context, metadata EC2Metadata) (string, error) {
 	if cfg.Global.Region != "" {
 		return cfg.Global.Region, nil
 	}
 
 	klog.Info("Loading region from metadata service")
-	region, err := metadata.Region()
+	region, err := metadata.GetRegion(ctx, &imds.GetRegionInput{})
 	if err != nil {
 		return "", err
 	}
 
-	cfg.Global.Region = region
-	return region, nil
+	cfg.Global.Region = region.Region
+	return region.Region, nil
 }
 
 func (cfg *CloudConfig) validateOverrides() error {
@@ -734,95 +760,40 @@ func (cfg *CloudConfig) validateOverrides() error {
 	return nil
 }
 
-func (cfg *CloudConfig) getResolver() endpoints.ResolverFunc {
-	defaultResolver := endpoints.DefaultResolver()
-	defaultResolverFn := func(service, region string,
-		optFns ...func(*endpoints.Options)) (endpoints.ResolvedEndpoint, error) {
-		return defaultResolver.EndpointFor(service, region, optFns...)
-	}
-	if len(cfg.ServiceOverride) == 0 {
-		return defaultResolverFn
-	}
-
-	return func(service, region string,
-		optFns ...func(*endpoints.Options)) (endpoints.ResolvedEndpoint, error) {
-		for _, override := range cfg.ServiceOverride {
-			if override.Service == service && override.Region == region {
-				return endpoints.ResolvedEndpoint{
-					URL:           override.URL,
-					SigningRegion: override.SigningRegion,
-					SigningMethod: override.SigningMethod,
-					SigningName:   override.SigningName,
-				}, nil
-			}
-		}
-		return defaultResolver.EndpointFor(service, region, optFns...)
-	}
-}
-
 // awsSdkEC2 is an implementation of the EC2 interface, backed by aws-sdk-go
 type awsSdkEC2 struct {
-	ec2 ec2iface.EC2API
+	ec2 EC2API
 }
 
 // Interface to make the CloudConfig immutable for awsSDKProvider
 type awsCloudConfigProvider interface {
-	getResolver() endpoints.ResolverFunc
+	GetEC2EndpointOpts(region string) []func(*ec2.Options)
+	GetCustomEC2Resolver() ec2.EndpointResolverV2
+	GetELBEndpointOpts(region string) []func(*elb.Options)
+	GetCustomELBResolver() elb.EndpointResolverV2
+	GetELBV2EndpointOpts(region string) []func(*elbv2.Options)
+	GetCustomELBV2Resolver() elbv2.EndpointResolverV2
+	GetKMSEndpointOpts(region string) []func(*kms.Options)
+	GetCustomKMSResolver() kms.EndpointResolverV2
+	GetIMDSEndpointOpts() []func(*imds.Options)
+	GetAutoscalingEndpointOpts(region string) []func(*autoscaling.Options)
+	GetCustomAutoscalingResolver() autoscaling.EndpointResolverV2
 }
 
 type awsSDKProvider struct {
-	creds *credentials.Credentials
+	creds aws.CredentialsProvider
 	cfg   awsCloudConfigProvider
 
 	mutex          sync.Mutex
 	regionDelayers map[string]*CrossRequestRetryDelay
 }
 
-func newAWSSDKProvider(creds *credentials.Credentials, cfg *CloudConfig) *awsSDKProvider {
+func newAWSSDKProvider(creds aws.CredentialsProvider, cfg *CloudConfig) *awsSDKProvider {
 	return &awsSDKProvider{
 		creds:          creds,
 		cfg:            cfg,
 		regionDelayers: make(map[string]*CrossRequestRetryDelay),
 	}
-}
-
-func (p *awsSDKProvider) addHandlers(regionName string, h *request.Handlers) {
-	h.Build.PushFrontNamed(request.NamedHandler{
-		Name: "k8s/user-agent",
-		Fn:   request.MakeAddToUserAgentHandler("kubernetes", version.Get().String()),
-	})
-
-	h.Sign.PushFrontNamed(request.NamedHandler{
-		Name: "k8s/logger",
-		Fn:   awsHandlerLogger,
-	})
-
-	delayer := p.getCrossRequestRetryDelay(regionName)
-	if delayer != nil {
-		h.Sign.PushFrontNamed(request.NamedHandler{
-			Name: "k8s/delay-presign",
-			Fn:   delayer.BeforeSign,
-		})
-
-		h.AfterRetry.PushFrontNamed(request.NamedHandler{
-			Name: "k8s/delay-afterretry",
-			Fn:   delayer.AfterRetry,
-		})
-	}
-
-	p.addAPILoggingHandlers(h)
-}
-
-func (p *awsSDKProvider) addAPILoggingHandlers(h *request.Handlers) {
-	h.Send.PushBackNamed(request.NamedHandler{
-		Name: "k8s/api-request",
-		Fn:   awsSendHandlerLogger,
-	})
-
-	h.ValidateResponse.PushFrontNamed(request.NamedHandler{
-		Name: "k8s/api-validate-response",
-		Fn:   awsValidateResponseHandlerLogger,
-	})
 }
 
 // Get a CrossRequestRetryDelay, scoped to the region, not to the request.
@@ -876,132 +847,158 @@ func (c *Cloud) SetInformers(informerFactory informers.SharedInformerFactory) {
 	})
 }
 
-func (p *awsSDKProvider) Compute(regionName string) (EC2, error) {
-	awsConfig := &aws.Config{
-		Region:      &regionName,
-		Credentials: p.creds,
+func (p *awsSDKProvider) Compute(ctx context.Context, regionName string, assumeRoleProvider *stscredsv2.AssumeRoleProvider) (EC2, error) {
+	cfg, err := awsConfig.LoadDefaultConfig(ctx, awsConfig.WithDefaultsMode(aws.DefaultsModeInRegion),
+		awsConfig.WithRegion(regionName),
+	)
+	if assumeRoleProvider != nil {
+		cfg.Credentials = aws.NewCredentialsCache(assumeRoleProvider)
 	}
-	awsConfig = awsConfig.WithCredentialsChainVerboseErrors(true).
-		WithEndpointResolver(p.cfg.getResolver())
-	sess, err := session.NewSessionWithOptions(session.Options{
-		Config:            *awsConfig,
-		SharedConfigState: session.SharedConfigEnable,
+	if err != nil {
+		return nil, fmt.Errorf("unable to initialize AWS config: %v", err)
+	}
+
+	p.AddMiddleware(ctx, regionName, &cfg)
+	var opts []func(*ec2.Options) = p.cfg.GetEC2EndpointOpts(regionName)
+	opts = append(opts, func(o *ec2.Options) {
+		o.Retryer = &customRetryer{
+			retry.NewStandard(),
+		}
+		o.EndpointResolverV2 = p.cfg.GetCustomEC2Resolver()
 	})
 
-	if err != nil {
-		return nil, fmt.Errorf("unable to initialize AWS session: %v", err)
-	}
-	service := ec2.New(sess)
-
-	p.addHandlers(regionName, &service.Handlers)
+	ec2Client := ec2.NewFromConfig(cfg, opts...)
 
 	ec2 := &awsSdkEC2{
-		ec2: service,
+		ec2: ec2Client,
 	}
 	return ec2, nil
 }
 
-func (p *awsSDKProvider) LoadBalancing(regionName string) (ELB, error) {
-	awsConfig := &aws.Config{
-		Region:      &regionName,
-		Credentials: p.creds,
+func (p *awsSDKProvider) LoadBalancing(ctx context.Context, regionName string, assumeRoleProvider *stscredsv2.AssumeRoleProvider) (ELB, error) {
+	cfg, err := awsConfig.LoadDefaultConfig(ctx, awsConfig.WithDefaultsMode(aws.DefaultsModeInRegion),
+		awsConfig.WithRegion(regionName),
+	)
+	if assumeRoleProvider != nil {
+		cfg.Credentials = aws.NewCredentialsCache(assumeRoleProvider)
 	}
-	awsConfig = awsConfig.WithCredentialsChainVerboseErrors(true).
-		WithEndpointResolver(p.cfg.getResolver())
-	sess, err := session.NewSessionWithOptions(session.Options{
-		Config:            *awsConfig,
-		SharedConfigState: session.SharedConfigEnable,
-	})
 	if err != nil {
-		return nil, fmt.Errorf("unable to initialize AWS session: %v", err)
+		return nil, fmt.Errorf("unable to initialize AWS config: %v", err)
 	}
-	elbClient := elb.New(sess)
-	p.addHandlers(regionName, &elbClient.Handlers)
+
+	p.AddMiddleware(ctx, regionName, &cfg)
+	var opts []func(*elb.Options) = p.cfg.GetELBEndpointOpts(regionName)
+	opts = append(opts, func(o *elb.Options) {
+		o.Retryer = &customRetryer{
+			retry.NewStandard(),
+		}
+		o.EndpointResolverV2 = p.cfg.GetCustomELBResolver()
+	})
+
+	elbClient := elb.NewFromConfig(cfg, opts...)
 
 	return elbClient, nil
 }
 
-func (p *awsSDKProvider) LoadBalancingV2(regionName string) (ELBV2, error) {
-	awsConfig := &aws.Config{
-		Region:      &regionName,
-		Credentials: p.creds,
+func (p *awsSDKProvider) LoadBalancingV2(ctx context.Context, regionName string, assumeRoleProvider *stscredsv2.AssumeRoleProvider) (ELBV2, error) {
+	cfg, err := awsConfig.LoadDefaultConfig(ctx, awsConfig.WithDefaultsMode(aws.DefaultsModeInRegion),
+		awsConfig.WithRegion(regionName),
+	)
+	if assumeRoleProvider != nil {
+		cfg.Credentials = aws.NewCredentialsCache(assumeRoleProvider)
 	}
-	awsConfig = awsConfig.WithCredentialsChainVerboseErrors(true).
-		WithEndpointResolver(p.cfg.getResolver())
-	sess, err := session.NewSessionWithOptions(session.Options{
-		Config:            *awsConfig,
-		SharedConfigState: session.SharedConfigEnable,
-	})
 	if err != nil {
-		return nil, fmt.Errorf("unable to initialize AWS session: %v", err)
+		return nil, fmt.Errorf("unable to initialize AWS config: %v", err)
 	}
-	elbClient := elbv2.New(sess)
 
-	p.addHandlers(regionName, &elbClient.Handlers)
+	p.AddMiddleware(ctx, regionName, &cfg)
+	var opts []func(*elbv2.Options) = p.cfg.GetELBV2EndpointOpts(regionName)
+	opts = append(opts, func(o *elbv2.Options) {
+		o.Retryer = &customRetryer{
+			retry.NewStandard(),
+		}
+		o.EndpointResolverV2 = p.cfg.GetCustomELBV2Resolver()
+	})
 
-	return elbClient, nil
+	elbv2Client := elbv2.NewFromConfig(cfg, opts...)
+
+	return elbv2Client, nil
 }
 
-func (p *awsSDKProvider) Autoscaling(regionName string) (ASG, error) {
-	awsConfig := &aws.Config{
-		Region:      &regionName,
-		Credentials: p.creds,
+func (p *awsSDKProvider) Autoscaling(ctx context.Context, regionName string, assumeRoleProvider *stscredsv2.AssumeRoleProvider) (ASG, error) {
+	cfg, err := awsConfig.LoadDefaultConfig(ctx, awsConfig.WithDefaultsMode(aws.DefaultsModeInRegion),
+		awsConfig.WithRegion(regionName),
+	)
+	if assumeRoleProvider != nil {
+		cfg.Credentials = aws.NewCredentialsCache(assumeRoleProvider)
 	}
-	awsConfig = awsConfig.WithCredentialsChainVerboseErrors(true).
-		WithEndpointResolver(p.cfg.getResolver())
-	sess, err := session.NewSessionWithOptions(session.Options{
-		Config:            *awsConfig,
-		SharedConfigState: session.SharedConfigEnable,
-	})
 	if err != nil {
-		return nil, fmt.Errorf("unable to initialize AWS session: %v", err)
+		return nil, fmt.Errorf("unable to initialize AWS config: %v", err)
 	}
-	client := autoscaling.New(sess)
 
-	p.addHandlers(regionName, &client.Handlers)
+	p.AddMiddleware(ctx, regionName, &cfg)
+	var opts []func(*autoscaling.Options) = p.cfg.GetAutoscalingEndpointOpts(regionName)
+	opts = append(opts, func(o *autoscaling.Options) {
+		o.Retryer = &customRetryer{
+			retry.NewStandard(),
+		}
+		o.EndpointResolverV2 = p.cfg.GetCustomAutoscalingResolver()
+	})
 
-	return client, nil
+	autoscalingClient := autoscaling.NewFromConfig(cfg, opts...)
+
+	return autoscalingClient, nil
 }
 
-func (p *awsSDKProvider) Metadata() (EC2Metadata, error) {
-	sess, err := session.NewSession(&aws.Config{
-		EndpointResolver: p.cfg.getResolver(),
-	})
+func (p *awsSDKProvider) Metadata(ctx context.Context) (EC2Metadata, error) {
+	cfg, err := awsConfig.LoadDefaultConfig(context.TODO(), awsConfig.WithDefaultsMode(aws.DefaultsModeInRegion))
 	if err != nil {
-		return nil, fmt.Errorf("unable to initialize AWS session: %v", err)
+		return nil, fmt.Errorf("unable to initialize AWS config: %v", err)
 	}
-	client := ec2metadata.New(sess)
-	p.addAPILoggingHandlers(&client.Handlers)
-	return client, nil
+
+	p.addAPILoggingMiddleware(&cfg)
+
+	// Unlike other SDK clients, the IMDS client does not support signing, so any overrides of the signing region and name
+	// from awsSDKProvider.cfg will not be recognized.
+	// Standard SDK clients use SigV4: https://docs.aws.amazon.com/IAM/latest/UserGuide/reference_sigv-create-signed-request.html
+	// But IMDS uses a different request pattern: https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/configuring-instance-metadata-service.html
+	var opts []func(*imds.Options) = p.cfg.GetIMDSEndpointOpts()
+	imdsClient := imds.NewFromConfig(cfg, opts...)
+
+	return imdsClient, nil
 }
 
-func (p *awsSDKProvider) KeyManagement(regionName string) (KMS, error) {
-	awsConfig := &aws.Config{
-		Region:      &regionName,
-		Credentials: p.creds,
+func (p *awsSDKProvider) KeyManagement(ctx context.Context, regionName string, assumeRoleProvider *stscredsv2.AssumeRoleProvider) (KMS, error) {
+	cfg, err := awsConfig.LoadDefaultConfig(ctx, awsConfig.WithDefaultsMode(aws.DefaultsModeInRegion),
+		awsConfig.WithRegion(regionName),
+	)
+	if assumeRoleProvider != nil {
+		cfg.Credentials = aws.NewCredentialsCache(assumeRoleProvider)
 	}
-	awsConfig = awsConfig.WithCredentialsChainVerboseErrors(true).
-		WithEndpointResolver(p.cfg.getResolver())
-	sess, err := session.NewSessionWithOptions(session.Options{
-		Config:            *awsConfig,
-		SharedConfigState: session.SharedConfigEnable,
-	})
 	if err != nil {
-		return nil, fmt.Errorf("unable to initialize AWS session: %v", err)
+		return nil, fmt.Errorf("unable to initialize AWS config: %v", err)
 	}
-	kmsClient := kms.New(sess)
 
-	p.addHandlers(regionName, &kmsClient.Handlers)
+	p.AddMiddleware(ctx, regionName, &cfg)
+	var opts []func(*kms.Options) = p.cfg.GetKMSEndpointOpts(regionName)
+	opts = append(opts, func(o *kms.Options) {
+		o.Retryer = &customRetryer{
+			retry.NewStandard(),
+		}
+		o.EndpointResolverV2 = p.cfg.GetCustomKMSResolver()
+	})
+
+	kmsClient := kms.NewFromConfig(cfg, opts...)
 
 	return kmsClient, nil
 }
 
-func newEc2Filter(name string, values ...string) *ec2.Filter {
-	filter := &ec2.Filter{
+func newEc2Filter(name string, values ...string) ec2types.Filter {
+	filter := ec2types.Filter{
 		Name: aws.String(name),
 	}
 	for _, value := range values {
-		filter.Values = append(filter.Values, aws.String(value))
+		filter.Values = append(filter.Values, value)
 	}
 	return filter
 }
@@ -1017,20 +1014,20 @@ func (c *Cloud) CurrentNodeName(ctx context.Context, hostname string) (types.Nod
 }
 
 // Implementation of EC2.Instances
-func (s *awsSdkEC2) DescribeInstances(request *ec2.DescribeInstancesInput) ([]*ec2.Instance, error) {
+func (s *awsSdkEC2) DescribeInstances(ctx context.Context, request *ec2.DescribeInstancesInput, optFns ...func(*ec2.Options)) ([]ec2types.Instance, error) {
 	// Instances are paged
-	results := []*ec2.Instance{}
+	results := []ec2types.Instance{}
 	var nextToken *string
 	requestTime := time.Now()
 
 	if request.MaxResults == nil && len(request.InstanceIds) == 0 {
 		// MaxResults must be set in order for pagination to work
 		// MaxResults cannot be set with InstanceIds
-		request.MaxResults = aws.Int64(1000)
+		request.MaxResults = aws.Int32(1000)
 	}
 
 	for {
-		response, err := s.ec2.DescribeInstances(request)
+		response, err := s.ec2.DescribeInstances(ctx, request, optFns...)
 		if err != nil {
 			recordAWSMetric("describe_instance", 0, err)
 			return nil, fmt.Errorf("error listing AWS instances: %q", err)
@@ -1041,7 +1038,7 @@ func (s *awsSdkEC2) DescribeInstances(request *ec2.DescribeInstancesInput) ([]*e
 		}
 
 		nextToken = response.NextToken
-		if aws.StringValue(nextToken) == "" {
+		if aws.ToString(nextToken) == "" {
 			break
 		}
 		request.NextToken = nextToken
@@ -1052,22 +1049,22 @@ func (s *awsSdkEC2) DescribeInstances(request *ec2.DescribeInstancesInput) ([]*e
 }
 
 // DescribeNetworkInterfaces describes network interface provided in the input.
-func (s *awsSdkEC2) DescribeNetworkInterfaces(input *ec2.DescribeNetworkInterfacesInput) (*ec2.DescribeNetworkInterfacesOutput, error) {
+func (s *awsSdkEC2) DescribeNetworkInterfaces(ctx context.Context, input *ec2.DescribeNetworkInterfacesInput, optFns ...func(*ec2.Options)) (*ec2.DescribeNetworkInterfacesOutput, error) {
 	requestTime := time.Now()
-	resp, err := s.ec2.DescribeNetworkInterfaces(input)
+	resp, err := s.ec2.DescribeNetworkInterfaces(ctx, input, optFns...)
 	timeTaken := time.Since(requestTime).Seconds()
 	recordAWSMetric("describe_network_interfaces", timeTaken, err)
 	return resp, err
 }
 
 // Implements EC2.DescribeSecurityGroups
-func (s *awsSdkEC2) DescribeSecurityGroups(request *ec2.DescribeSecurityGroupsInput) ([]*ec2.SecurityGroup, error) {
+func (s *awsSdkEC2) DescribeSecurityGroups(ctx context.Context, request *ec2.DescribeSecurityGroupsInput, optFns ...func(*ec2.Options)) ([]ec2types.SecurityGroup, error) {
 	// Security groups are paged
-	results := []*ec2.SecurityGroup{}
+	results := []ec2types.SecurityGroup{}
 	var nextToken *string
 	requestTime := time.Now()
 	for {
-		response, err := s.ec2.DescribeSecurityGroups(request)
+		response, err := s.ec2.DescribeSecurityGroups(ctx, request, optFns...)
 		if err != nil {
 			recordAWSMetric("describe_security_groups", 0, err)
 			return nil, fmt.Errorf("error listing AWS security groups: %q", err)
@@ -1076,7 +1073,7 @@ func (s *awsSdkEC2) DescribeSecurityGroups(request *ec2.DescribeSecurityGroupsIn
 		results = append(results, response.SecurityGroups...)
 
 		nextToken = response.NextToken
-		if aws.StringValue(nextToken) == "" {
+		if aws.ToString(nextToken) == "" {
 			break
 		}
 		request.NextToken = nextToken
@@ -1086,29 +1083,29 @@ func (s *awsSdkEC2) DescribeSecurityGroups(request *ec2.DescribeSecurityGroupsIn
 	return results, nil
 }
 
-func (s *awsSdkEC2) AttachVolume(request *ec2.AttachVolumeInput) (*ec2.VolumeAttachment, error) {
+func (s *awsSdkEC2) AttachVolume(ctx context.Context, request *ec2.AttachVolumeInput, optFns ...func(*ec2.Options)) (*ec2.AttachVolumeOutput, error) {
 	requestTime := time.Now()
-	resp, err := s.ec2.AttachVolume(request)
+	resp, err := s.ec2.AttachVolume(ctx, request, optFns...)
 	timeTaken := time.Since(requestTime).Seconds()
 	recordAWSMetric("attach_volume", timeTaken, err)
 	return resp, err
 }
 
-func (s *awsSdkEC2) DetachVolume(request *ec2.DetachVolumeInput) (*ec2.VolumeAttachment, error) {
+func (s *awsSdkEC2) DetachVolume(ctx context.Context, request *ec2.DetachVolumeInput, optFns ...func(*ec2.Options)) (*ec2.DetachVolumeOutput, error) {
 	requestTime := time.Now()
-	resp, err := s.ec2.DetachVolume(request)
+	resp, err := s.ec2.DetachVolume(ctx, request, optFns...)
 	timeTaken := time.Since(requestTime).Seconds()
 	recordAWSMetric("detach_volume", timeTaken, err)
 	return resp, err
 }
 
-func (s *awsSdkEC2) DescribeVolumes(request *ec2.DescribeVolumesInput) ([]*ec2.Volume, error) {
+func (s *awsSdkEC2) DescribeVolumes(ctx context.Context, request *ec2.DescribeVolumesInput, optFns ...func(*ec2.Options)) ([]ec2types.Volume, error) {
 	// Volumes are paged
-	results := []*ec2.Volume{}
+	results := []ec2types.Volume{}
 	var nextToken *string
 	requestTime := time.Now()
 	for {
-		response, err := s.ec2.DescribeVolumes(request)
+		response, err := s.ec2.DescribeVolumes(ctx, request, optFns...)
 
 		if err != nil {
 			recordAWSMetric("describe_volume", 0, err)
@@ -1118,7 +1115,7 @@ func (s *awsSdkEC2) DescribeVolumes(request *ec2.DescribeVolumesInput) ([]*ec2.V
 		results = append(results, response.Volumes...)
 
 		nextToken = response.NextToken
-		if aws.StringValue(nextToken) == "" {
+		if aws.ToString(nextToken) == "" {
 			break
 		}
 		request.NextToken = nextToken
@@ -1128,43 +1125,43 @@ func (s *awsSdkEC2) DescribeVolumes(request *ec2.DescribeVolumesInput) ([]*ec2.V
 	return results, nil
 }
 
-func (s *awsSdkEC2) CreateVolume(request *ec2.CreateVolumeInput) (*ec2.Volume, error) {
+func (s *awsSdkEC2) CreateVolume(ctx context.Context, request *ec2.CreateVolumeInput, optFns ...func(*ec2.Options)) (*ec2.CreateVolumeOutput, error) {
 	requestTime := time.Now()
-	resp, err := s.ec2.CreateVolume(request)
+	resp, err := s.ec2.CreateVolume(ctx, request, optFns...)
 	timeTaken := time.Since(requestTime).Seconds()
 	recordAWSMetric("create_volume", timeTaken, err)
 	return resp, err
 }
 
-func (s *awsSdkEC2) DeleteVolume(request *ec2.DeleteVolumeInput) (*ec2.DeleteVolumeOutput, error) {
+func (s *awsSdkEC2) DeleteVolume(ctx context.Context, request *ec2.DeleteVolumeInput, optFns ...func(*ec2.Options)) (*ec2.DeleteVolumeOutput, error) {
 	requestTime := time.Now()
-	resp, err := s.ec2.DeleteVolume(request)
+	resp, err := s.ec2.DeleteVolume(ctx, request, optFns...)
 	timeTaken := time.Since(requestTime).Seconds()
 	recordAWSMetric("delete_volume", timeTaken, err)
 	return resp, err
 }
 
-func (s *awsSdkEC2) ModifyVolume(request *ec2.ModifyVolumeInput) (*ec2.ModifyVolumeOutput, error) {
+func (s *awsSdkEC2) ModifyVolume(ctx context.Context, request *ec2.ModifyVolumeInput, optFns ...func(*ec2.Options)) (*ec2.ModifyVolumeOutput, error) {
 	requestTime := time.Now()
-	resp, err := s.ec2.ModifyVolume(request)
+	resp, err := s.ec2.ModifyVolume(ctx, request, optFns...)
 	timeTaken := time.Since(requestTime).Seconds()
 	recordAWSMetric("modify_volume", timeTaken, err)
 	return resp, err
 }
 
-func (s *awsSdkEC2) DescribeVolumeModifications(request *ec2.DescribeVolumesModificationsInput) ([]*ec2.VolumeModification, error) {
+func (s *awsSdkEC2) DescribeVolumeModifications(ctx context.Context, request *ec2.DescribeVolumesModificationsInput, optFns ...func(*ec2.Options)) ([]ec2types.VolumeModification, error) {
 	requestTime := time.Now()
-	results := []*ec2.VolumeModification{}
+	results := []ec2types.VolumeModification{}
 	var nextToken *string
 	for {
-		resp, err := s.ec2.DescribeVolumesModifications(request)
+		resp, err := s.ec2.DescribeVolumesModifications(ctx, request, optFns...)
 		if err != nil {
 			recordAWSMetric("describe_volume_modification", 0, err)
 			return nil, fmt.Errorf("error listing volume modifictions : %v", err)
 		}
 		results = append(results, resp.VolumesModifications...)
 		nextToken = resp.NextToken
-		if aws.StringValue(nextToken) == "" {
+		if aws.ToString(nextToken) == "" {
 			break
 		}
 		request.NextToken = nextToken
@@ -1174,62 +1171,62 @@ func (s *awsSdkEC2) DescribeVolumeModifications(request *ec2.DescribeVolumesModi
 	return results, nil
 }
 
-func (s *awsSdkEC2) DescribeSubnets(request *ec2.DescribeSubnetsInput) ([]*ec2.Subnet, error) {
+func (s *awsSdkEC2) DescribeSubnets(ctx context.Context, request *ec2.DescribeSubnetsInput, optFns ...func(*ec2.Options)) ([]ec2types.Subnet, error) {
 	// Subnets are not paged
-	response, err := s.ec2.DescribeSubnets(request)
+	response, err := s.ec2.DescribeSubnets(ctx, request, optFns...)
 	if err != nil {
 		return nil, fmt.Errorf("error listing AWS subnets: %q", err)
 	}
 	return response.Subnets, nil
 }
 
-func (s *awsSdkEC2) DescribeAvailabilityZones(request *ec2.DescribeAvailabilityZonesInput) ([]*ec2.AvailabilityZone, error) {
+func (s *awsSdkEC2) DescribeAvailabilityZones(ctx context.Context, request *ec2.DescribeAvailabilityZonesInput, optFns ...func(*ec2.Options)) ([]ec2types.AvailabilityZone, error) {
 	// AZs are not paged
-	response, err := s.ec2.DescribeAvailabilityZones(request)
+	response, err := s.ec2.DescribeAvailabilityZones(ctx, request, optFns...)
 	if err != nil {
 		return nil, fmt.Errorf("error listing AWS availability zones: %q", err)
 	}
 	return response.AvailabilityZones, err
 }
 
-func (s *awsSdkEC2) CreateSecurityGroup(request *ec2.CreateSecurityGroupInput) (*ec2.CreateSecurityGroupOutput, error) {
-	return s.ec2.CreateSecurityGroup(request)
+func (s *awsSdkEC2) CreateSecurityGroup(ctx context.Context, request *ec2.CreateSecurityGroupInput, optFns ...func(*ec2.Options)) (*ec2.CreateSecurityGroupOutput, error) {
+	return s.ec2.CreateSecurityGroup(ctx, request, optFns...)
 }
 
-func (s *awsSdkEC2) DeleteSecurityGroup(request *ec2.DeleteSecurityGroupInput) (*ec2.DeleteSecurityGroupOutput, error) {
-	return s.ec2.DeleteSecurityGroup(request)
+func (s *awsSdkEC2) DeleteSecurityGroup(ctx context.Context, request *ec2.DeleteSecurityGroupInput, optFns ...func(*ec2.Options)) (*ec2.DeleteSecurityGroupOutput, error) {
+	return s.ec2.DeleteSecurityGroup(ctx, request, optFns...)
 }
 
-func (s *awsSdkEC2) AuthorizeSecurityGroupIngress(request *ec2.AuthorizeSecurityGroupIngressInput) (*ec2.AuthorizeSecurityGroupIngressOutput, error) {
-	return s.ec2.AuthorizeSecurityGroupIngress(request)
+func (s *awsSdkEC2) AuthorizeSecurityGroupIngress(ctx context.Context, request *ec2.AuthorizeSecurityGroupIngressInput, optFns ...func(*ec2.Options)) (*ec2.AuthorizeSecurityGroupIngressOutput, error) {
+	return s.ec2.AuthorizeSecurityGroupIngress(ctx, request, optFns...)
 }
 
-func (s *awsSdkEC2) RevokeSecurityGroupIngress(request *ec2.RevokeSecurityGroupIngressInput) (*ec2.RevokeSecurityGroupIngressOutput, error) {
-	return s.ec2.RevokeSecurityGroupIngress(request)
+func (s *awsSdkEC2) RevokeSecurityGroupIngress(ctx context.Context, request *ec2.RevokeSecurityGroupIngressInput, optFns ...func(*ec2.Options)) (*ec2.RevokeSecurityGroupIngressOutput, error) {
+	return s.ec2.RevokeSecurityGroupIngress(ctx, request, optFns...)
 }
 
-func (s *awsSdkEC2) CreateTags(request *ec2.CreateTagsInput) (*ec2.CreateTagsOutput, error) {
+func (s *awsSdkEC2) CreateTags(ctx context.Context, request *ec2.CreateTagsInput, optFns ...func(*ec2.Options)) (*ec2.CreateTagsOutput, error) {
 	requestTime := time.Now()
-	resp, err := s.ec2.CreateTags(request)
+	resp, err := s.ec2.CreateTags(ctx, request, optFns...)
 	timeTaken := time.Since(requestTime).Seconds()
 	recordAWSMetric("create_tags", timeTaken, err)
 	return resp, err
 }
 
-func (s *awsSdkEC2) DeleteTags(request *ec2.DeleteTagsInput) (*ec2.DeleteTagsOutput, error) {
+func (s *awsSdkEC2) DeleteTags(ctx context.Context, request *ec2.DeleteTagsInput, optFns ...func(*ec2.Options)) (*ec2.DeleteTagsOutput, error) {
 	requestTime := time.Now()
-	resp, err := s.ec2.DeleteTags(request)
+	resp, err := s.ec2.DeleteTags(ctx, request, optFns...)
 	timeTaken := time.Since(requestTime).Seconds()
 	recordAWSMetric("delete_tags", timeTaken, err)
 	return resp, err
 }
 
-func (s *awsSdkEC2) DescribeRouteTables(request *ec2.DescribeRouteTablesInput) ([]*ec2.RouteTable, error) {
-	results := []*ec2.RouteTable{}
+func (s *awsSdkEC2) DescribeRouteTables(ctx context.Context, request *ec2.DescribeRouteTablesInput, optFns ...func(*ec2.Options)) ([]ec2types.RouteTable, error) {
+	results := []ec2types.RouteTable{}
 	var nextToken *string
 	requestTime := time.Now()
 	for {
-		response, err := s.ec2.DescribeRouteTables(request)
+		response, err := s.ec2.DescribeRouteTables(ctx, request, optFns...)
 		if err != nil {
 			recordAWSMetric("describe_route_tables", 0, err)
 			return nil, fmt.Errorf("error listing AWS route tables: %q", err)
@@ -1238,7 +1235,7 @@ func (s *awsSdkEC2) DescribeRouteTables(request *ec2.DescribeRouteTablesInput) (
 		results = append(results, response.RouteTables...)
 
 		nextToken = response.NextToken
-		if aws.StringValue(nextToken) == "" {
+		if aws.ToString(nextToken) == "" {
 			break
 		}
 		request.NextToken = nextToken
@@ -1248,25 +1245,27 @@ func (s *awsSdkEC2) DescribeRouteTables(request *ec2.DescribeRouteTablesInput) (
 	return results, nil
 }
 
-func (s *awsSdkEC2) CreateRoute(request *ec2.CreateRouteInput) (*ec2.CreateRouteOutput, error) {
-	return s.ec2.CreateRoute(request)
+func (s *awsSdkEC2) CreateRoute(ctx context.Context, request *ec2.CreateRouteInput, optFns ...func(*ec2.Options)) (*ec2.CreateRouteOutput, error) {
+	return s.ec2.CreateRoute(ctx, request, optFns...)
 }
 
-func (s *awsSdkEC2) DeleteRoute(request *ec2.DeleteRouteInput) (*ec2.DeleteRouteOutput, error) {
-	return s.ec2.DeleteRoute(request)
+func (s *awsSdkEC2) DeleteRoute(ctx context.Context, request *ec2.DeleteRouteInput, optFns ...func(*ec2.Options)) (*ec2.DeleteRouteOutput, error) {
+	return s.ec2.DeleteRoute(ctx, request, optFns...)
 }
 
-func (s *awsSdkEC2) ModifyInstanceAttribute(request *ec2.ModifyInstanceAttributeInput) (*ec2.ModifyInstanceAttributeOutput, error) {
-	return s.ec2.ModifyInstanceAttribute(request)
+func (s *awsSdkEC2) ModifyInstanceAttribute(ctx context.Context, request *ec2.ModifyInstanceAttributeInput, optFns ...func(*ec2.Options)) (*ec2.ModifyInstanceAttributeOutput, error) {
+	return s.ec2.ModifyInstanceAttribute(ctx, request, optFns...)
 }
 
-func (s *awsSdkEC2) DescribeVpcs(request *ec2.DescribeVpcsInput) (*ec2.DescribeVpcsOutput, error) {
-	return s.ec2.DescribeVpcs(request)
+func (s *awsSdkEC2) DescribeVpcs(ctx context.Context, request *ec2.DescribeVpcsInput, optFns ...func(*ec2.Options)) (*ec2.DescribeVpcsOutput, error) {
+	return s.ec2.DescribeVpcs(ctx, request, optFns...)
 }
 
 func init() {
 	registerMetrics()
 	cloudprovider.RegisterCloudProvider(ProviderName, func(config io.Reader) (cloudprovider.Interface, error) {
+		ctx := context.Background()
+
 		cfg, err := readAWSCloudConfig(config)
 		if err != nil {
 			return nil, fmt.Errorf("unable to read AWS cloud provider config file: %v", err)
@@ -1276,63 +1275,28 @@ func init() {
 			return nil, fmt.Errorf("unable to validate custom endpoint overrides: %v", err)
 		}
 
-		metadata, err := newAWSSDKProvider(nil, cfg).Metadata()
+		metadata, err := newAWSSDKProvider(nil, cfg).Metadata(ctx)
 		if err != nil {
 			return nil, fmt.Errorf("error creating AWS metadata client: %q", err)
 		}
 
-		regionName, err := getRegionFromMetadata(*cfg, metadata)
+		regionName, err := getRegionFromMetadata(ctx, *cfg, metadata)
 		if err != nil {
 			return nil, err
 		}
 
-		sess, err := session.NewSessionWithOptions(session.Options{
-			Config:            *aws.NewConfig().WithRegion(regionName).WithSTSRegionalEndpoint(endpoints.RegionalSTSEndpoint),
-			SharedConfigState: session.SharedConfigEnable,
-		})
-		if err != nil {
-			return nil, fmt.Errorf("unable to initialize AWS session: %v", err)
-		}
-
-		var creds *credentials.Credentials
+		var creds *stscreds.AssumeRoleProvider
 		if cfg.Global.RoleARN != "" {
-			stsClient, err := getSTSClient(sess, cfg.Global.RoleARN, cfg.Global.SourceARN)
+			stsClient, err := services.NewStsClient(ctx, regionName, cfg.Global.RoleARN, cfg.Global.SourceARN)
 			if err != nil {
-				return nil, fmt.Errorf("unable to create sts client, %v", err)
+				return nil, fmt.Errorf("unable to create sts v2 client: %v", err)
 			}
-			creds = credentials.NewChainCredentials(
-				[]credentials.Provider{
-					&credentials.EnvProvider{},
-					assumeRoleProvider(&stscreds.AssumeRoleProvider{
-						Client:  stsClient,
-						RoleARN: cfg.Global.RoleARN,
-					}),
-				})
+			creds = stscreds.NewAssumeRoleProvider(stsClient, cfg.Global.RoleARN)
 		}
 
 		aws := newAWSSDKProvider(creds, cfg)
-		return newAWSCloud(*cfg, aws)
+		return newAWSCloud(*cfg, aws, creds)
 	})
-}
-
-func getSTSClient(sess *session.Session, roleARN, sourceARN string) (*sts.STS, error) {
-	klog.Infof("Using AWS assumed role %v", roleARN)
-	stsClient := sts.New(sess)
-	sourceAcct, err := GetSourceAccount(roleARN)
-	if err != nil {
-		return nil, err
-	}
-	reqHeaders := map[string]string{
-		headerSourceAccount: sourceAcct,
-	}
-	if sourceARN != "" {
-		reqHeaders[headerSourceArn] = sourceARN
-	}
-	stsClient.Handlers.Sign.PushFront(func(s *request.Request) {
-		s.ApplyOptions(request.WithSetRequestHeaders(reqHeaders))
-	})
-	klog.V(4).Infof("configuring STS client with extra headers, %v", reqHeaders)
-	return stsClient, nil
 }
 
 // readAWSCloudConfig reads an instance of AWSCloudConfig from config reader.
@@ -1368,42 +1332,43 @@ func azToRegion(az string) (string, error) {
 
 // newAWSCloud creates a new instance of AWSCloud.
 // AWSProvider and instanceId are primarily for tests
-func newAWSCloud(cfg CloudConfig, awsServices Services) (*Cloud, error) {
+func newAWSCloud(cfg CloudConfig, awsServices Services, credentials *stscreds.AssumeRoleProvider) (*Cloud, error) {
+	ctx := context.Background()
 	// We have some state in the Cloud object - in particular the attaching map
 	// Log so that if we are building multiple Cloud objects, it is obvious!
 	klog.Infof("Building AWS cloudprovider")
 
-	metadata, err := awsServices.Metadata()
+	metadata, err := awsServices.Metadata(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("error creating AWS metadata client: %q", err)
 	}
 
-	regionName, err := getRegionFromMetadata(cfg, metadata)
+	regionName, err := getRegionFromMetadata(ctx, cfg, metadata)
 	if err != nil {
 		return nil, err
 	}
 
-	ec2, err := awsServices.Compute(regionName)
+	ec2, err := awsServices.Compute(ctx, regionName, credentials)
 	if err != nil {
 		return nil, fmt.Errorf("error creating AWS EC2 client: %v", err)
 	}
 
-	elb, err := awsServices.LoadBalancing(regionName)
+	elb, err := awsServices.LoadBalancing(ctx, regionName, credentials)
 	if err != nil {
 		return nil, fmt.Errorf("error creating AWS ELB client: %v", err)
 	}
 
-	elbv2, err := awsServices.LoadBalancingV2(regionName)
+	elbv2, err := awsServices.LoadBalancingV2(ctx, regionName, credentials)
 	if err != nil {
 		return nil, fmt.Errorf("error creating AWS ELBV2 client: %v", err)
 	}
 
-	asg, err := awsServices.Autoscaling(regionName)
+	asg, err := awsServices.Autoscaling(ctx, regionName, credentials)
 	if err != nil {
 		return nil, fmt.Errorf("error creating AWS autoscaling client: %v", err)
 	}
 
-	kms, err := awsServices.KeyManagement(regionName)
+	kms, err := awsServices.KeyManagement(ctx, regionName, credentials)
 	if err != nil {
 		return nil, fmt.Errorf("error creating AWS key management client: %v", err)
 	}
@@ -1435,7 +1400,7 @@ func newAWSCloud(cfg CloudConfig, awsServices Services) (*Cloud, error) {
 		}
 		awsCloud.vpcID = cfg.Global.VPC
 	} else {
-		selfAWSInstance, err := awsCloud.buildSelfAWSInstance()
+		selfAWSInstance, err := awsCloud.buildSelfAWSInstance(ctx)
 		if err != nil {
 			return nil, err
 		}
@@ -1449,7 +1414,7 @@ func newAWSCloud(cfg CloudConfig, awsServices Services) (*Cloud, error) {
 		}
 	} else {
 		// TODO: Clean up double-API query
-		info, err := awsCloud.selfAWSInstance.describeInstance()
+		info, err := awsCloud.selfAWSInstance.describeInstance(ctx)
 		if err != nil {
 			return nil, err
 		}
@@ -1468,7 +1433,7 @@ func newAWSCloud(cfg CloudConfig, awsServices Services) (*Cloud, error) {
 
 // NewAWSCloud calls and return new aws cloud from newAWSCloud with the supplied configuration
 func NewAWSCloud(cfg CloudConfig, awsServices Services) (*Cloud, error) {
-	return newAWSCloud(cfg, awsServices)
+	return newAWSCloud(cfg, awsServices, nil)
 }
 
 // Initialize passes a Kubernetes clientBuilder interface to the cloud provider
@@ -1533,7 +1498,7 @@ func (c *Cloud) NodeAddresses(ctx context.Context, name types.NodeName) ([]v1.No
 
 // extractIPv4NodeAddresses maps the instance information from EC2 to an array of NodeAddresses.
 // This function will extract private and public IP addresses and their corresponding DNS names.
-func extractIPv4NodeAddresses(instance *ec2.Instance) ([]v1.NodeAddress, error) {
+func extractIPv4NodeAddresses(instance *ec2types.Instance) ([]v1.NodeAddress, error) {
 	// Not clear if the order matters here, but we might as well indicate a sensible preference order
 
 	if instance == nil {
@@ -1552,21 +1517,21 @@ func extractIPv4NodeAddresses(instance *ec2.Instance) ([]v1.NodeAddress, error) 
 			return true
 		}
 
-		return aws.Int64Value(instance.NetworkInterfaces[i].Attachment.DeviceIndex) < aws.Int64Value(instance.NetworkInterfaces[j].Attachment.DeviceIndex)
+		return aws.ToInt32(instance.NetworkInterfaces[i].Attachment.DeviceIndex) < aws.ToInt32(instance.NetworkInterfaces[j].Attachment.DeviceIndex)
 	})
 
 	// handle internal network interfaces
 	for _, networkInterface := range instance.NetworkInterfaces {
 		// skip network interfaces that are not currently in use
-		if aws.StringValue(networkInterface.Status) != ec2.NetworkInterfaceStatusInUse {
+		if networkInterface.Status != ec2types.NetworkInterfaceStatusInUse {
 			continue
 		}
 
 		for _, internalIP := range networkInterface.PrivateIpAddresses {
-			if ipAddress := aws.StringValue(internalIP.PrivateIpAddress); ipAddress != "" {
+			if ipAddress := aws.ToString(internalIP.PrivateIpAddress); ipAddress != "" {
 				ip := netutils.ParseIPSloppy(ipAddress)
 				if ip == nil {
-					return nil, fmt.Errorf("EC2 instance had invalid private address: %s (%q)", aws.StringValue(instance.InstanceId), ipAddress)
+					return nil, fmt.Errorf("EC2 instance had invalid private address: %s (%q)", aws.ToString(instance.InstanceId), ipAddress)
 				}
 				addresses = append(addresses, v1.NodeAddress{Type: v1.NodeInternalIP, Address: ip.String()})
 			}
@@ -1574,22 +1539,22 @@ func extractIPv4NodeAddresses(instance *ec2.Instance) ([]v1.NodeAddress, error) 
 	}
 
 	// TODO: Other IP addresses (multiple ips)?
-	publicIPAddress := aws.StringValue(instance.PublicIpAddress)
+	publicIPAddress := aws.ToString(instance.PublicIpAddress)
 	if publicIPAddress != "" {
 		ip := netutils.ParseIPSloppy(publicIPAddress)
 		if ip == nil {
-			return nil, fmt.Errorf("EC2 instance had invalid public address: %s (%s)", aws.StringValue(instance.InstanceId), publicIPAddress)
+			return nil, fmt.Errorf("EC2 instance had invalid public address: %s (%s)", aws.ToString(instance.InstanceId), publicIPAddress)
 		}
 		addresses = append(addresses, v1.NodeAddress{Type: v1.NodeExternalIP, Address: ip.String()})
 	}
 
-	privateDNSName := aws.StringValue(instance.PrivateDnsName)
+	privateDNSName := aws.ToString(instance.PrivateDnsName)
 	if privateDNSName != "" {
 		addresses = append(addresses, v1.NodeAddress{Type: v1.NodeInternalDNS, Address: privateDNSName})
 		addresses = append(addresses, v1.NodeAddress{Type: v1.NodeHostName, Address: privateDNSName})
 	}
 
-	publicDNSName := aws.StringValue(instance.PublicDnsName)
+	publicDNSName := aws.ToString(instance.PublicDnsName)
 	if publicDNSName != "" {
 		addresses = append(addresses, v1.NodeAddress{Type: v1.NodeExternalDNS, Address: publicDNSName})
 	}
@@ -1599,7 +1564,7 @@ func extractIPv4NodeAddresses(instance *ec2.Instance) ([]v1.NodeAddress, error) 
 
 // extractIPv6NodeAddresses maps the instance information from EC2 to an array of NodeAddresses
 // All IPv6 addresses are considered internal even if they are publicly routable. There are no instance DNS names associated with IPv6.
-func extractIPv6NodeAddresses(instance *ec2.Instance) ([]v1.NodeAddress, error) {
+func extractIPv6NodeAddresses(instance *ec2types.Instance) ([]v1.NodeAddress, error) {
 	// Not clear if the order matters here, but we might as well indicate a sensible preference order
 
 	if instance == nil {
@@ -1611,15 +1576,15 @@ func extractIPv6NodeAddresses(instance *ec2.Instance) ([]v1.NodeAddress, error) 
 	// handle internal network interfaces with IPv6 addresses
 	for _, networkInterface := range instance.NetworkInterfaces {
 		// skip network interfaces that are not currently in use
-		if aws.StringValue(networkInterface.Status) != ec2.NetworkInterfaceStatusInUse || len(networkInterface.Ipv6Addresses) == 0 {
+		if networkInterface.Status != ec2types.NetworkInterfaceStatusInUse || len(networkInterface.Ipv6Addresses) == 0 {
 			continue
 		}
 
 		// return only the "first" address for each ENI
-		internalIPv6 := aws.StringValue(networkInterface.Ipv6Addresses[0].Ipv6Address)
+		internalIPv6 := aws.ToString(networkInterface.Ipv6Addresses[0].Ipv6Address)
 		ip := net.ParseIP(internalIPv6)
 		if ip == nil {
-			return nil, fmt.Errorf("EC2 instance had invalid IPv6 address: %s (%q)", aws.StringValue(instance.InstanceId), internalIPv6)
+			return nil, fmt.Errorf("EC2 instance had invalid IPv6 address: %s (%q)", aws.ToString(instance.InstanceId), internalIPv6)
 		}
 		addresses = append(addresses, v1.NodeAddress{Type: v1.NodeInternalIP, Address: ip.String()})
 	}
@@ -1647,7 +1612,7 @@ func (c *Cloud) NodeAddressesByProviderID(ctx context.Context, providerID string
 	}
 
 	if IsFargateNode(string(instanceID)) {
-		eni, err := c.describeNetworkInterfaces(string(instanceID))
+		eni, err := c.describeNetworkInterfaces(ctx, string(instanceID))
 		if eni == nil || err != nil {
 			return nil, err
 		}
@@ -1658,7 +1623,7 @@ func (c *Cloud) NodeAddressesByProviderID(ctx context.Context, providerID string
 		for _, family := range c.cfg.Global.NodeIPFamilies {
 			switch family {
 			case "ipv4":
-				nodeAddresses := getNodeAddressesForFargateNode(aws.StringValue(eni.PrivateDnsName), aws.StringValue(eni.PrivateIpAddress))
+				nodeAddresses := getNodeAddressesForFargateNode(aws.ToString(eni.PrivateDnsName), aws.ToString(eni.PrivateIpAddress))
 				addresses = append(addresses, nodeAddresses...)
 			case "ipv6":
 				if eni.Ipv6Addresses == nil || len(eni.Ipv6Addresses) == 0 {
@@ -1666,14 +1631,14 @@ func (c *Cloud) NodeAddressesByProviderID(ctx context.Context, providerID string
 					continue
 				}
 				internalIPv6Address := eni.Ipv6Addresses[0].Ipv6Address
-				nodeAddresses := getNodeAddressesForFargateNode(aws.StringValue(eni.PrivateDnsName), aws.StringValue(internalIPv6Address))
+				nodeAddresses := getNodeAddressesForFargateNode(aws.ToString(eni.PrivateDnsName), aws.ToString(internalIPv6Address))
 				addresses = append(addresses, nodeAddresses...)
 			}
 		}
 		return addresses, nil
 	}
 
-	instance, err := describeInstance(c.ec2, instanceID)
+	instance, err := describeInstance(ctx, c.ec2, instanceID)
 	if err != nil {
 		return nil, err
 	}
@@ -1709,15 +1674,15 @@ func (c *Cloud) InstanceExistsByProviderID(ctx context.Context, providerID strin
 	}
 
 	if IsFargateNode(string(instanceID)) {
-		eni, err := c.describeNetworkInterfaces(string(instanceID))
+		eni, err := c.describeNetworkInterfaces(ctx, string(instanceID))
 		return eni != nil, err
 	}
 
 	request := &ec2.DescribeInstancesInput{
-		InstanceIds: []*string{instanceID.awsString()},
+		InstanceIds: []string{string(instanceID)},
 	}
 
-	instances, err := c.ec2.DescribeInstances(request)
+	instances, err := c.ec2.DescribeInstances(ctx, request)
 	if err != nil {
 		// if err is InstanceNotFound, return false with no error
 		if IsAWSErrorInstanceNotFound(err) {
@@ -1733,7 +1698,7 @@ func (c *Cloud) InstanceExistsByProviderID(ctx context.Context, providerID strin
 	}
 
 	state := instances[0].State.Name
-	if *state == ec2.InstanceStateNameTerminated {
+	if state == ec2types.InstanceStateNameTerminated {
 		klog.Warningf("the instance %s is terminated", instanceID)
 		return false, nil
 	}
@@ -1749,15 +1714,15 @@ func (c *Cloud) InstanceShutdownByProviderID(ctx context.Context, providerID str
 	}
 
 	if IsFargateNode(string(instanceID)) {
-		eni, err := c.describeNetworkInterfaces(string(instanceID))
+		eni, err := c.describeNetworkInterfaces(ctx, string(instanceID))
 		return eni != nil, err
 	}
 
 	request := &ec2.DescribeInstancesInput{
-		InstanceIds: []*string{instanceID.awsString()},
+		InstanceIds: []string{string(instanceID)},
 	}
 
-	instances, err := c.ec2.DescribeInstances(request)
+	instances, err := c.ec2.DescribeInstances(ctx, request)
 	if err != nil {
 		return false, err
 	}
@@ -1773,9 +1738,9 @@ func (c *Cloud) InstanceShutdownByProviderID(ctx context.Context, providerID str
 
 	instance := instances[0]
 	if instance.State != nil {
-		state := aws.StringValue(instance.State.Name)
+		state := instance.State.Name
 		// valid state for detaching volumes
-		if state == ec2.InstanceStateNameStopped {
+		if state == ec2types.InstanceStateNameStopped {
 			return true, nil
 		}
 	}
@@ -1789,7 +1754,7 @@ func (c *Cloud) InstanceID(ctx context.Context, nodeName types.NodeName) (string
 	if c.selfAWSInstance.nodeName == nodeName {
 		return "/" + c.selfAWSInstance.availabilityZone + "/" + c.selfAWSInstance.awsID, nil
 	}
-	inst, err := c.getInstanceByNodeName(nodeName)
+	inst, err := c.getInstanceByNodeName(ctx, nodeName)
 	if err != nil {
 		if err == cloudprovider.InstanceNotFound {
 			// The Instances interface requires that we return InstanceNotFound (without wrapping)
@@ -1797,7 +1762,7 @@ func (c *Cloud) InstanceID(ctx context.Context, nodeName types.NodeName) (string
 		}
 		return "", fmt.Errorf("getInstanceByNodeName failed for %q with %q", nodeName, err)
 	}
-	return "/" + aws.StringValue(inst.Placement.AvailabilityZone) + "/" + aws.StringValue(inst.InstanceId), nil
+	return "/" + aws.ToString(inst.Placement.AvailabilityZone) + "/" + aws.ToString(inst.InstanceId), nil
 }
 
 // InstanceTypeByProviderID returns the cloudprovider instance type of the node with the specified unique providerID
@@ -1813,12 +1778,12 @@ func (c *Cloud) InstanceTypeByProviderID(ctx context.Context, providerID string)
 		return "", nil
 	}
 
-	instance, err := describeInstance(c.ec2, instanceID)
+	instance, err := describeInstance(ctx, c.ec2, instanceID)
 	if err != nil {
 		return "", err
 	}
 
-	return aws.StringValue(instance.InstanceType), nil
+	return string(instance.InstanceType), nil
 }
 
 // InstanceType returns the type of the node with the specified nodeName.
@@ -1826,16 +1791,16 @@ func (c *Cloud) InstanceType(ctx context.Context, nodeName types.NodeName) (stri
 	if c.selfAWSInstance.nodeName == nodeName {
 		return c.selfAWSInstance.instanceType, nil
 	}
-	inst, err := c.getInstanceByNodeName(nodeName)
+	inst, err := c.getInstanceByNodeName(ctx, nodeName)
 	if err != nil {
 		return "", fmt.Errorf("getInstanceByNodeName failed for %q with %q", nodeName, err)
 	}
-	return aws.StringValue(inst.InstanceType), nil
+	return string(inst.InstanceType), nil
 }
 
 // GetCandidateZonesForDynamicVolume retrieves  a list of all the zones in which nodes are running
 // It currently involves querying all instances
-func (c *Cloud) GetCandidateZonesForDynamicVolume() (sets.String, error) {
+func (c *Cloud) GetCandidateZonesForDynamicVolume(ctx context.Context) (sets.String, error) {
 	// We don't currently cache this; it is currently used only in volume
 	// creation which is expected to be a comparatively rare occurrence.
 
@@ -1846,12 +1811,12 @@ func (c *Cloud) GetCandidateZonesForDynamicVolume() (sets.String, error) {
 	// filters than to call it once with a tag filter that results in a logical
 	// OR. For really large clusters the logical OR will result in EC2 API rate
 	// limiting.
-	instances := []*ec2.Instance{}
+	instances := []*ec2types.Instance{}
 
-	baseFilters := []*ec2.Filter{newEc2Filter("instance-state-name", "running")}
+	baseFilters := []ec2types.Filter{newEc2Filter("instance-state-name", "running")}
 
 	filters := c.tagging.addFilters(baseFilters)
-	di, err := c.describeInstances(filters)
+	di, err := c.describeInstances(ctx, filters)
 	if err != nil {
 		return nil, err
 	}
@@ -1860,7 +1825,7 @@ func (c *Cloud) GetCandidateZonesForDynamicVolume() (sets.String, error) {
 
 	if c.tagging.usesLegacyTags {
 		filters = c.tagging.addLegacyFilters(baseFilters)
-		di, err = c.describeInstances(filters)
+		di, err = c.describeInstances(ctx, filters)
 		if err != nil {
 			return nil, err
 		}
@@ -1880,19 +1845,19 @@ func (c *Cloud) GetCandidateZonesForDynamicVolume() (sets.String, error) {
 		// This is a short-term workaround until the scheduler takes care of zone selection
 		master := false
 		for _, tag := range instance.Tags {
-			tagKey := aws.StringValue(tag.Key)
+			tagKey := aws.ToString(tag.Key)
 			if awsTagNameMasterRoles.Has(tagKey) {
 				master = true
 			}
 		}
 
 		if master {
-			klog.V(4).Infof("Ignoring master instance %q in zone discovery", aws.StringValue(instance.InstanceId))
+			klog.V(4).Infof("Ignoring master instance %q in zone discovery", aws.ToString(instance.InstanceId))
 			continue
 		}
 
 		if instance.Placement != nil {
-			zone := aws.StringValue(instance.Placement.AvailabilityZone)
+			zone := aws.ToString(instance.Placement.AvailabilityZone)
 			zones.Insert(zone)
 		}
 	}
@@ -1919,7 +1884,7 @@ func (c *Cloud) GetZoneByProviderID(ctx context.Context, providerID string) (clo
 	}
 
 	if IsFargateNode(string(instanceID)) {
-		eni, err := c.describeNetworkInterfaces(string(instanceID))
+		eni, err := c.describeNetworkInterfaces(ctx, string(instanceID))
 		if eni == nil || err != nil {
 			return cloudprovider.Zone{}, err
 		}
@@ -1929,7 +1894,7 @@ func (c *Cloud) GetZoneByProviderID(ctx context.Context, providerID string) (clo
 		}, nil
 	}
 
-	instance, err := c.getInstanceByID(string(instanceID))
+	instance, err := c.getInstanceByID(ctx, string(instanceID))
 	if err != nil {
 		return cloudprovider.Zone{}, err
 	}
@@ -1946,7 +1911,7 @@ func (c *Cloud) GetZoneByProviderID(ctx context.Context, providerID string) (clo
 // This is particularly useful in external cloud providers where the kubelet
 // does not initialize node data.
 func (c *Cloud) GetZoneByNodeName(ctx context.Context, nodeName types.NodeName) (cloudprovider.Zone, error) {
-	instance, err := c.getInstanceByNodeName(nodeName)
+	instance, err := c.getInstanceByNodeName(ctx, nodeName)
 	if err != nil {
 		return cloudprovider.Zone{}, err
 	}
@@ -1965,11 +1930,10 @@ func IsAWSErrorInstanceNotFound(err error) bool {
 		return false
 	}
 
-	if awsError, ok := err.(awserr.Error); ok {
-		if awsError.Code() == ec2.UnsuccessfulInstanceCreditSpecificationErrorCodeInvalidInstanceIdNotFound {
-			return true
-		}
-	} else if strings.Contains(err.Error(), ec2.UnsuccessfulInstanceCreditSpecificationErrorCodeInvalidInstanceIdNotFound) {
+	var ae smithy.APIError
+	if errors.As(err, &ae) {
+		return ae.ErrorCode() == string(ec2types.UnsuccessfulInstanceCreditSpecificationErrorCodeInstanceNotFound)
+	} else if strings.Contains(err.Error(), string(ec2types.UnsuccessfulInstanceCreditSpecificationErrorCodeInstanceNotFound)) {
 		// In places like https://github.com/kubernetes/cloud-provider-aws/blob/1c6194aad0122ab44504de64187e3d1a7415b198/pkg/providers/v1/aws.go#L1007,
 		// the error has been transformed into something else so check the error string to see if it contains the error code we're looking for.
 		return true
@@ -2005,27 +1969,27 @@ type awsInstance struct {
 }
 
 // newAWSInstance creates a new awsInstance object
-func newAWSInstance(ec2Service EC2, instance *ec2.Instance) *awsInstance {
+func newAWSInstance(ec2Service EC2, instance *ec2types.Instance) *awsInstance {
 	az := ""
 	if instance.Placement != nil {
-		az = aws.StringValue(instance.Placement.AvailabilityZone)
+		az = aws.ToString(instance.Placement.AvailabilityZone)
 	}
 	self := &awsInstance{
 		ec2:              ec2Service,
-		awsID:            aws.StringValue(instance.InstanceId),
+		awsID:            aws.ToString(instance.InstanceId),
 		nodeName:         mapInstanceToNodeName(instance),
 		availabilityZone: az,
-		instanceType:     aws.StringValue(instance.InstanceType),
-		vpcID:            aws.StringValue(instance.VpcId),
-		subnetID:         aws.StringValue(instance.SubnetId),
+		instanceType:     string(instance.InstanceType),
+		vpcID:            aws.ToString(instance.VpcId),
+		subnetID:         aws.ToString(instance.SubnetId),
 	}
 
 	return self
 }
 
 // Gets the full information about this instance from the EC2 API
-func (i *awsInstance) describeInstance() (*ec2.Instance, error) {
-	return describeInstance(i.ec2, InstanceID(i.awsID))
+func (i *awsInstance) describeInstance(ctx context.Context) (*ec2types.Instance, error) {
+	return describeInstance(ctx, i.ec2, InstanceID(i.awsID))
 }
 
 // Gets the mountDevice already assigned to the volume, or assigns an unused mountDevice.
@@ -2033,24 +1997,24 @@ func (i *awsInstance) describeInstance() (*ec2.Instance, error) {
 // Otherwise the mountDevice is assigned by finding the first available mountDevice, and it is returned with alreadyAttached=false.
 func (c *Cloud) getMountDevice(
 	i *awsInstance,
-	info *ec2.Instance,
+	info *ec2types.Instance,
 	volumeID EBSVolumeID,
 	assign bool) (assigned mountDevice, alreadyAttached bool, err error) {
 
 	deviceMappings := map[mountDevice]EBSVolumeID{}
 	volumeStatus := map[EBSVolumeID]string{} // for better logging of volume status
 	for _, blockDevice := range info.BlockDeviceMappings {
-		name := aws.StringValue(blockDevice.DeviceName)
+		name := aws.ToString(blockDevice.DeviceName)
 		name = strings.TrimPrefix(name, "/dev/sd")
 		name = strings.TrimPrefix(name, "/dev/xvd")
 		if len(name) < 1 || len(name) > 2 {
-			klog.Warningf("Unexpected EBS DeviceName: %q", aws.StringValue(blockDevice.DeviceName))
+			klog.Warningf("Unexpected EBS DeviceName: %q", aws.ToString(blockDevice.DeviceName))
 		}
 		if blockDevice.Ebs != nil && blockDevice.Ebs.VolumeId != nil {
-			volumeStatus[EBSVolumeID(*blockDevice.Ebs.VolumeId)] = aws.StringValue(blockDevice.Ebs.Status)
+			volumeStatus[EBSVolumeID(*blockDevice.Ebs.VolumeId)] = string(blockDevice.Ebs.Status)
 		}
 
-		deviceMappings[mountDevice(name)] = EBSVolumeID(aws.StringValue(blockDevice.Ebs.VolumeId))
+		deviceMappings[mountDevice(name)] = EBSVolumeID(aws.ToString(blockDevice.Ebs.VolumeId))
 	}
 
 	// We lock to prevent concurrent mounts from conflicting
@@ -2159,9 +2123,10 @@ func newAWSDisk(aws *Cloud, name KubernetesVolumeID) (*awsDisk, error) {
 // and returns true in case the AWS error is "InvalidVolume.NotFound", false otherwise
 func isAWSErrorVolumeNotFound(err error) bool {
 	if err != nil {
-		if awsError, ok := err.(awserr.Error); ok {
+		var ae smithy.APIError
+		if errors.As(err, &ae) {
 			// https://docs.aws.amazon.com/AWSEC2/latest/APIReference/errors-overview.html
-			if awsError.Code() == "InvalidVolume.NotFound" {
+			if ae.ErrorCode() == "InvalidVolume.NotFound" {
 				return true
 			}
 		}
@@ -2170,32 +2135,32 @@ func isAWSErrorVolumeNotFound(err error) bool {
 }
 
 // Gets the full information about this volume from the EC2 API
-func (d *awsDisk) describeVolume() (*ec2.Volume, error) {
+func (d *awsDisk) describeVolume(ctx context.Context) (*ec2types.Volume, error) {
 	volumeID := d.awsID
 
 	request := &ec2.DescribeVolumesInput{
-		VolumeIds: []*string{volumeID.awsString()},
+		VolumeIds: []string{string(volumeID)},
 	}
 
-	volumes, err := d.ec2.DescribeVolumes(request)
+	volumes, err := d.ec2.DescribeVolumes(ctx, request)
 	if err != nil {
-		return nil, err
+		return &ec2types.Volume{}, err
 	}
 	if len(volumes) == 0 {
-		return nil, fmt.Errorf("no volumes found")
+		return &ec2types.Volume{}, fmt.Errorf("no volumes found")
 	}
 	if len(volumes) > 1 {
-		return nil, fmt.Errorf("multiple volumes found")
+		return &ec2types.Volume{}, fmt.Errorf("multiple volumes found")
 	}
-	return volumes[0], nil
+	return &volumes[0], nil
 }
 
-func (d *awsDisk) describeVolumeModification() (*ec2.VolumeModification, error) {
+func (d *awsDisk) describeVolumeModification(ctx context.Context) (*ec2types.VolumeModification, error) {
 	volumeID := d.awsID
 	request := &ec2.DescribeVolumesModificationsInput{
-		VolumeIds: []*string{volumeID.awsString()},
+		VolumeIds: []string{string(volumeID)},
 	}
-	volumeMods, err := d.ec2.DescribeVolumeModifications(request)
+	volumeMods, err := d.ec2.DescribeVolumeModifications(ctx, request)
 
 	if err != nil {
 		return nil, fmt.Errorf("error describing volume modification %s with %v", volumeID, err)
@@ -2205,17 +2170,17 @@ func (d *awsDisk) describeVolumeModification() (*ec2.VolumeModification, error) 
 		return nil, fmt.Errorf("no volume modifications found for %s", volumeID)
 	}
 	lastIndex := len(volumeMods) - 1
-	return volumeMods[lastIndex], nil
+	return &volumeMods[lastIndex], nil
 }
 
-func (d *awsDisk) modifyVolume(requestGiB int64) (int64, error) {
+func (d *awsDisk) modifyVolume(ctx context.Context, requestGiB int64) (int64, error) {
 	volumeID := d.awsID
 
 	request := &ec2.ModifyVolumeInput{
 		VolumeId: volumeID.awsString(),
-		Size:     aws.Int64(requestGiB),
+		Size:     aws.Int32(int32(requestGiB)),
 	}
-	output, err := d.ec2.ModifyVolume(request)
+	output, err := d.ec2.ModifyVolume(ctx, request)
 	if err != nil {
 		modifyError := fmt.Errorf("AWS modifyVolume failed for %s with %v", volumeID, err)
 		return requestGiB, modifyError
@@ -2223,8 +2188,8 @@ func (d *awsDisk) modifyVolume(requestGiB int64) (int64, error) {
 
 	volumeModification := output.VolumeModification
 
-	if aws.StringValue(volumeModification.ModificationState) == ec2.VolumeModificationStateCompleted {
-		return aws.Int64Value(volumeModification.TargetSize), nil
+	if volumeModification.ModificationState == ec2types.VolumeModificationStateCompleted {
+		return int64(aws.ToInt32(volumeModification.TargetSize)), nil
 	}
 
 	backoff := wait.Backoff{
@@ -2234,7 +2199,7 @@ func (d *awsDisk) modifyVolume(requestGiB int64) (int64, error) {
 	}
 
 	checkForResize := func() (bool, error) {
-		volumeModification, err := d.describeVolumeModification()
+		volumeModification, err := d.describeVolumeModification(ctx)
 
 		if err != nil {
 			return false, err
@@ -2242,7 +2207,7 @@ func (d *awsDisk) modifyVolume(requestGiB int64) (int64, error) {
 
 		// According to https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/monitoring_mods.html
 		// Size changes usually take a few seconds to complete and take effect after a volume is in the Optimizing state.
-		if aws.StringValue(volumeModification.ModificationState) == ec2.VolumeModificationStateOptimizing {
+		if volumeModification.ModificationState == ec2types.VolumeModificationStateOptimizing {
 			return true, nil
 		}
 		return false, nil
@@ -2275,7 +2240,7 @@ func (c *Cloud) applyUnSchedulableTaint(nodeName types.NodeName, reason string) 
 
 // waitForAttachmentStatus polls until the attachment status is the expected value
 // On success, it returns the last attachment state.
-func (d *awsDisk) waitForAttachmentStatus(status string, expectedInstance, expectedDevice string, alreadyAttached bool) (*ec2.VolumeAttachment, error) {
+func (d *awsDisk) waitForAttachmentStatus(ctx context.Context, status string, expectedInstance, expectedDevice string, alreadyAttached bool) (*ec2types.VolumeAttachment, error) {
 	backoff := wait.Backoff{
 		Duration: volumeAttachmentStatusPollDelay,
 		Factor:   volumeAttachmentStatusFactor,
@@ -2293,19 +2258,19 @@ func (d *awsDisk) waitForAttachmentStatus(status string, expectedInstance, expec
 	// process the request.
 	time.Sleep(getInitialAttachDetachDelay(status))
 
-	var attachment *ec2.VolumeAttachment
+	var attachment *ec2types.VolumeAttachment
 
 	err := wait.ExponentialBackoff(backoff, func() (bool, error) {
-		info, err := d.describeVolume()
+		info, err := d.describeVolume(ctx)
 		if err != nil {
 			// The VolumeNotFound error is special -- we don't need to wait for it to repeat
 			if isAWSErrorVolumeNotFound(err) {
 				if status == volumeDetachedStatus {
 					// The disk doesn't exist, assume it's detached, log warning and stop waiting
 					klog.Warningf("Waiting for volume %q to be detached but the volume does not exist", d.awsID)
-					stateStr := "detached"
-					attachment = &ec2.VolumeAttachment{
-						State: &stateStr,
+					stateStr := ec2types.VolumeAttachmentStateDetached
+					attachment = &ec2types.VolumeAttachment{
+						State: stateStr,
 					}
 					return true, nil
 				}
@@ -2335,13 +2300,8 @@ func (d *awsDisk) waitForAttachmentStatus(status string, expectedInstance, expec
 				// Shouldn't happen; log so we know if it is
 				klog.Warningf("Found multiple attachments for volume %q: %v", d.awsID, info)
 			}
-			if a.State != nil {
-				attachment = a
-				attachmentStatus = *a.State
-			} else {
-				// Shouldn't happen; log so we know if it is
-				klog.Warningf("Ignoring nil attachment state for volume %q: %v", d.awsID, a)
-			}
+			attachment = &a
+			attachmentStatus = string(a.State)
 		}
 		if attachmentStatus == "" {
 			attachmentStatus = volumeDetachedStatus
@@ -2351,7 +2311,7 @@ func (d *awsDisk) waitForAttachmentStatus(status string, expectedInstance, expec
 			// For example, we're waiting for a volume to be attached as /dev/xvdba, but AWS can tell us it's
 			// attached as /dev/xvdbb, where it was attached before and it was already detached.
 			// Retry couple of times, hoping AWS starts reporting the right status.
-			device := aws.StringValue(attachment.Device)
+			device := aws.ToString(attachment.Device)
 			if expectedDevice != "" && device != "" && device != expectedDevice {
 				klog.Warningf("Expected device %s %s for volume %s, but found device %s %s", expectedDevice, status, d.name, device, attachmentStatus)
 				errorCount++
@@ -2361,7 +2321,7 @@ func (d *awsDisk) waitForAttachmentStatus(status string, expectedInstance, expec
 				}
 				return false, nil
 			}
-			instanceID := aws.StringValue(attachment.InstanceId)
+			instanceID := aws.ToString(attachment.InstanceId)
 			if expectedInstance != "" && instanceID != "" && instanceID != expectedInstance {
 				klog.Warningf("Expected instance %s/%s for volume %s, but found instance %s/%s", expectedInstance, status, d.name, instanceID, attachmentStatus)
 				errorCount++
@@ -2393,15 +2353,16 @@ func (d *awsDisk) waitForAttachmentStatus(status string, expectedInstance, expec
 }
 
 // Deletes the EBS disk
-func (d *awsDisk) deleteVolume() (bool, error) {
+func (d *awsDisk) deleteVolume(ctx context.Context) (bool, error) {
 	request := &ec2.DeleteVolumeInput{VolumeId: d.awsID.awsString()}
-	_, err := d.ec2.DeleteVolume(request)
+	_, err := d.ec2.DeleteVolume(ctx, request)
 	if err != nil {
 		if isAWSErrorVolumeNotFound(err) {
 			return false, nil
 		}
-		if awsError, ok := err.(awserr.Error); ok {
-			if awsError.Code() == "VolumeInUse" {
+		var ae smithy.APIError
+		if errors.As(err, &ae) {
+			if ae.ErrorCode() == "VolumeInUse" {
 				return false, volerr.NewDeletedVolumeInUseError(err.Error())
 			}
 		}
@@ -2412,11 +2373,11 @@ func (d *awsDisk) deleteVolume() (bool, error) {
 
 // Builds the awsInstance for the EC2 instance on which we are running.
 // This is called when the AWSCloud is initialized, and should not be called otherwise (because the awsInstance for the local instance is a singleton with drive mapping state)
-func (c *Cloud) buildSelfAWSInstance() (*awsInstance, error) {
+func (c *Cloud) buildSelfAWSInstance(ctx context.Context) (*awsInstance, error) {
 	if c.selfAWSInstance != nil {
 		panic("do not call buildSelfAWSInstance directly")
 	}
-	instanceID, err := c.metadata.GetMetadata("instance-id")
+	instanceIDMetadata, err := c.metadata.GetMetadata(ctx, &imds.GetMetadataInput{Path: "instance-id"})
 	if err != nil {
 		return nil, fmt.Errorf("error fetching instance-id from ec2 metadata service: %q", err)
 	}
@@ -2429,27 +2390,34 @@ func (c *Cloud) buildSelfAWSInstance() (*awsInstance, error) {
 	// information from the instance returned by the EC2 API - it is a
 	// single API call to get all the information, and it means we don't
 	// have two code paths.
-	instance, err := c.getInstanceByID(instanceID)
+	instanceIDBytes, err := io.ReadAll(instanceIDMetadata.Content)
 	if err != nil {
-		return nil, fmt.Errorf("error finding instance %s: %q", instanceID, err)
+		return nil, fmt.Errorf("unable to parse instance id: %q", err)
+	}
+	defer instanceIDMetadata.Content.Close()
+
+	instance, err := c.getInstanceByID(ctx, string(instanceIDBytes))
+	if err != nil {
+		return nil, fmt.Errorf("error finding instance %s: %q", string(instanceIDBytes), err)
 	}
 	return newAWSInstance(c.ec2, instance), nil
 }
 
 // wrapAttachError wraps the error returned by an AttachVolume request with
 // additional information, if needed and possible.
-func wrapAttachError(err error, disk *awsDisk, instance string) error {
-	if awsError, ok := err.(awserr.Error); ok {
-		if awsError.Code() == "VolumeInUse" {
-			info, err := disk.describeVolume()
+func wrapAttachError(ctx context.Context, err error, disk *awsDisk, instance string) error {
+	var ae smithy.APIError
+	if errors.As(err, &ae) {
+		if ae.ErrorCode() == "VolumeInUse" {
+			info, err := disk.describeVolume(ctx)
 			if err != nil {
 				klog.Errorf("Error describing volume %q: %q", disk.awsID, err)
 			} else {
 				for _, a := range info.Attachments {
-					if disk.awsID != EBSVolumeID(aws.StringValue(a.VolumeId)) {
-						klog.Warningf("Expected to get attachment info of volume %q but instead got info of %q", disk.awsID, aws.StringValue(a.VolumeId))
-					} else if aws.StringValue(a.State) == "attached" {
-						return fmt.Errorf("error attaching EBS volume %q to instance %q: %q. The volume is currently attached to instance %q", disk.awsID, instance, awsError, aws.StringValue(a.InstanceId))
+					if disk.awsID != EBSVolumeID(aws.ToString(a.VolumeId)) {
+						klog.Warningf("Expected to get attachment info of volume %q but instead got info of %q", disk.awsID, aws.ToString(a.VolumeId))
+					} else if string(a.State) == "attached" {
+						return fmt.Errorf("error attaching EBS volume %q to instance %q: %q. The volume is currently attached to instance %q", disk.awsID, instance, ae, aws.ToString(a.InstanceId))
 					}
 				}
 			}
@@ -2459,13 +2427,13 @@ func wrapAttachError(err error, disk *awsDisk, instance string) error {
 }
 
 // AttachDisk implements Volumes.AttachDisk
-func (c *Cloud) AttachDisk(diskName KubernetesVolumeID, nodeName types.NodeName) (string, error) {
+func (c *Cloud) AttachDisk(ctx context.Context, diskName KubernetesVolumeID, nodeName types.NodeName) (string, error) {
 	disk, err := newAWSDisk(c, diskName)
 	if err != nil {
 		return "", err
 	}
 
-	awsInstance, info, err := c.getFullInstance(nodeName)
+	awsInstance, info, err := c.getFullInstance(ctx, nodeName)
 	if err != nil {
 		return "", fmt.Errorf("error finding instance %s: %q", nodeName, err)
 	}
@@ -2498,7 +2466,7 @@ func (c *Cloud) AttachDisk(diskName KubernetesVolumeID, nodeName types.NodeName)
 	ec2Device := "/dev/xvd" + string(mountDevice)
 
 	if !alreadyAttached {
-		available, err := c.checkIfAvailable(disk, "attaching", awsInstance.awsID)
+		available, err := c.checkIfAvailable(ctx, disk, "attaching", awsInstance.awsID)
 		if err != nil {
 			klog.Error(err)
 		}
@@ -2513,11 +2481,11 @@ func (c *Cloud) AttachDisk(diskName KubernetesVolumeID, nodeName types.NodeName)
 			VolumeId:   disk.awsID.awsString(),
 		}
 
-		attachResponse, err := c.ec2.AttachVolume(request)
+		attachResponse, err := c.ec2.AttachVolume(ctx, request)
 		if err != nil {
 			attachEnded = true
 			// TODO: Check if the volume was concurrently attached?
-			return "", wrapAttachError(err, disk, awsInstance.awsID)
+			return "", wrapAttachError(ctx, err, disk, awsInstance.awsID)
 		}
 		if da, ok := c.deviceAllocators[awsInstance.nodeName]; ok {
 			da.Deprioritize(mountDevice)
@@ -2525,7 +2493,7 @@ func (c *Cloud) AttachDisk(diskName KubernetesVolumeID, nodeName types.NodeName)
 		klog.V(2).Infof("AttachVolume volume=%q instance=%q request returned %v", disk.awsID, awsInstance.awsID, attachResponse)
 	}
 
-	attachment, err := disk.waitForAttachmentStatus("attached", awsInstance.awsID, ec2Device, alreadyAttached)
+	attachment, err := disk.waitForAttachmentStatus(ctx, "attached", awsInstance.awsID, ec2Device, alreadyAttached)
 
 	if err != nil {
 		if err == wait.ErrWaitTimeout {
@@ -2544,20 +2512,20 @@ func (c *Cloud) AttachDisk(diskName KubernetesVolumeID, nodeName types.NodeName)
 		// Impossible?
 		return "", fmt.Errorf("unexpected state: attachment nil after attached %q to %q", diskName, nodeName)
 	}
-	if ec2Device != aws.StringValue(attachment.Device) {
+	if ec2Device != aws.ToString(attachment.Device) {
 		// Already checked in waitForAttachmentStatus(), but just to be sure...
-		return "", fmt.Errorf("disk attachment of %q to %q failed: requested device %q but found %q", diskName, nodeName, ec2Device, aws.StringValue(attachment.Device))
+		return "", fmt.Errorf("disk attachment of %q to %q failed: requested device %q but found %q", diskName, nodeName, ec2Device, aws.ToString(attachment.Device))
 	}
-	if awsInstance.awsID != aws.StringValue(attachment.InstanceId) {
-		return "", fmt.Errorf("disk attachment of %q to %q failed: requested instance %q but found %q", diskName, nodeName, awsInstance.awsID, aws.StringValue(attachment.InstanceId))
+	if awsInstance.awsID != aws.ToString(attachment.InstanceId) {
+		return "", fmt.Errorf("disk attachment of %q to %q failed: requested instance %q but found %q", diskName, nodeName, awsInstance.awsID, aws.ToString(attachment.InstanceId))
 	}
 
 	return hostDevice, nil
 }
 
 // DetachDisk implements Volumes.DetachDisk
-func (c *Cloud) DetachDisk(diskName KubernetesVolumeID, nodeName types.NodeName) (string, error) {
-	diskInfo, attached, err := c.checkIfAttachedToNode(diskName, nodeName)
+func (c *Cloud) DetachDisk(ctx context.Context, diskName KubernetesVolumeID, nodeName types.NodeName) (string, error) {
+	diskInfo, attached, err := c.checkIfAttachedToNode(ctx, diskName, nodeName)
 	if err != nil {
 		if isAWSErrorVolumeNotFound(err) {
 			// Someone deleted the volume being detached; complain, but do nothing else and return success
@@ -2594,7 +2562,7 @@ func (c *Cloud) DetachDisk(diskName KubernetesVolumeID, nodeName types.NodeName)
 		VolumeId:   diskInfo.disk.awsID.awsString(),
 	}
 
-	response, err := c.ec2.DetachVolume(&request)
+	response, err := c.ec2.DetachVolume(ctx, &request)
 	if err != nil {
 		return "", fmt.Errorf("error detaching EBS volume %q from %q: %q", diskInfo.disk.awsID, awsInstance.awsID, err)
 	}
@@ -2603,7 +2571,7 @@ func (c *Cloud) DetachDisk(diskName KubernetesVolumeID, nodeName types.NodeName)
 		return "", errors.New("no response from DetachVolume")
 	}
 
-	attachment, err := diskInfo.disk.waitForAttachmentStatus("detached", awsInstance.awsID, "", false)
+	attachment, err := diskInfo.disk.waitForAttachmentStatus(ctx, "detached", awsInstance.awsID, "", false)
 	if err != nil {
 		return "", err
 	}
@@ -2626,9 +2594,9 @@ func (c *Cloud) DetachDisk(diskName KubernetesVolumeID, nodeName types.NodeName)
 }
 
 // CreateDisk implements Volumes.CreateDisk
-func (c *Cloud) CreateDisk(volumeOptions *VolumeOptions) (KubernetesVolumeID, error) {
-	var createType string
-	var iops int64
+func (c *Cloud) CreateDisk(ctx context.Context, volumeOptions *VolumeOptions) (KubernetesVolumeID, error) {
+	var createType ec2types.VolumeType
+	var iops int32
 	switch volumeOptions.VolumeType {
 	case VolumeTypeGP2, VolumeTypeSC1, VolumeTypeST1:
 		createType = volumeOptions.VolumeType
@@ -2638,7 +2606,7 @@ func (c *Cloud) CreateDisk(volumeOptions *VolumeOptions) (KubernetesVolumeID, er
 		// for IOPS constraints. AWS will throw an error if IOPS per GB gets out
 		// of supported bounds, no need to check it here.
 		createType = volumeOptions.VolumeType
-		iops = int64(volumeOptions.CapacityGB * volumeOptions.IOPSPerGB)
+		iops = int32(volumeOptions.CapacityGB * volumeOptions.IOPSPerGB)
 
 		// Cap at min/max total IOPS, AWS would throw an error if it gets too
 		// low/high.
@@ -2658,43 +2626,43 @@ func (c *Cloud) CreateDisk(volumeOptions *VolumeOptions) (KubernetesVolumeID, er
 
 	request := &ec2.CreateVolumeInput{}
 	request.AvailabilityZone = aws.String(volumeOptions.AvailabilityZone)
-	request.Size = aws.Int64(int64(volumeOptions.CapacityGB))
-	request.VolumeType = aws.String(createType)
+	request.Size = aws.Int32(int32(volumeOptions.CapacityGB))
+	request.VolumeType = createType
 	request.Encrypted = aws.Bool(volumeOptions.Encrypted)
 	if len(volumeOptions.KmsKeyID) > 0 {
 		request.KmsKeyId = aws.String(volumeOptions.KmsKeyID)
 		request.Encrypted = aws.Bool(true)
 	}
 	if iops > 0 {
-		request.Iops = aws.Int64(iops)
+		request.Iops = aws.Int32(iops)
 	}
 
 	tags := volumeOptions.Tags
 	tags = c.tagging.buildTags(ResourceLifecycleOwned, tags)
 
-	var tagList []*ec2.Tag
+	var tagList []ec2types.Tag
 	for k, v := range tags {
-		tagList = append(tagList, &ec2.Tag{
+		tagList = append(tagList, ec2types.Tag{
 			Key: aws.String(k), Value: aws.String(v),
 		})
 	}
-	request.TagSpecifications = append(request.TagSpecifications, &ec2.TagSpecification{
+	request.TagSpecifications = append(request.TagSpecifications, ec2types.TagSpecification{
 		Tags:         tagList,
-		ResourceType: aws.String(ec2.ResourceTypeVolume),
+		ResourceType: ec2types.ResourceTypeVolume,
 	})
 
-	response, err := c.ec2.CreateVolume(request)
+	response, err := c.ec2.CreateVolume(ctx, request)
 	if err != nil {
 		return KubernetesVolumeID(""), err
 	}
 
-	awsID := EBSVolumeID(aws.StringValue(response.VolumeId))
+	awsID := EBSVolumeID(aws.ToString(response.VolumeId))
 	if awsID == "" {
 		return KubernetesVolumeID(""), fmt.Errorf("VolumeID was not returned by CreateVolume")
 	}
-	volumeName := KubernetesVolumeID("aws://" + aws.StringValue(response.AvailabilityZone) + "/" + string(awsID))
+	volumeName := KubernetesVolumeID("aws://" + aws.ToString(response.AvailabilityZone) + "/" + string(awsID))
 
-	err = c.waitUntilVolumeAvailable(volumeName)
+	err = c.waitUntilVolumeAvailable(ctx, volumeName)
 	if err != nil {
 		// AWS has a bad habbit of reporting success when creating a volume with
 		// encryption keys that either don't exists or have wrong permissions.
@@ -2711,7 +2679,7 @@ func (c *Cloud) CreateDisk(volumeOptions *VolumeOptions) (KubernetesVolumeID, er
 			if newDiskError != nil {
 				klog.Errorf("Failed to delete the volume %v due to error: %v", volumeName, newDiskError)
 			} else {
-				if _, deleteVolumeError := awsDisk.deleteVolume(); deleteVolumeError != nil {
+				if _, deleteVolumeError := awsDisk.deleteVolume(ctx); deleteVolumeError != nil {
 					klog.Errorf("Failed to delete the volume %v due to error: %v", volumeName, deleteVolumeError)
 				} else {
 					klog.V(5).Infof("%v is deleted because it is not in desired state after waiting", volumeName)
@@ -2724,7 +2692,7 @@ func (c *Cloud) CreateDisk(volumeOptions *VolumeOptions) (KubernetesVolumeID, er
 	return volumeName, nil
 }
 
-func (c *Cloud) waitUntilVolumeAvailable(volumeName KubernetesVolumeID) error {
+func (c *Cloud) waitUntilVolumeAvailable(ctx context.Context, volumeName KubernetesVolumeID) error {
 	disk, err := newAWSDisk(c, volumeName)
 	if err != nil {
 		// Unreachable code
@@ -2737,33 +2705,30 @@ func (c *Cloud) waitUntilVolumeAvailable(volumeName KubernetesVolumeID) error {
 		Steps:    volumeCreateBackoffSteps,
 	}
 	err = wait.ExponentialBackoff(backoff, func() (done bool, err error) {
-		vol, err := disk.describeVolume()
+		vol, err := disk.describeVolume(ctx)
 		if err != nil {
 			return true, err
 		}
-		if vol.State != nil {
-			switch *vol.State {
-			case "available":
-				// The volume is Available, it won't be deleted now.
-				return true, nil
-			case "creating":
-				return false, nil
-			default:
-				return true, fmt.Errorf("unexpected State of newly created AWS EBS volume %s: %q", volumeName, *vol.State)
-			}
+		switch string(vol.State) {
+		case "available":
+			// The volume is Available, it won't be deleted now.
+			return true, nil
+		case "creating":
+			return false, nil
+		default:
+			return true, fmt.Errorf("unexpected State of newly created AWS EBS volume %s: %q", volumeName, vol.State)
 		}
-		return false, nil
 	})
 	return err
 }
 
 // DeleteDisk implements Volumes.DeleteDisk
-func (c *Cloud) DeleteDisk(volumeName KubernetesVolumeID) (bool, error) {
+func (c *Cloud) DeleteDisk(ctx context.Context, volumeName KubernetesVolumeID) (bool, error) {
 	awsDisk, err := newAWSDisk(c, volumeName)
 	if err != nil {
 		return false, err
 	}
-	available, err := c.checkIfAvailable(awsDisk, "deleting", "")
+	available, err := c.checkIfAvailable(ctx, awsDisk, "deleting", "")
 	if err != nil {
 		if isAWSErrorVolumeNotFound(err) {
 			klog.V(2).Infof("Volume %s not found when deleting it, assuming it's deleted", awsDisk.awsID)
@@ -2780,11 +2745,11 @@ func (c *Cloud) DeleteDisk(volumeName KubernetesVolumeID) (bool, error) {
 		return false, err
 	}
 
-	return awsDisk.deleteVolume()
+	return awsDisk.deleteVolume(ctx)
 }
 
-func (c *Cloud) checkIfAvailable(disk *awsDisk, opName string, instance string) (bool, error) {
-	info, err := disk.describeVolume()
+func (c *Cloud) checkIfAvailable(ctx context.Context, disk *awsDisk, opName string, instance string) (bool, error) {
+	info, err := disk.describeVolume(ctx)
 
 	if err != nil {
 		klog.Errorf("Error describing volume %q: %q", disk.awsID, err)
@@ -2792,7 +2757,7 @@ func (c *Cloud) checkIfAvailable(disk *awsDisk, opName string, instance string) 
 		return false, err
 	}
 
-	volumeState := aws.StringValue(info.State)
+	volumeState := string(info.State)
 	opError := fmt.Sprintf("error %s EBS volume %q", opName, disk.awsID)
 	if len(instance) != 0 {
 		opError = fmt.Sprintf("%q to instance %q", opError, instance)
@@ -2803,14 +2768,14 @@ func (c *Cloud) checkIfAvailable(disk *awsDisk, opName string, instance string) 
 		// Volume is attached somewhere else and we can not attach it here
 		if len(info.Attachments) > 0 {
 			attachment := info.Attachments[0]
-			instanceID := aws.StringValue(attachment.InstanceId)
-			attachedInstance, ierr := c.getInstanceByID(instanceID)
+			instanceID := aws.ToString(attachment.InstanceId)
+			attachedInstance, ierr := c.getInstanceByID(ctx, instanceID)
 			attachErr := fmt.Sprintf("%s since volume is currently attached to %q", opError, instanceID)
 			if ierr != nil {
 				klog.Error(attachErr)
 				return false, errors.New(attachErr)
 			}
-			devicePath := aws.StringValue(attachment.Device)
+			devicePath := aws.ToString(attachment.Device)
 			nodeName := mapInstanceToNodeName(attachedInstance)
 
 			danglingErr := volerr.NewDanglingError(attachErr, nodeName, devicePath)
@@ -2837,7 +2802,7 @@ func (c *Cloud) GetLabelsForVolume(ctx context.Context, pv *v1.PersistentVolume)
 	}
 
 	spec := KubernetesVolumeID(pv.Spec.AWSElasticBlockStore.VolumeID)
-	labels, err := c.GetVolumeLabels(spec)
+	labels, err := c.GetVolumeLabels(ctx, spec)
 	if err != nil {
 		return nil, err
 	}
@@ -2846,19 +2811,19 @@ func (c *Cloud) GetLabelsForVolume(ctx context.Context, pv *v1.PersistentVolume)
 }
 
 // GetVolumeLabels implements Volumes.GetVolumeLabels
-func (c *Cloud) GetVolumeLabels(volumeName KubernetesVolumeID) (map[string]string, error) {
+func (c *Cloud) GetVolumeLabels(ctx context.Context, volumeName KubernetesVolumeID) (map[string]string, error) {
 	awsDisk, err := newAWSDisk(c, volumeName)
 	if err != nil {
 		return nil, err
 	}
-	info, err := awsDisk.describeVolume()
+	info, err := awsDisk.describeVolume(ctx)
 	if err != nil {
 		return nil, err
 	}
 	labels := make(map[string]string)
-	az := aws.StringValue(info.AvailabilityZone)
+	az := aws.ToString(info.AvailabilityZone)
 	if az == "" {
-		return nil, fmt.Errorf("volume did not have AZ information: %q", aws.StringValue(info.VolumeId))
+		return nil, fmt.Errorf("volume did not have AZ information: %q", aws.ToString(info.VolumeId))
 	}
 
 	labels[v1.LabelTopologyZone] = az
@@ -2872,24 +2837,24 @@ func (c *Cloud) GetVolumeLabels(volumeName KubernetesVolumeID) (map[string]strin
 }
 
 // GetDiskPath implements Volumes.GetDiskPath
-func (c *Cloud) GetDiskPath(volumeName KubernetesVolumeID) (string, error) {
+func (c *Cloud) GetDiskPath(ctx context.Context, volumeName KubernetesVolumeID) (string, error) {
 	awsDisk, err := newAWSDisk(c, volumeName)
 	if err != nil {
 		return "", err
 	}
-	info, err := awsDisk.describeVolume()
+	info, err := awsDisk.describeVolume(ctx)
 	if err != nil {
 		return "", err
 	}
 	if len(info.Attachments) == 0 {
 		return "", fmt.Errorf("No attachment to volume %s", volumeName)
 	}
-	return aws.StringValue(info.Attachments[0].Device), nil
+	return aws.ToString(info.Attachments[0].Device), nil
 }
 
 // DiskIsAttached implements Volumes.DiskIsAttached
-func (c *Cloud) DiskIsAttached(diskName KubernetesVolumeID, nodeName types.NodeName) (bool, error) {
-	_, attached, err := c.checkIfAttachedToNode(diskName, nodeName)
+func (c *Cloud) DiskIsAttached(ctx context.Context, diskName KubernetesVolumeID, nodeName types.NodeName) (bool, error) {
+	_, attached, err := c.checkIfAttachedToNode(ctx, diskName, nodeName)
 	if err != nil {
 		if isAWSErrorVolumeNotFound(err) {
 			// The disk doesn't exist, can't be attached
@@ -2905,7 +2870,7 @@ func (c *Cloud) DiskIsAttached(diskName KubernetesVolumeID, nodeName types.NodeN
 
 // DisksAreAttached returns a map of nodes and Kubernetes volume IDs indicating
 // if the volumes are attached to the node
-func (c *Cloud) DisksAreAttached(nodeDisks map[types.NodeName][]KubernetesVolumeID) (map[types.NodeName]map[KubernetesVolumeID]bool, error) {
+func (c *Cloud) DisksAreAttached(ctx context.Context, nodeDisks map[types.NodeName][]KubernetesVolumeID) (map[types.NodeName]map[KubernetesVolumeID]bool, error) {
 	attached := make(map[types.NodeName]map[KubernetesVolumeID]bool)
 
 	if len(nodeDisks) == 0 {
@@ -2922,7 +2887,7 @@ func (c *Cloud) DisksAreAttached(nodeDisks map[types.NodeName][]KubernetesVolume
 
 	// Note that we get instances regardless of state.
 	// This means there might be multiple nodes with the same node names.
-	awsInstances, err := c.getInstancesByNodeNames(nodeNames)
+	awsInstances, err := c.getInstancesByNodeNames(ctx, nodeNames)
 	if err != nil {
 		// When there is an error fetching instance information
 		// it is safer to return nil and let volume information not be touched.
@@ -2945,7 +2910,7 @@ func (c *Cloud) DisksAreAttached(nodeDisks map[types.NodeName][]KubernetesVolume
 
 		awsInstanceState := "<nil>"
 		if awsInstance != nil && awsInstance.State != nil {
-			awsInstanceState = aws.StringValue(awsInstance.State.Name)
+			awsInstanceState = string(awsInstance.State.Name)
 		}
 		if awsInstanceState == "terminated" {
 			// Instance is terminated, safe to assume volumes not attached
@@ -2963,7 +2928,7 @@ func (c *Cloud) DisksAreAttached(nodeDisks map[types.NodeName][]KubernetesVolume
 		}
 
 		for _, blockDevice := range awsInstance.BlockDeviceMappings {
-			volumeID := EBSVolumeID(aws.StringValue(blockDevice.Ebs.VolumeId))
+			volumeID := EBSVolumeID(aws.ToString(blockDevice.Ebs.VolumeId))
 			diskName, found := idToDiskName[volumeID]
 			if found {
 				// Disk is still attached to node
@@ -2977,7 +2942,7 @@ func (c *Cloud) DisksAreAttached(nodeDisks map[types.NodeName][]KubernetesVolume
 
 // ResizeDisk resizes an EBS volume in GiB increments, it will round up to the
 // next GiB if arguments are not provided in even GiB increments
-func (c *Cloud) ResizeDisk(
+func (c *Cloud) ResizeDisk(ctx context.Context,
 	diskName KubernetesVolumeID,
 	oldSize resource.Quantity,
 	newSize resource.Quantity) (resource.Quantity, error) {
@@ -2986,7 +2951,7 @@ func (c *Cloud) ResizeDisk(
 		return oldSize, err
 	}
 
-	volumeInfo, err := awsDisk.describeVolume()
+	volumeInfo, err := awsDisk.describeVolume(ctx)
 	if err != nil {
 		descErr := fmt.Errorf("AWS.ResizeDisk Error describing volume %s with %v", diskName, err)
 		return oldSize, descErr
@@ -2999,10 +2964,10 @@ func (c *Cloud) ResizeDisk(
 	newSizeQuant := resource.MustParse(fmt.Sprintf("%dGi", requestGiB))
 
 	// If disk already if of greater or equal size than requested we return
-	if aws.Int64Value(volumeInfo.Size) >= requestGiB {
+	if aws.ToInt32(volumeInfo.Size) >= int32(requestGiB) {
 		return newSizeQuant, nil
 	}
-	_, err = awsDisk.modifyVolume(requestGiB)
+	_, err = awsDisk.modifyVolume(ctx, requestGiB)
 
 	if err != nil {
 		return oldSize, err
@@ -3011,34 +2976,37 @@ func (c *Cloud) ResizeDisk(
 }
 
 // Gets the current load balancer state
-func (c *Cloud) describeLoadBalancer(name string) (*elb.LoadBalancerDescription, error) {
+func (c *Cloud) describeLoadBalancer(ctx context.Context, name string) (*elbtypes.LoadBalancerDescription, error) {
 	request := &elb.DescribeLoadBalancersInput{}
-	request.LoadBalancerNames = []*string{&name}
+	request.LoadBalancerNames = []string{name}
 
-	response, err := c.elb.DescribeLoadBalancers(request)
+	response, err := c.elb.DescribeLoadBalancers(ctx, request)
+
 	if err != nil {
-		if awsError, ok := err.(awserr.Error); ok {
-			if awsError.Code() == "LoadBalancerNotFound" {
+		var ae smithy.APIError
+		if errors.As(err, &ae) {
+			if ae.ErrorCode() == "LoadBalancerNotFound" {
 				return nil, nil
 			}
 		}
+
 		return nil, err
 	}
 
-	var ret *elb.LoadBalancerDescription
+	var ret *elbtypes.LoadBalancerDescription
 	for _, loadBalancer := range response.LoadBalancerDescriptions {
 		if ret != nil {
 			klog.Errorf("Found multiple load balancers with name: %s", name)
 		}
-		ret = loadBalancer
+		ret = &loadBalancer
 	}
 	return ret, nil
 }
 
-func (c *Cloud) addLoadBalancerTags(loadBalancerName string, requested map[string]string) error {
-	var tags []*elb.Tag
+func (c *Cloud) addLoadBalancerTags(ctx context.Context, loadBalancerName string, requested map[string]string) error {
+	var tags []elbtypes.Tag
 	for k, v := range requested {
-		tag := &elb.Tag{
+		tag := elbtypes.Tag{
 			Key:   aws.String(k),
 			Value: aws.String(v),
 		}
@@ -3046,10 +3014,10 @@ func (c *Cloud) addLoadBalancerTags(loadBalancerName string, requested map[strin
 	}
 
 	request := &elb.AddTagsInput{}
-	request.LoadBalancerNames = []*string{&loadBalancerName}
+	request.LoadBalancerNames = []string{loadBalancerName}
 	request.Tags = tags
 
-	_, err := c.elb.AddTags(request)
+	_, err := c.elb.AddTags(ctx, request)
 	if err != nil {
 		return fmt.Errorf("error adding tags to load balancer: %v", err)
 	}
@@ -3057,25 +3025,24 @@ func (c *Cloud) addLoadBalancerTags(loadBalancerName string, requested map[strin
 }
 
 // Gets the current load balancer state
-func (c *Cloud) describeLoadBalancerv2(name string) (*elbv2.LoadBalancer, error) {
+func (c *Cloud) describeLoadBalancerv2(ctx context.Context, name string) (*elbv2types.LoadBalancer, error) {
 	request := &elbv2.DescribeLoadBalancersInput{
-		Names: []*string{aws.String(name)},
+		Names: []string{name},
 	}
 
-	response, err := c.elbv2.DescribeLoadBalancers(request)
+	response, err := c.elbv2.DescribeLoadBalancers(ctx, request)
 	if err != nil {
-		if awsError, ok := err.(awserr.Error); ok {
-			if awsError.Code() == elbv2.ErrCodeLoadBalancerNotFoundException {
-				return nil, nil
-			}
+		var notFoundErr *elbv2types.LoadBalancerNotFoundException
+		if errors.As(err, &notFoundErr) {
+			return nil, nil
 		}
 		return nil, fmt.Errorf("error describing load balancer: %q", err)
 	}
 
 	// AWS will not return 2 load balancers with the same name _and_ type.
 	for i := range response.LoadBalancers {
-		if aws.StringValue(response.LoadBalancers[i].Type) == elbv2.LoadBalancerTypeEnumNetwork {
-			return response.LoadBalancers[i], nil
+		if response.LoadBalancers[i].Type == elbv2types.LoadBalancerTypeEnumNetwork {
+			return &response.LoadBalancers[i], nil
 		}
 	}
 
@@ -3083,11 +3050,17 @@ func (c *Cloud) describeLoadBalancerv2(name string) (*elbv2.LoadBalancer, error)
 }
 
 // Retrieves instance's vpc id from metadata
-func (c *Cloud) findVPCID() (string, error) {
-	macs, err := c.metadata.GetMetadata("network/interfaces/macs/")
+func (c *Cloud) findVPCID(ctx context.Context) (string, error) {
+	macsMetadata, err := c.metadata.GetMetadata(ctx, &imds.GetMetadataInput{Path: "network/interfaces/macs/"})
 	if err != nil {
 		return "", fmt.Errorf("could not list interfaces of the instance: %q", err)
 	}
+	macsBytes, err := io.ReadAll(macsMetadata.Content)
+	if err != nil {
+		return "", fmt.Errorf("unable to parse macs: %q", err)
+	}
+	defer macsMetadata.Content.Close()
+	macs := string(macsBytes)
 
 	// loop over interfaces, first vpc id returned wins
 	for _, macPath := range strings.Split(macs, "\n") {
@@ -3095,23 +3068,28 @@ func (c *Cloud) findVPCID() (string, error) {
 			continue
 		}
 		url := fmt.Sprintf("network/interfaces/macs/%svpc-id", macPath)
-		vpcID, err := c.metadata.GetMetadata(url)
+		vpcIDMetadata, err := c.metadata.GetMetadata(ctx, &imds.GetMetadataInput{Path: url})
 		if err != nil {
 			continue
 		}
-		return vpcID, nil
+		vpcIDBytes, err := io.ReadAll(vpcIDMetadata.Content)
+		if err != nil {
+			continue
+		}
+		defer vpcIDMetadata.Content.Close()
+		return string(vpcIDBytes), nil
 	}
 	return "", fmt.Errorf("could not find VPC ID in instance metadata")
 }
 
 // Retrieves the specified security group from the AWS API, or returns nil if not found
-func (c *Cloud) findSecurityGroup(securityGroupID string) (*ec2.SecurityGroup, error) {
+func (c *Cloud) findSecurityGroup(ctx context.Context, securityGroupID string) (*ec2types.SecurityGroup, error) {
 	describeSecurityGroupsRequest := &ec2.DescribeSecurityGroupsInput{
-		GroupIds: []*string{&securityGroupID},
+		GroupIds: []string{securityGroupID},
 	}
 	// We don't apply our tag filters because we are retrieving by ID
 
-	groups, err := c.ec2.DescribeSecurityGroups(describeSecurityGroupsRequest)
+	groups, err := c.ec2.DescribeSecurityGroups(ctx, describeSecurityGroupsRequest)
 	if err != nil {
 		klog.Warningf("Error retrieving security group: %q", err)
 		return nil, err
@@ -3125,10 +3103,10 @@ func (c *Cloud) findSecurityGroup(securityGroupID string) (*ec2.SecurityGroup, e
 		return nil, fmt.Errorf("multiple security groups found with same id %q", securityGroupID)
 	}
 	group := groups[0]
-	return group, nil
+	return &group, nil
 }
 
-func isEqualIntPointer(l, r *int64) bool {
+func isEqualIntPointer(l, r *int32) bool {
 	if l == nil {
 		return r == nil
 	}
@@ -3148,7 +3126,7 @@ func isEqualStringPointer(l, r *string) bool {
 	return *l == *r
 }
 
-func ipPermissionExists(newPermission, existing *ec2.IpPermission, compareGroupUserIDs bool) bool {
+func ipPermissionExists(newPermission, existing *ec2types.IpPermission, compareGroupUserIDs bool) bool {
 	if !isEqualIntPointer(newPermission.FromPort, existing.FromPort) {
 		return false
 	}
@@ -3181,7 +3159,7 @@ func ipPermissionExists(newPermission, existing *ec2.IpPermission, compareGroupU
 	for _, leftPair := range newPermission.UserIdGroupPairs {
 		found := false
 		for _, rightPair := range existing.UserIdGroupPairs {
-			if isEqualUserGroupPair(leftPair, rightPair, compareGroupUserIDs) {
+			if isEqualUserGroupPair(&leftPair, &rightPair, compareGroupUserIDs) {
 				found = true
 				break
 			}
@@ -3194,7 +3172,7 @@ func ipPermissionExists(newPermission, existing *ec2.IpPermission, compareGroupU
 	return true
 }
 
-func isEqualUserGroupPair(l, r *ec2.UserIdGroupPair, compareGroupUserIDs bool) bool {
+func isEqualUserGroupPair(l, r *ec2types.UserIdGroupPair, compareGroupUserIDs bool) bool {
 	klog.V(2).Infof("Comparing %v to %v", *l.GroupId, *r.GroupId)
 	if isEqualStringPointer(l.GroupId, r.GroupId) {
 		if compareGroupUserIDs {
@@ -3212,8 +3190,8 @@ func isEqualUserGroupPair(l, r *ec2.UserIdGroupPair, compareGroupUserIDs bool) b
 // Makes sure the security group ingress is exactly the specified permissions
 // Returns true if and only if changes were made
 // The security group must already exist
-func (c *Cloud) setSecurityGroupIngress(securityGroupID string, permissions IPPermissionSet) (bool, error) {
-	group, err := c.findSecurityGroup(securityGroupID)
+func (c *Cloud) setSecurityGroupIngress(ctx context.Context, securityGroupID string, permissions IPPermissionSet) (bool, error) {
+	group, err := c.findSecurityGroup(ctx, securityGroupID)
 	if err != nil {
 		klog.Warningf("Error retrieving security group %q", err)
 		return false, err
@@ -3259,7 +3237,7 @@ func (c *Cloud) setSecurityGroupIngress(securityGroupID string, permissions IPPe
 		request := &ec2.AuthorizeSecurityGroupIngressInput{}
 		request.GroupId = &securityGroupID
 		request.IpPermissions = add.List()
-		_, err = c.ec2.AuthorizeSecurityGroupIngress(request)
+		_, err = c.ec2.AuthorizeSecurityGroupIngress(ctx, request)
 		if err != nil {
 			return false, fmt.Errorf("error authorizing security group ingress: %q", err)
 		}
@@ -3270,7 +3248,7 @@ func (c *Cloud) setSecurityGroupIngress(securityGroupID string, permissions IPPe
 		request := &ec2.RevokeSecurityGroupIngressInput{}
 		request.GroupId = &securityGroupID
 		request.IpPermissions = remove.List()
-		_, err = c.ec2.RevokeSecurityGroupIngress(request)
+		_, err = c.ec2.RevokeSecurityGroupIngress(ctx, request)
 		if err != nil {
 			return false, fmt.Errorf("error revoking security group ingress: %q", err)
 		}
@@ -3282,13 +3260,13 @@ func (c *Cloud) setSecurityGroupIngress(securityGroupID string, permissions IPPe
 // Makes sure the security group includes the specified permissions
 // Returns true if and only if changes were made
 // The security group must already exist
-func (c *Cloud) addSecurityGroupIngress(securityGroupID string, addPermissions []*ec2.IpPermission) (bool, error) {
+func (c *Cloud) addSecurityGroupIngress(ctx context.Context, securityGroupID string, addPermissions []ec2types.IpPermission) (bool, error) {
 	// We do not want to make changes to the Global defined SG
 	if securityGroupID == c.cfg.Global.ElbSecurityGroup {
 		return false, nil
 	}
 
-	group, err := c.findSecurityGroup(securityGroupID)
+	group, err := c.findSecurityGroup(ctx, securityGroupID)
 	if err != nil {
 		klog.Warningf("Error retrieving security group: %q", err)
 		return false, err
@@ -3300,7 +3278,7 @@ func (c *Cloud) addSecurityGroupIngress(securityGroupID string, addPermissions [
 
 	klog.V(2).Infof("Existing security group ingress: %s %v", securityGroupID, group.IpPermissions)
 
-	changes := []*ec2.IpPermission{}
+	changes := []ec2types.IpPermission{}
 	for _, addPermission := range addPermissions {
 		hasUserID := false
 		for i := range addPermission.UserIdGroupPairs {
@@ -3311,7 +3289,7 @@ func (c *Cloud) addSecurityGroupIngress(securityGroupID string, addPermissions [
 
 		found := false
 		for _, groupPermission := range group.IpPermissions {
-			if ipPermissionExists(addPermission, groupPermission, hasUserID) {
+			if ipPermissionExists(&addPermission, &groupPermission, hasUserID) {
 				found = true
 				break
 			}
@@ -3331,7 +3309,7 @@ func (c *Cloud) addSecurityGroupIngress(securityGroupID string, addPermissions [
 	request := &ec2.AuthorizeSecurityGroupIngressInput{}
 	request.GroupId = &securityGroupID
 	request.IpPermissions = changes
-	_, err = c.ec2.AuthorizeSecurityGroupIngress(request)
+	_, err = c.ec2.AuthorizeSecurityGroupIngress(ctx, request)
 	if err != nil {
 		klog.Warningf("Error authorizing security group ingress %q", err)
 		return false, fmt.Errorf("error authorizing security group ingress: %q", err)
@@ -3343,13 +3321,13 @@ func (c *Cloud) addSecurityGroupIngress(securityGroupID string, addPermissions [
 // Makes sure the security group no longer includes the specified permissions
 // Returns true if and only if changes were made
 // If the security group no longer exists, will return (false, nil)
-func (c *Cloud) removeSecurityGroupIngress(securityGroupID string, removePermissions []*ec2.IpPermission) (bool, error) {
+func (c *Cloud) removeSecurityGroupIngress(ctx context.Context, securityGroupID string, removePermissions []ec2types.IpPermission) (bool, error) {
 	// We do not want to make changes to the Global defined SG
 	if securityGroupID == c.cfg.Global.ElbSecurityGroup {
 		return false, nil
 	}
 
-	group, err := c.findSecurityGroup(securityGroupID)
+	group, err := c.findSecurityGroup(ctx, securityGroupID)
 	if err != nil {
 		klog.Warningf("Error retrieving security group: %q", err)
 		return false, err
@@ -3360,7 +3338,7 @@ func (c *Cloud) removeSecurityGroupIngress(securityGroupID string, removePermiss
 		return false, nil
 	}
 
-	changes := []*ec2.IpPermission{}
+	changes := []ec2types.IpPermission{}
 	for _, removePermission := range removePermissions {
 		hasUserID := false
 		for i := range removePermission.UserIdGroupPairs {
@@ -3369,16 +3347,16 @@ func (c *Cloud) removeSecurityGroupIngress(securityGroupID string, removePermiss
 			}
 		}
 
-		var found *ec2.IpPermission
+		var found *ec2types.IpPermission
 		for _, groupPermission := range group.IpPermissions {
-			if ipPermissionExists(removePermission, groupPermission, hasUserID) {
-				found = removePermission
+			if ipPermissionExists(&removePermission, &groupPermission, hasUserID) {
+				found = &removePermission
 				break
 			}
 		}
 
 		if found != nil {
-			changes = append(changes, found)
+			changes = append(changes, *found)
 		}
 	}
 
@@ -3391,7 +3369,7 @@ func (c *Cloud) removeSecurityGroupIngress(securityGroupID string, removePermiss
 	request := &ec2.RevokeSecurityGroupIngressInput{}
 	request.GroupId = &securityGroupID
 	request.IpPermissions = changes
-	_, err = c.ec2.RevokeSecurityGroupIngress(request)
+	_, err = c.ec2.RevokeSecurityGroupIngress(ctx, request)
 	if err != nil {
 		klog.Warningf("Error revoking security group ingress: %q", err)
 		return false, err
@@ -3404,7 +3382,7 @@ func (c *Cloud) removeSecurityGroupIngress(securityGroupID string, removePermiss
 // For multi-cluster isolation, name must be globally unique, for example derived from the service UUID.
 // Additional tags can be specified
 // Returns the security group id or error
-func (c *Cloud) ensureSecurityGroup(name string, description string, additionalTags map[string]string) (string, error) {
+func (c *Cloud) ensureSecurityGroup(ctx context.Context, name string, description string, additionalTags map[string]string) (string, error) {
 	groupID := ""
 	attempt := 0
 	for {
@@ -3416,12 +3394,12 @@ func (c *Cloud) ensureSecurityGroup(name string, description string, additionalT
 		// If it has a different cluster's tags, that is an error.
 		// This shouldn't happen because name is expected to be globally unique (UUID derived)
 		request := &ec2.DescribeSecurityGroupsInput{}
-		request.Filters = []*ec2.Filter{
+		request.Filters = []ec2types.Filter{
 			newEc2Filter("group-name", name),
 			newEc2Filter("vpc-id", c.vpcID),
 		}
 
-		securityGroups, err := c.ec2.DescribeSecurityGroups(request)
+		securityGroups, err := c.ec2.DescribeSecurityGroups(ctx, request)
 		if err != nil {
 			return "", err
 		}
@@ -3430,14 +3408,14 @@ func (c *Cloud) ensureSecurityGroup(name string, description string, additionalT
 			if len(securityGroups) > 1 {
 				klog.Warningf("Found multiple security groups with name: %q", name)
 			}
-			err := c.tagging.readRepairClusterTags(
-				c.ec2, aws.StringValue(securityGroups[0].GroupId),
+			err := c.tagging.readRepairClusterTags(ctx,
+				c.ec2, aws.ToString(securityGroups[0].GroupId),
 				ResourceLifecycleOwned, nil, securityGroups[0].Tags)
 			if err != nil {
 				return "", err
 			}
 
-			return aws.StringValue(securityGroups[0].GroupId), nil
+			return aws.ToString(securityGroups[0].GroupId), nil
 		}
 
 		createRequest := &ec2.CreateSecurityGroupInput{}
@@ -3445,27 +3423,27 @@ func (c *Cloud) ensureSecurityGroup(name string, description string, additionalT
 		createRequest.GroupName = &name
 		createRequest.Description = &description
 		tags := c.tagging.buildTags(ResourceLifecycleOwned, additionalTags)
-		var awsTags []*ec2.Tag
+		var awsTags []ec2types.Tag
 		for k, v := range tags {
-			tag := &ec2.Tag{
+			tag := ec2types.Tag{
 				Key:   aws.String(k),
 				Value: aws.String(v),
 			}
 			awsTags = append(awsTags, tag)
 		}
-		createRequest.TagSpecifications = []*ec2.TagSpecification{
+		createRequest.TagSpecifications = []ec2types.TagSpecification{
 			{
-				ResourceType: aws.String(ec2.ResourceTypeSecurityGroup),
+				ResourceType: ec2types.ResourceTypeSecurityGroup,
 				Tags:         awsTags,
 			},
 		}
 
-		createResponse, err := c.ec2.CreateSecurityGroup(createRequest)
+		createResponse, err := c.ec2.CreateSecurityGroup(ctx, createRequest)
 		if err != nil {
 			ignore := false
-			switch err := err.(type) {
-			case awserr.Error:
-				if err.Code() == "InvalidGroup.Duplicate" && attempt < MaxReadThenCreateRetries {
+			var ae smithy.APIError
+			if errors.As(err, &ae) {
+				if ae.ErrorCode() == "InvalidGroup.Duplicate" && attempt < MaxReadThenCreateRetries {
 					klog.V(2).Infof("Got InvalidGroup.Duplicate while creating security group (race?); will retry")
 					ignore = true
 				}
@@ -3476,7 +3454,7 @@ func (c *Cloud) ensureSecurityGroup(name string, description string, additionalT
 			}
 			time.Sleep(1 * time.Second)
 		} else {
-			groupID = aws.StringValue(createResponse.GroupId)
+			groupID = aws.ToString(createResponse.GroupId)
 			break
 		}
 	}
@@ -3488,10 +3466,10 @@ func (c *Cloud) ensureSecurityGroup(name string, description string, additionalT
 }
 
 // Finds the value for a given tag.
-func findTag(tags []*ec2.Tag, key string) (string, bool) {
+func findTag(tags []ec2types.Tag, key string) (string, bool) {
 	for _, tag := range tags {
-		if aws.StringValue(tag.Key) == key {
-			return aws.StringValue(tag.Value), true
+		if aws.ToString(tag.Key) == key {
+			return aws.ToString(tag.Value), true
 		}
 	}
 	return "", false
@@ -3500,16 +3478,16 @@ func findTag(tags []*ec2.Tag, key string) (string, bool) {
 // Finds the subnets associated with the cluster, by matching cluster tags if present.
 // For maximal backwards compatibility, if no subnets are tagged, it will fall-back to the current subnet.
 // However, in future this will likely be treated as an error.
-func (c *Cloud) findSubnets() ([]*ec2.Subnet, error) {
+func (c *Cloud) findSubnets(ctx context.Context) ([]ec2types.Subnet, error) {
 	request := &ec2.DescribeSubnetsInput{}
-	request.Filters = []*ec2.Filter{newEc2Filter("vpc-id", c.vpcID)}
+	request.Filters = []ec2types.Filter{newEc2Filter("vpc-id", c.vpcID)}
 
-	subnets, err := c.ec2.DescribeSubnets(request)
+	subnets, err := c.ec2.DescribeSubnets(ctx, request)
 	if err != nil {
 		return nil, fmt.Errorf("error describing subnets: %q", err)
 	}
 
-	var matches []*ec2.Subnet
+	var matches []ec2types.Subnet
 	for _, subnet := range subnets {
 		if c.tagging.hasClusterTag(subnet.Tags) {
 			matches = append(matches, subnet)
@@ -3526,9 +3504,9 @@ func (c *Cloud) findSubnets() ([]*ec2.Subnet, error) {
 	klog.Warningf("No tagged subnets found; will fall-back to the current subnet only.  This is likely to be an error in a future version of k8s.")
 
 	request = &ec2.DescribeSubnetsInput{}
-	request.Filters = []*ec2.Filter{newEc2Filter("subnet-id", c.selfAWSInstance.subnetID)}
+	request.Filters = []ec2types.Filter{newEc2Filter("subnet-id", c.selfAWSInstance.subnetID)}
 
-	subnets, err = c.ec2.DescribeSubnets(request)
+	subnets, err = c.ec2.DescribeSubnets(ctx, request)
 	if err != nil {
 		return nil, fmt.Errorf("error describing subnets: %q", err)
 	}
@@ -3538,24 +3516,24 @@ func (c *Cloud) findSubnets() ([]*ec2.Subnet, error) {
 
 // Returns a mapping between availability zone names and their types
 // Zone will not be included in the map in case it was not found in AWS by name
-func (c *Cloud) getZoneTypesByName(azNames []string) (map[string]string, error) {
+func (c *Cloud) getZoneTypesByName(ctx context.Context, azNames []string) (map[string]string, error) {
 	if len(azNames) == 0 {
 		// if az names slice is empty, no need to make a request, return early with empty map
 		return map[string]string{}, nil
 	}
 	azFilter := newEc2Filter("zone-name", azNames...)
 	azRequest := &ec2.DescribeAvailabilityZonesInput{}
-	azRequest.Filters = []*ec2.Filter{azFilter}
+	azRequest.Filters = []ec2types.Filter{azFilter}
 
-	azs, err := c.ec2.DescribeAvailabilityZones(azRequest)
+	azs, err := c.ec2.DescribeAvailabilityZones(ctx, azRequest)
 	if err != nil {
 		return nil, fmt.Errorf("error describe availability zones: %q", err)
 	}
 
 	azTypesMapping := make(map[string]string)
 	for _, az := range azs {
-		name := aws.StringValue(az.ZoneName)
-		zoneType := aws.StringValue(az.ZoneType)
+		name := aws.ToString(az.ZoneName)
+		zoneType := aws.ToString(az.ZoneType)
 		if name == "" || zoneType == "" {
 			klog.Warningf("Ignoring zone with empty name/type: %v", az)
 			continue
@@ -3568,25 +3546,25 @@ func (c *Cloud) getZoneTypesByName(azNames []string) (map[string]string, error) 
 // Finds the subnets to use for an ELB we are creating.
 // Normal (Internet-facing) ELBs must use public subnets, so we skip private subnets.
 // Internal ELBs can use public or private subnets, but if we have a private subnet we should prefer that.
-func (c *Cloud) findELBSubnets(internalELB bool) ([]string, error) {
+func (c *Cloud) findELBSubnets(ctx context.Context, internalELB bool) ([]string, error) {
 	vpcIDFilter := newEc2Filter("vpc-id", c.vpcID)
 
-	subnets, err := c.findSubnets()
+	subnets, err := c.findSubnets(ctx)
 	if err != nil {
 		return nil, err
 	}
 
 	rRequest := &ec2.DescribeRouteTablesInput{}
-	rRequest.Filters = []*ec2.Filter{vpcIDFilter}
-	rt, err := c.ec2.DescribeRouteTables(rRequest)
+	rRequest.Filters = []ec2types.Filter{vpcIDFilter}
+	rt, err := c.ec2.DescribeRouteTables(ctx, rRequest)
 	if err != nil {
 		return nil, fmt.Errorf("error describe route table: %q", err)
 	}
 
-	subnetsByAZ := make(map[string]*ec2.Subnet)
+	subnetsByAZ := make(map[string]ec2types.Subnet)
 	for _, subnet := range subnets {
-		az := aws.StringValue(subnet.AvailabilityZone)
-		id := aws.StringValue(subnet.SubnetId)
+		az := aws.ToString(subnet.AvailabilityZone)
+		id := aws.ToString(subnet.SubnetId)
 		if az == "" || id == "" {
 			klog.Warningf("Ignoring subnet with empty az/id: %v", subnet)
 			continue
@@ -3601,8 +3579,8 @@ func (c *Cloud) findELBSubnets(internalELB bool) ([]string, error) {
 			continue
 		}
 
-		existing := subnetsByAZ[az]
-		if existing == nil {
+		existing, exists := subnetsByAZ[az]
+		if !exists {
 			subnetsByAZ[az] = subnet
 			continue
 		}
@@ -3653,7 +3631,7 @@ func (c *Cloud) findELBSubnets(internalELB bool) ([]string, error) {
 
 	sort.Strings(azNames)
 
-	azTypesMapping, err := c.getZoneTypesByName(azNames)
+	azTypesMapping, err := c.getZoneTypesByName(ctx, azNames)
 	if err != nil {
 		return nil, fmt.Errorf("error get availability zone types: %q", err)
 	}
@@ -3667,7 +3645,7 @@ func (c *Cloud) findELBSubnets(internalELB bool) ([]string, error) {
 			// does not support NLB/CLB for the moment, only ALB.
 			continue
 		}
-		subnetIDs = append(subnetIDs, aws.StringValue(subnetsByAZ[key].SubnetId))
+		subnetIDs = append(subnetIDs, aws.ToString(subnetsByAZ[key].SubnetId))
 	}
 
 	return subnetIDs, nil
@@ -3696,15 +3674,15 @@ func parseStringSliceAnnotation(annotations map[string]string, annotation string
 	return true
 }
 
-func (c *Cloud) getLoadBalancerSubnets(service *v1.Service, internalELB bool) ([]string, error) {
+func (c *Cloud) getLoadBalancerSubnets(ctx context.Context, service *v1.Service, internalELB bool) ([]string, error) {
 	var rawSubnetNameOrIDs []string
 	if exists := parseStringSliceAnnotation(service.Annotations, ServiceAnnotationLoadBalancerSubnets, &rawSubnetNameOrIDs); exists {
-		return c.resolveSubnetNameOrIDs(rawSubnetNameOrIDs)
+		return c.resolveSubnetNameOrIDs(ctx, rawSubnetNameOrIDs)
 	}
-	return c.findELBSubnets(internalELB)
+	return c.findELBSubnets(ctx, internalELB)
 }
 
-func (c *Cloud) resolveSubnetNameOrIDs(subnetNameOrIDs []string) ([]string, error) {
+func (c *Cloud) resolveSubnetNameOrIDs(ctx context.Context, subnetNameOrIDs []string) ([]string, error) {
 	var subnetIDs []string
 	var subnetNames []string
 	if len(subnetNameOrIDs) == 0 {
@@ -3717,12 +3695,12 @@ func (c *Cloud) resolveSubnetNameOrIDs(subnetNameOrIDs []string) ([]string, erro
 			subnetNames = append(subnetNames, nameOrID)
 		}
 	}
-	var resolvedSubnets []*ec2.Subnet
+	var resolvedSubnets []ec2types.Subnet
 	if len(subnetIDs) > 0 {
 		req := &ec2.DescribeSubnetsInput{
-			SubnetIds: aws.StringSlice(subnetIDs),
+			SubnetIds: subnetIDs,
 		}
-		subnets, err := c.ec2.DescribeSubnets(req)
+		subnets, err := c.ec2.DescribeSubnets(ctx, req)
 		if err != nil {
 			return []string{}, err
 		}
@@ -3730,18 +3708,18 @@ func (c *Cloud) resolveSubnetNameOrIDs(subnetNameOrIDs []string) ([]string, erro
 	}
 	if len(subnetNames) > 0 {
 		req := &ec2.DescribeSubnetsInput{
-			Filters: []*ec2.Filter{
+			Filters: []ec2types.Filter{
 				{
 					Name:   aws.String("tag:Name"),
-					Values: aws.StringSlice(subnetNames),
+					Values: subnetNames,
 				},
 				{
 					Name:   aws.String("vpc-id"),
-					Values: aws.StringSlice([]string{c.vpcID}),
+					Values: []string{c.vpcID},
 				},
 			},
 		}
-		subnets, err := c.ec2.DescribeSubnets(req)
+		subnets, err := c.ec2.DescribeSubnets(ctx, req)
 		if err != nil {
 			return []string{}, err
 		}
@@ -3752,17 +3730,17 @@ func (c *Cloud) resolveSubnetNameOrIDs(subnetNameOrIDs []string) ([]string, erro
 	}
 	var subnets []string
 	for _, subnet := range resolvedSubnets {
-		subnets = append(subnets, aws.StringValue(subnet.SubnetId))
+		subnets = append(subnets, aws.ToString(subnet.SubnetId))
 	}
 	return subnets, nil
 }
 
-func isSubnetPublic(rt []*ec2.RouteTable, subnetID string) (bool, error) {
-	var subnetTable *ec2.RouteTable
+func isSubnetPublic(rt []ec2types.RouteTable, subnetID string) (bool, error) {
+	var subnetTable *ec2types.RouteTable
 	for _, table := range rt {
 		for _, assoc := range table.Associations {
-			if aws.StringValue(assoc.SubnetId) == subnetID {
-				subnetTable = table
+			if aws.ToString(assoc.SubnetId) == subnetID {
+				subnetTable = &table
 				break
 			}
 		}
@@ -3773,10 +3751,10 @@ func isSubnetPublic(rt []*ec2.RouteTable, subnetID string) (bool, error) {
 		// associated with the VPC's main routing table.
 		for _, table := range rt {
 			for _, assoc := range table.Associations {
-				if aws.BoolValue(assoc.Main) == true {
+				if aws.ToBool(assoc.Main) == true {
 					klog.V(4).Infof("Assuming implicit use of main routing table %s for %s",
-						aws.StringValue(table.RouteTableId), subnetID)
-					subnetTable = table
+						aws.ToString(table.RouteTableId), subnetID)
+					subnetTable = &table
 					break
 				}
 			}
@@ -3794,7 +3772,7 @@ func isSubnetPublic(rt []*ec2.RouteTable, subnetID string) (bool, error) {
 		// from the default in-subnet route which is called "local"
 		// or other virtual gateway (starting with vgv)
 		// or vpc peering connections (starting with pcx).
-		if strings.HasPrefix(aws.StringValue(route.GatewayId), "igw") {
+		if strings.HasPrefix(aws.ToString(route.GatewayId), "igw") {
 			return true, nil
 		}
 	}
@@ -3803,8 +3781,8 @@ func isSubnetPublic(rt []*ec2.RouteTable, subnetID string) (bool, error) {
 }
 
 type portSets struct {
-	names   sets.String
-	numbers sets.Int64
+	names   sets.Set[string]
+	numbers sets.Set[int32]
 }
 
 // getPortSets returns a portSets structure representing port names and numbers
@@ -3813,8 +3791,8 @@ type portSets struct {
 func getPortSets(annotation string) (ports *portSets) {
 	if annotation != "" && annotation != "*" {
 		ports = &portSets{
-			sets.NewString(),
-			sets.NewInt64(),
+			sets.New[string](),
+			sets.New[int32](),
 		}
 		portStringSlice := strings.Split(annotation, ",")
 		for _, item := range portStringSlice {
@@ -3822,7 +3800,7 @@ func getPortSets(annotation string) (ports *portSets) {
 			if err != nil {
 				ports.names.Insert(item)
 			} else {
-				ports.numbers.Insert(int64(port))
+				ports.numbers.Insert(int32(port))
 			}
 		}
 	}
@@ -3847,7 +3825,7 @@ func getSGListFromAnnotation(annotatedSG string) []string {
 // Extra groups can be specified via annotation, as can extra tags for any
 // new groups. The annotation "ServiceAnnotationLoadBalancerSecurityGroups" allows for
 // setting the security groups specified.
-func (c *Cloud) buildELBSecurityGroupList(serviceName types.NamespacedName, loadBalancerName string, annotations map[string]string) ([]string, bool, error) {
+func (c *Cloud) buildELBSecurityGroupList(ctx context.Context, serviceName types.NamespacedName, loadBalancerName string, annotations map[string]string) ([]string, bool, error) {
 	var err error
 	var securityGroupID string
 	// We do not want to make changes to a Global defined SG
@@ -3863,7 +3841,7 @@ func (c *Cloud) buildELBSecurityGroupList(serviceName types.NamespacedName, load
 			// Create a security group for the load balancer
 			sgName := "k8s-elb-" + loadBalancerName
 			sgDescription := fmt.Sprintf("Security group for Kubernetes ELB %s (%v)", loadBalancerName, serviceName)
-			securityGroupID, err = c.ensureSecurityGroup(sgName, sgDescription, getKeyValuePropertiesFromAnnotation(annotations, ServiceAnnotationLoadBalancerAdditionalTags))
+			securityGroupID, err = c.ensureSecurityGroup(ctx, sgName, sgDescription, getKeyValuePropertiesFromAnnotation(annotations, ServiceAnnotationLoadBalancerAdditionalTags))
 			if err != nil {
 				klog.Errorf("Error creating load balancer security group: %q", err)
 				return nil, setupSg, err
@@ -3912,16 +3890,16 @@ func (c *Cloud) sortELBSecurityGroupList(securityGroupIDs []string, annotations 
 
 // buildListener creates a new listener from the given port, adding an SSL certificate
 // if indicated by the appropriate annotations.
-func buildListener(port v1.ServicePort, annotations map[string]string, sslPorts *portSets) (*elb.Listener, error) {
-	loadBalancerPort := int64(port.Port)
+func buildListener(port v1.ServicePort, annotations map[string]string, sslPorts *portSets) (elbtypes.Listener, error) {
+	loadBalancerPort := port.Port
 	portName := strings.ToLower(port.Name)
-	instancePort := int64(port.NodePort)
+	instancePort := port.NodePort
 	protocol := strings.ToLower(string(port.Protocol))
 	instanceProtocol := protocol
 
-	listener := &elb.Listener{}
+	listener := elbtypes.Listener{}
 	listener.InstancePort = &instancePort
-	listener.LoadBalancerPort = &loadBalancerPort
+	listener.LoadBalancerPort = loadBalancerPort
 	certID := annotations[ServiceAnnotationLoadBalancerCertificate]
 	if certID != "" && (sslPorts == nil || sslPorts.numbers.Has(loadBalancerPort) || sslPorts.names.Has(portName)) {
 		instanceProtocol = annotations[ServiceAnnotationLoadBalancerBEProtocol]
@@ -3931,7 +3909,7 @@ func buildListener(port v1.ServicePort, annotations map[string]string, sslPorts 
 		} else {
 			protocol = backendProtocolMapping[instanceProtocol]
 			if protocol == "" {
-				return nil, fmt.Errorf("Invalid backend protocol %s for %s in %s", instanceProtocol, certID, ServiceAnnotationLoadBalancerBEProtocol)
+				return elbtypes.Listener{}, fmt.Errorf("Invalid backend protocol %s for %s in %s", instanceProtocol, certID, ServiceAnnotationLoadBalancerBEProtocol)
 			}
 		}
 		listener.SSLCertificateId = &certID
@@ -3946,13 +3924,13 @@ func buildListener(port v1.ServicePort, annotations map[string]string, sslPorts 
 	return listener, nil
 }
 
-func (c *Cloud) getSubnetCidrs(subnetIDs []string) ([]string, error) {
+func (c *Cloud) getSubnetCidrs(ctx context.Context, subnetIDs []string) ([]string, error) {
 	request := &ec2.DescribeSubnetsInput{}
 	for _, subnetID := range subnetIDs {
-		request.SubnetIds = append(request.SubnetIds, aws.String(subnetID))
+		request.SubnetIds = append(request.SubnetIds, subnetID)
 	}
 
-	subnets, err := c.ec2.DescribeSubnets(request)
+	subnets, err := c.ec2.DescribeSubnets(ctx, request)
 	if err != nil {
 		return nil, fmt.Errorf("error querying Subnet for ELB: %q", err)
 	}
@@ -3962,7 +3940,7 @@ func (c *Cloud) getSubnetCidrs(subnetIDs []string) ([]string, error) {
 
 	cidrs := make([]string, 0, len(subnets))
 	for _, subnet := range subnets {
-		cidrs = append(cidrs, aws.StringValue(subnet.CidrBlock))
+		cidrs = append(cidrs, aws.ToString(subnet.CidrBlock))
 	}
 	return cidrs, nil
 }
@@ -3975,9 +3953,10 @@ func parseStringAnnotation(annotations map[string]string, annotation string, val
 	return false
 }
 
-func parseInt64Annotation(annotations map[string]string, annotation string, value *int64) (bool, error) {
+func parseInt32Annotation(annotations map[string]string, annotation string, value *int32) (bool, error) {
 	if v, ok := annotations[annotation]; ok {
-		parsed, err := strconv.ParseInt(v, 10, 0)
+		parsed64, err := strconv.ParseInt(v, 10, 0)
+		parsed := int32(parsed64)
 		if err != nil {
 			return true, fmt.Errorf("failed to parse annotation %v=%v", annotation, v)
 		}
@@ -3991,7 +3970,7 @@ func (c *Cloud) buildNLBHealthCheckConfiguration(svc *v1.Service) (healthCheckCo
 	hc := healthCheckConfig{
 		Port:               defaultHealthCheckPort,
 		Path:               defaultHealthCheckPath,
-		Protocol:           elbv2.ProtocolEnumTcp,
+		Protocol:           elbv2types.ProtocolEnumTcp,
 		Interval:           defaultNlbHealthCheckInterval,
 		Timeout:            defaultNlbHealthCheckTimeout,
 		HealthyThreshold:   defaultNlbHealthCheckThreshold,
@@ -4002,20 +3981,22 @@ func (c *Cloud) buildNLBHealthCheckConfiguration(svc *v1.Service) (healthCheckCo
 		hc = healthCheckConfig{
 			Port:               strconv.Itoa(int(port)),
 			Path:               path,
-			Protocol:           elbv2.ProtocolEnumHttp,
+			Protocol:           elbv2types.ProtocolEnumHttp,
 			Interval:           10,
 			Timeout:            10,
 			HealthyThreshold:   2,
 			UnhealthyThreshold: 2,
 		}
 	}
-	if parseStringAnnotation(svc.Annotations, ServiceAnnotationLoadBalancerHealthCheckProtocol, &hc.Protocol) {
-		hc.Protocol = strings.ToUpper(hc.Protocol)
+
+	var protocolStr string = string(hc.Protocol)
+	if parseStringAnnotation(svc.Annotations, ServiceAnnotationLoadBalancerHealthCheckProtocol, &protocolStr) {
+		hc.Protocol = elbv2types.ProtocolEnum(strings.ToUpper(protocolStr))
 	}
 	switch hc.Protocol {
-	case elbv2.ProtocolEnumHttp, elbv2.ProtocolEnumHttps:
+	case elbv2types.ProtocolEnumHttp, elbv2types.ProtocolEnumHttps:
 		parseStringAnnotation(svc.Annotations, ServiceAnnotationLoadBalancerHealthCheckPath, &hc.Path)
-	case elbv2.ProtocolEnumTcp:
+	case elbv2types.ProtocolEnumTcp:
 		hc.Path = ""
 	default:
 		return healthCheckConfig{}, fmt.Errorf("Unsupported health check protocol %v", hc.Protocol)
@@ -4023,16 +4004,16 @@ func (c *Cloud) buildNLBHealthCheckConfiguration(svc *v1.Service) (healthCheckCo
 
 	parseStringAnnotation(svc.Annotations, ServiceAnnotationLoadBalancerHealthCheckPort, &hc.Port)
 
-	if _, err := parseInt64Annotation(svc.Annotations, ServiceAnnotationLoadBalancerHCInterval, &hc.Interval); err != nil {
+	if _, err := parseInt32Annotation(svc.Annotations, ServiceAnnotationLoadBalancerHCInterval, &hc.Interval); err != nil {
 		return healthCheckConfig{}, err
 	}
-	if _, err := parseInt64Annotation(svc.Annotations, ServiceAnnotationLoadBalancerHCTimeout, &hc.Timeout); err != nil {
+	if _, err := parseInt32Annotation(svc.Annotations, ServiceAnnotationLoadBalancerHCTimeout, &hc.Timeout); err != nil {
 		return healthCheckConfig{}, err
 	}
-	if _, err := parseInt64Annotation(svc.Annotations, ServiceAnnotationLoadBalancerHCHealthyThreshold, &hc.HealthyThreshold); err != nil {
+	if _, err := parseInt32Annotation(svc.Annotations, ServiceAnnotationLoadBalancerHCHealthyThreshold, &hc.HealthyThreshold); err != nil {
 		return healthCheckConfig{}, err
 	}
-	if _, err := parseInt64Annotation(svc.Annotations, ServiceAnnotationLoadBalancerHCUnhealthyThreshold, &hc.UnhealthyThreshold); err != nil {
+	if _, err := parseInt32Annotation(svc.Annotations, ServiceAnnotationLoadBalancerHCUnhealthyThreshold, &hc.UnhealthyThreshold); err != nil {
 		return healthCheckConfig{}, err
 	}
 
@@ -4065,7 +4046,7 @@ func (c *Cloud) EnsureLoadBalancer(ctx context.Context, clusterName string, apiS
 		return nil, err
 	}
 	// Figure out what mappings we want on the load balancer
-	listeners := []*elb.Listener{}
+	listeners := []elbtypes.Listener{}
 	v2Mappings := []nlbPortMapping{}
 
 	sslPorts := getPortSets(annotations[ServiceAnnotationLoadBalancerSSLPorts])
@@ -4081,10 +4062,10 @@ func (c *Cloud) EnsureLoadBalancer(ctx context.Context, clusterName string, apiS
 
 		if isNLB(annotations) {
 			portMapping := nlbPortMapping{
-				FrontendPort:     int64(port.Port),
-				FrontendProtocol: string(port.Protocol),
-				TrafficPort:      int64(port.NodePort),
-				TrafficProtocol:  string(port.Protocol),
+				FrontendPort:     int32(port.Port),
+				FrontendProtocol: elbv2types.ProtocolEnum(port.Protocol),
+				TrafficPort:      int32(port.NodePort),
+				TrafficProtocol:  elbv2types.ProtocolEnum(port.Protocol),
 			}
 			var err error
 			if portMapping.HealthCheckConfig, err = c.buildNLBHealthCheckConfiguration(apiService); err != nil {
@@ -4092,13 +4073,13 @@ func (c *Cloud) EnsureLoadBalancer(ctx context.Context, clusterName string, apiS
 			}
 
 			certificateARN := annotations[ServiceAnnotationLoadBalancerCertificate]
-			if port.Protocol != v1.ProtocolUDP && certificateARN != "" && (sslPorts == nil || sslPorts.numbers.Has(int64(port.Port)) || sslPorts.names.Has(port.Name)) {
-				portMapping.FrontendProtocol = elbv2.ProtocolEnumTls
+			if port.Protocol != v1.ProtocolUDP && certificateARN != "" && (sslPorts == nil || sslPorts.numbers.Has(port.Port) || sslPorts.names.Has(port.Name)) {
+				portMapping.FrontendProtocol = elbv2types.ProtocolEnumTls
 				portMapping.SSLCertificateARN = certificateARN
 				portMapping.SSLPolicy = annotations[ServiceAnnotationLoadBalancerSSLNegotiationPolicy]
 
 				if backendProtocol := annotations[ServiceAnnotationLoadBalancerBEProtocol]; backendProtocol == "ssl" {
-					portMapping.TrafficProtocol = elbv2.ProtocolEnumTls
+					portMapping.TrafficProtocol = elbv2types.ProtocolEnumTls
 				}
 			}
 
@@ -4116,7 +4097,7 @@ func (c *Cloud) EnsureLoadBalancer(ctx context.Context, clusterName string, apiS
 		return nil, fmt.Errorf("LoadBalancerIP cannot be specified for AWS ELB")
 	}
 
-	instances, err := c.findInstancesForELB(nodes, annotations)
+	instances, err := c.findInstancesForELB(ctx, nodes, annotations)
 	if err != nil {
 		return nil, err
 	}
@@ -4137,7 +4118,7 @@ func (c *Cloud) EnsureLoadBalancer(ctx context.Context, clusterName string, apiS
 
 	if isNLB(annotations) {
 		// Find the subnets that the ELB will live in
-		discoveredSubnetIDs, err := c.getLoadBalancerSubnets(apiService, internalELB)
+		discoveredSubnetIDs, err := c.getLoadBalancerSubnets(ctx, apiService, internalELB)
 		if err != nil {
 			klog.Errorf("Error listing subnets in VPC: %q", err)
 			return nil, err
@@ -4155,7 +4136,7 @@ func (c *Cloud) EnsureLoadBalancer(ctx context.Context, clusterName string, apiS
 			instanceIDs = append(instanceIDs, string(id))
 		}
 
-		v2LoadBalancer, err := c.ensureLoadBalancerv2(
+		v2LoadBalancer, err := c.ensureLoadBalancerv2(ctx,
 			serviceName,
 			loadBalancerName,
 			v2Mappings,
@@ -4177,7 +4158,7 @@ func (c *Cloud) EnsureLoadBalancer(ctx context.Context, clusterName string, apiS
 		if len(ensuredSubnetIDs) == 0 {
 			return nil, fmt.Errorf("did not find ensured subnets on LB %s", loadBalancerName)
 		}
-		subnetCidrs, err = c.getSubnetCidrs(ensuredSubnetIDs)
+		subnetCidrs, err = c.getSubnetCidrs(ctx, ensuredSubnetIDs)
 		if err != nil {
 			klog.Errorf("Error getting subnet cidrs: %q", err)
 			return nil, err
@@ -4191,7 +4172,7 @@ func (c *Cloud) EnsureLoadBalancer(ctx context.Context, clusterName string, apiS
 			sourceRangeCidrs = append(sourceRangeCidrs, "0.0.0.0/0")
 		}
 
-		err = c.updateInstanceSecurityGroupsForNLB(loadBalancerName, instances, subnetCidrs, sourceRangeCidrs, v2Mappings)
+		err = c.updateInstanceSecurityGroupsForNLB(ctx, loadBalancerName, instances, subnetCidrs, sourceRangeCidrs, v2Mappings)
 		if err != nil {
 			klog.Warningf("Error opening ingress rules for the load balancer to the instances: %q", err)
 			return nil, err
@@ -4215,24 +4196,24 @@ func (c *Cloud) EnsureLoadBalancer(ctx context.Context, clusterName string, apiS
 	}
 
 	// Some load balancer attributes are required, so defaults are set. These can be overridden by annotations.
-	loadBalancerAttributes := &elb.LoadBalancerAttributes{
-		AccessLog:              &elb.AccessLog{Enabled: aws.Bool(false)},
-		ConnectionDraining:     &elb.ConnectionDraining{Enabled: aws.Bool(false)},
-		ConnectionSettings:     &elb.ConnectionSettings{IdleTimeout: aws.Int64(60)},
-		CrossZoneLoadBalancing: &elb.CrossZoneLoadBalancing{Enabled: aws.Bool(false)},
+	loadBalancerAttributes := &elbtypes.LoadBalancerAttributes{
+		AccessLog:              &elbtypes.AccessLog{Enabled: false},
+		ConnectionDraining:     &elbtypes.ConnectionDraining{Enabled: false},
+		ConnectionSettings:     &elbtypes.ConnectionSettings{IdleTimeout: aws.Int32(60)},
+		CrossZoneLoadBalancing: &elbtypes.CrossZoneLoadBalancing{Enabled: false},
 	}
 
 	// Determine if an access log emit interval has been specified
 	accessLogEmitIntervalAnnotation := annotations[ServiceAnnotationLoadBalancerAccessLogEmitInterval]
 	if accessLogEmitIntervalAnnotation != "" {
-		accessLogEmitInterval, err := strconv.ParseInt(accessLogEmitIntervalAnnotation, 10, 64)
+		accessLogEmitInterval, err := strconv.ParseInt(accessLogEmitIntervalAnnotation, 10, 32)
 		if err != nil {
 			return nil, fmt.Errorf("error parsing service annotation: %s=%s",
 				ServiceAnnotationLoadBalancerAccessLogEmitInterval,
 				accessLogEmitIntervalAnnotation,
 			)
 		}
-		loadBalancerAttributes.AccessLog.EmitInterval = &accessLogEmitInterval
+		loadBalancerAttributes.AccessLog.EmitInterval = aws.Int32(int32(accessLogEmitInterval))
 	}
 
 	// Determine if access log enabled/disabled has been specified
@@ -4245,7 +4226,7 @@ func (c *Cloud) EnsureLoadBalancer(ctx context.Context, clusterName string, apiS
 				accessLogEnabledAnnotation,
 			)
 		}
-		loadBalancerAttributes.AccessLog.Enabled = &accessLogEnabled
+		loadBalancerAttributes.AccessLog.Enabled = accessLogEnabled
 	}
 
 	// Determine if access log s3 bucket name has been specified
@@ -4270,33 +4251,33 @@ func (c *Cloud) EnsureLoadBalancer(ctx context.Context, clusterName string, apiS
 				connectionDrainingEnabledAnnotation,
 			)
 		}
-		loadBalancerAttributes.ConnectionDraining.Enabled = &connectionDrainingEnabled
+		loadBalancerAttributes.ConnectionDraining.Enabled = connectionDrainingEnabled
 	}
 
 	// Determine if connection draining timeout has been specified
 	connectionDrainingTimeoutAnnotation := annotations[ServiceAnnotationLoadBalancerConnectionDrainingTimeout]
 	if connectionDrainingTimeoutAnnotation != "" {
-		connectionDrainingTimeout, err := strconv.ParseInt(connectionDrainingTimeoutAnnotation, 10, 64)
+		connectionDrainingTimeout, err := strconv.ParseInt(connectionDrainingTimeoutAnnotation, 10, 32)
 		if err != nil {
 			return nil, fmt.Errorf("error parsing service annotation: %s=%s",
 				ServiceAnnotationLoadBalancerConnectionDrainingTimeout,
 				connectionDrainingTimeoutAnnotation,
 			)
 		}
-		loadBalancerAttributes.ConnectionDraining.Timeout = &connectionDrainingTimeout
+		loadBalancerAttributes.ConnectionDraining.Timeout = aws.Int32(int32(connectionDrainingTimeout))
 	}
 
 	// Determine if connection idle timeout has been specified
 	connectionIdleTimeoutAnnotation := annotations[ServiceAnnotationLoadBalancerConnectionIdleTimeout]
 	if connectionIdleTimeoutAnnotation != "" {
-		connectionIdleTimeout, err := strconv.ParseInt(connectionIdleTimeoutAnnotation, 10, 64)
+		connectionIdleTimeout, err := strconv.ParseInt(connectionIdleTimeoutAnnotation, 10, 32)
 		if err != nil {
 			return nil, fmt.Errorf("error parsing service annotation: %s=%s",
 				ServiceAnnotationLoadBalancerConnectionIdleTimeout,
 				connectionIdleTimeoutAnnotation,
 			)
 		}
-		loadBalancerAttributes.ConnectionSettings.IdleTimeout = &connectionIdleTimeout
+		loadBalancerAttributes.ConnectionSettings.IdleTimeout = aws.Int32(int32(connectionIdleTimeout))
 	}
 
 	// Determine if cross zone load balancing enabled/disabled has been specified
@@ -4309,11 +4290,11 @@ func (c *Cloud) EnsureLoadBalancer(ctx context.Context, clusterName string, apiS
 				crossZoneLoadBalancingEnabledAnnotation,
 			)
 		}
-		loadBalancerAttributes.CrossZoneLoadBalancing.Enabled = &crossZoneLoadBalancingEnabled
+		loadBalancerAttributes.CrossZoneLoadBalancing.Enabled = crossZoneLoadBalancingEnabled
 	}
 
 	// Find the subnets that the ELB will live in
-	subnetIDs, err := c.getLoadBalancerSubnets(apiService, internalELB)
+	subnetIDs, err := c.getLoadBalancerSubnets(ctx, apiService, internalELB)
 	if err != nil {
 		klog.Errorf("Error listing subnets in VPC: %q", err)
 		return nil, err
@@ -4326,7 +4307,7 @@ func (c *Cloud) EnsureLoadBalancer(ctx context.Context, clusterName string, apiS
 
 	loadBalancerName := c.GetLoadBalancerName(ctx, clusterName, apiService)
 	serviceName := types.NamespacedName{Namespace: apiService.Namespace, Name: apiService.Name}
-	securityGroupIDs, setupSg, err := c.buildELBSecurityGroupList(serviceName, loadBalancerName, annotations)
+	securityGroupIDs, setupSg, err := c.buildELBSecurityGroupList(ctx, serviceName, loadBalancerName, annotations)
 	if err != nil {
 		return nil, err
 	}
@@ -4335,19 +4316,18 @@ func (c *Cloud) EnsureLoadBalancer(ctx context.Context, clusterName string, apiS
 	}
 
 	if setupSg {
-		ec2SourceRanges := []*ec2.IpRange{}
+		ec2SourceRanges := []ec2types.IpRange{}
 		for _, sourceRange := range sourceRanges.StringSlice() {
-			ec2SourceRanges = append(ec2SourceRanges, &ec2.IpRange{CidrIp: aws.String(sourceRange)})
+			ec2SourceRanges = append(ec2SourceRanges, ec2types.IpRange{CidrIp: aws.String(sourceRange)})
 		}
 
 		permissions := NewIPPermissionSet()
 		for _, port := range apiService.Spec.Ports {
-			portInt64 := int64(port.Port)
 			protocol := strings.ToLower(string(port.Protocol))
 
-			permission := &ec2.IpPermission{}
-			permission.FromPort = &portInt64
-			permission.ToPort = &portInt64
+			permission := ec2types.IpPermission{}
+			permission.FromPort = aws.Int32(port.Port)
+			permission.ToPort = aws.Int32(port.Port)
 			permission.IpRanges = ec2SourceRanges
 			permission.IpProtocol = &protocol
 
@@ -4356,23 +4336,23 @@ func (c *Cloud) EnsureLoadBalancer(ctx context.Context, clusterName string, apiS
 
 		// Allow ICMP fragmentation packets, important for MTU discovery
 		{
-			permission := &ec2.IpPermission{
+			permission := ec2types.IpPermission{
 				IpProtocol: aws.String("icmp"),
-				FromPort:   aws.Int64(3),
-				ToPort:     aws.Int64(4),
+				FromPort:   aws.Int32(3),
+				ToPort:     aws.Int32(4),
 				IpRanges:   ec2SourceRanges,
 			}
 
 			permissions.Insert(permission)
 		}
-		_, err = c.setSecurityGroupIngress(securityGroupIDs[0], permissions)
+		_, err = c.setSecurityGroupIngress(ctx, securityGroupIDs[0], permissions)
 		if err != nil {
 			return nil, err
 		}
 	}
 
 	// Build the load balancer itself
-	loadBalancer, err := c.ensureLoadBalancer(
+	loadBalancer, err := c.ensureLoadBalancer(ctx,
 		serviceName,
 		loadBalancerName,
 		listeners,
@@ -4388,13 +4368,13 @@ func (c *Cloud) EnsureLoadBalancer(ctx context.Context, clusterName string, apiS
 	}
 
 	if sslPolicyName, ok := annotations[ServiceAnnotationLoadBalancerSSLNegotiationPolicy]; ok {
-		err := c.ensureSSLNegotiationPolicy(loadBalancer, sslPolicyName)
+		err := c.ensureSSLNegotiationPolicy(ctx, loadBalancer, sslPolicyName)
 		if err != nil {
 			return nil, err
 		}
 
 		for _, port := range c.getLoadBalancerTLSPorts(loadBalancer) {
-			err := c.setSSLNegotiationPolicy(loadBalancerName, sslPolicyName, port)
+			err := c.setSSLNegotiationPolicy(ctx, loadBalancerName, sslPolicyName, port)
 			if err != nil {
 				return nil, err
 			}
@@ -4415,7 +4395,7 @@ func (c *Cloud) EnsureLoadBalancer(ctx context.Context, clusterName string, apiS
 		if annotations[ServiceAnnotationLoadBalancerHealthCheckPort] == defaultHealthCheckPort {
 			healthCheckNodePort = tcpHealthCheckPort
 		}
-		err = c.ensureLoadBalancerHealthCheck(loadBalancer, "HTTP", healthCheckNodePort, path, annotations)
+		err = c.ensureLoadBalancerHealthCheck(ctx, loadBalancer, "HTTP", healthCheckNodePort, path, annotations)
 		if err != nil {
 			return nil, fmt.Errorf("Failed to ensure health check for localized service %v on node port %v: %q", loadBalancerName, healthCheckNodePort, err)
 		}
@@ -4429,25 +4409,25 @@ func (c *Cloud) EnsureLoadBalancer(ctx context.Context, clusterName string, apiS
 			hcProtocol = "TCP"
 		}
 		// there must be no path on TCP health check
-		err = c.ensureLoadBalancerHealthCheck(loadBalancer, hcProtocol, tcpHealthCheckPort, "", annotations)
+		err = c.ensureLoadBalancerHealthCheck(ctx, loadBalancer, hcProtocol, tcpHealthCheckPort, "", annotations)
 		if err != nil {
 			return nil, err
 		}
 	}
 
-	err = c.updateInstanceSecurityGroupsForLoadBalancer(loadBalancer, instances, annotations)
+	err = c.updateInstanceSecurityGroupsForLoadBalancer(ctx, loadBalancer, instances, annotations)
 	if err != nil {
 		klog.Warningf("Error opening ingress rules for the load balancer to the instances: %q", err)
 		return nil, err
 	}
 
-	err = c.ensureLoadBalancerInstances(aws.StringValue(loadBalancer.LoadBalancerName), loadBalancer.Instances, instances)
+	err = c.ensureLoadBalancerInstances(ctx, aws.ToString(loadBalancer.LoadBalancerName), loadBalancer.Instances, instances)
 	if err != nil {
 		klog.Warningf("Error registering instances with the load balancer: %q", err)
 		return nil, err
 	}
 
-	klog.V(1).Infof("Loadbalancer %s (%v) has DNS name %s", loadBalancerName, serviceName, aws.StringValue(loadBalancer.DNSName))
+	klog.V(1).Infof("Loadbalancer %s (%v) has DNS name %s", loadBalancerName, serviceName, aws.ToString(loadBalancer.DNSName))
 
 	// TODO: Wait for creation?
 
@@ -4463,7 +4443,7 @@ func (c *Cloud) GetLoadBalancer(ctx context.Context, clusterName string, service
 	loadBalancerName := c.GetLoadBalancerName(ctx, clusterName, service)
 
 	if isNLB(service.Annotations) {
-		lb, err := c.describeLoadBalancerv2(loadBalancerName)
+		lb, err := c.describeLoadBalancerv2(ctx, loadBalancerName)
 		if err != nil {
 			return nil, false, err
 		}
@@ -4473,7 +4453,7 @@ func (c *Cloud) GetLoadBalancer(ctx context.Context, clusterName string, service
 		return v2toStatus(lb), true, nil
 	}
 
-	lb, err := c.describeLoadBalancer(loadBalancerName)
+	lb, err := c.describeLoadBalancer(ctx, loadBalancerName)
 	if err != nil {
 		return nil, false, err
 	}
@@ -4492,19 +4472,19 @@ func (c *Cloud) GetLoadBalancerName(ctx context.Context, clusterName string, ser
 	return cloudprovider.DefaultLoadBalancerName(service)
 }
 
-func toStatus(lb *elb.LoadBalancerDescription) *v1.LoadBalancerStatus {
+func toStatus(lb *elbtypes.LoadBalancerDescription) *v1.LoadBalancerStatus {
 	status := &v1.LoadBalancerStatus{}
 
-	if aws.StringValue(lb.DNSName) != "" {
+	if aws.ToString(lb.DNSName) != "" {
 		var ingress v1.LoadBalancerIngress
-		ingress.Hostname = aws.StringValue(lb.DNSName)
+		ingress.Hostname = aws.ToString(lb.DNSName)
 		status.Ingress = []v1.LoadBalancerIngress{ingress}
 	}
 
 	return status
 }
 
-func v2toStatus(lb *elbv2.LoadBalancer) *v1.LoadBalancerStatus {
+func v2toStatus(lb *elbv2types.LoadBalancer) *v1.LoadBalancerStatus {
 	status := &v1.LoadBalancerStatus{}
 	if lb == nil {
 		klog.Error("[BUG] v2toStatus got nil input, this is a Kubernetes bug, please report")
@@ -4512,10 +4492,10 @@ func v2toStatus(lb *elbv2.LoadBalancer) *v1.LoadBalancerStatus {
 	}
 
 	// We check for Active or Provisioning, the only successful statuses
-	if aws.StringValue(lb.DNSName) != "" && (aws.StringValue(lb.State.Code) == elbv2.LoadBalancerStateEnumActive ||
-		aws.StringValue(lb.State.Code) == elbv2.LoadBalancerStateEnumProvisioning) {
+	if aws.ToString(lb.DNSName) != "" && (lb.State.Code == elbv2types.LoadBalancerStateEnumActive ||
+		lb.State.Code == elbv2types.LoadBalancerStateEnumProvisioning) {
 		var ingress v1.LoadBalancerIngress
-		ingress.Hostname = aws.StringValue(lb.DNSName)
+		ingress.Hostname = aws.ToString(lb.DNSName)
 		status.Ingress = []v1.LoadBalancerIngress{ingress}
 	}
 
@@ -4526,13 +4506,13 @@ func v2toStatus(lb *elbv2.LoadBalancer) *v1.LoadBalancerStatus {
 // We only create instances with one security group, so we don't expect multiple security groups.
 // However, if there are multiple security groups, we will choose the one tagged with our cluster filter.
 // Otherwise we will return an error.
-func findSecurityGroupForInstance(instance *ec2.Instance, taggedSecurityGroups map[string]*ec2.SecurityGroup) (*ec2.GroupIdentifier, error) {
-	instanceID := aws.StringValue(instance.InstanceId)
+func findSecurityGroupForInstance(instance *ec2types.Instance, taggedSecurityGroups map[string]*ec2types.SecurityGroup) (*ec2types.GroupIdentifier, error) {
+	instanceID := aws.ToString(instance.InstanceId)
 
-	var tagged []*ec2.GroupIdentifier
-	var untagged []*ec2.GroupIdentifier
+	var tagged []ec2types.GroupIdentifier
+	var untagged []ec2types.GroupIdentifier
 	for _, group := range instance.SecurityGroups {
-		groupID := aws.StringValue(group.GroupId)
+		groupID := aws.ToString(group.GroupId)
 		if groupID == "" {
 			klog.Warningf("Ignoring security group without id for instance %q: %v", instanceID, group)
 			continue
@@ -4555,7 +4535,7 @@ func findSecurityGroupForInstance(instance *ec2.Instance, taggedSecurityGroups m
 			}
 			return nil, fmt.Errorf("Multiple tagged security groups found for instance %s; ensure only the k8s security group is tagged; the tagged groups were %v", instanceID, taggedGroups)
 		}
-		return tagged[0], nil
+		return &tagged[0], nil
 	}
 
 	if len(untagged) > 0 {
@@ -4563,7 +4543,7 @@ func findSecurityGroupForInstance(instance *ec2.Instance, taggedSecurityGroups m
 		if len(untagged) != 1 {
 			return nil, fmt.Errorf("Multiple untagged security groups found for instance %s; ensure the k8s security group is tagged", instanceID)
 		}
-		return untagged[0], nil
+		return &untagged[0], nil
 	}
 
 	klog.Warningf("No security group found for instance %q", instanceID)
@@ -4571,52 +4551,52 @@ func findSecurityGroupForInstance(instance *ec2.Instance, taggedSecurityGroups m
 }
 
 // Return all the security groups that are tagged as being part of our cluster
-func (c *Cloud) getTaggedSecurityGroups() (map[string]*ec2.SecurityGroup, error) {
+func (c *Cloud) getTaggedSecurityGroups(ctx context.Context) (map[string]*ec2types.SecurityGroup, error) {
 	request := &ec2.DescribeSecurityGroupsInput{}
-	groups, err := c.ec2.DescribeSecurityGroups(request)
+	groups, err := c.ec2.DescribeSecurityGroups(ctx, request)
 	if err != nil {
 		return nil, fmt.Errorf("error querying security groups: %q", err)
 	}
 
-	m := make(map[string]*ec2.SecurityGroup)
+	m := make(map[string]*ec2types.SecurityGroup)
 	for _, group := range groups {
 		if !c.tagging.hasClusterTag(group.Tags) {
 			continue
 		}
 
-		id := aws.StringValue(group.GroupId)
+		id := aws.ToString(group.GroupId)
 		if id == "" {
 			klog.Warningf("Ignoring group without id: %v", group)
 			continue
 		}
-		m[id] = group
+		m[id] = &group
 	}
 	return m, nil
 }
 
 // Open security group ingress rules on the instances so that the load balancer can talk to them
 // Will also remove any security groups ingress rules for the load balancer that are _not_ needed for allInstances
-func (c *Cloud) updateInstanceSecurityGroupsForLoadBalancer(lb *elb.LoadBalancerDescription, instances map[InstanceID]*ec2.Instance, annotations map[string]string) error {
+func (c *Cloud) updateInstanceSecurityGroupsForLoadBalancer(ctx context.Context, lb *elbtypes.LoadBalancerDescription, instances map[InstanceID]*ec2types.Instance, annotations map[string]string) error {
 	if c.cfg.Global.DisableSecurityGroupIngress {
 		return nil
 	}
 
 	// Determine the load balancer security group id
-	lbSecurityGroupIDs := aws.StringValueSlice(lb.SecurityGroups)
+	lbSecurityGroupIDs := lb.SecurityGroups
 	if len(lbSecurityGroupIDs) == 0 {
-		return fmt.Errorf("could not determine security group for load balancer: %s", aws.StringValue(lb.LoadBalancerName))
+		return fmt.Errorf("could not determine security group for load balancer: %s", aws.ToString(lb.LoadBalancerName))
 	}
 	c.sortELBSecurityGroupList(lbSecurityGroupIDs, annotations)
 	loadBalancerSecurityGroupID := lbSecurityGroupIDs[0]
 
 	// Get the actual list of groups that allow ingress from the load-balancer
-	var actualGroups []*ec2.SecurityGroup
+	var actualGroups []*ec2types.SecurityGroup
 	{
 		describeRequest := &ec2.DescribeSecurityGroupsInput{}
-		describeRequest.Filters = []*ec2.Filter{
+		describeRequest.Filters = []ec2types.Filter{
 			newEc2Filter("ip-permission.group-id", loadBalancerSecurityGroupID),
 		}
-		response, err := c.ec2.DescribeSecurityGroups(describeRequest)
+		response, err := c.ec2.DescribeSecurityGroups(ctx, describeRequest)
 		if err != nil {
 			return fmt.Errorf("error querying security groups for ELB: %q", err)
 		}
@@ -4624,11 +4604,11 @@ func (c *Cloud) updateInstanceSecurityGroupsForLoadBalancer(lb *elb.LoadBalancer
 			if !c.tagging.hasClusterTag(sg.Tags) {
 				continue
 			}
-			actualGroups = append(actualGroups, sg)
+			actualGroups = append(actualGroups, &sg)
 		}
 	}
 
-	taggedSecurityGroups, err := c.getTaggedSecurityGroups()
+	taggedSecurityGroups, err := c.getTaggedSecurityGroups(ctx)
 	if err != nil {
 		return fmt.Errorf("error querying for tagged security groups: %q", err)
 	}
@@ -4649,10 +4629,10 @@ func (c *Cloud) updateInstanceSecurityGroupsForLoadBalancer(lb *elb.LoadBalancer
 		}
 
 		if securityGroup == nil {
-			klog.Warning("Ignoring instance without security group: ", aws.StringValue(instance.InstanceId))
+			klog.Warning("Ignoring instance without security group: ", aws.ToString(instance.InstanceId))
 			continue
 		}
-		id := aws.StringValue(securityGroup.GroupId)
+		id := aws.ToString(securityGroup.GroupId)
 		if id == "" {
 			klog.Warningf("found security group without id: %v", securityGroup)
 			continue
@@ -4663,7 +4643,7 @@ func (c *Cloud) updateInstanceSecurityGroupsForLoadBalancer(lb *elb.LoadBalancer
 
 	// Compare to actual groups
 	for _, actualGroup := range actualGroups {
-		actualGroupID := aws.StringValue(actualGroup.GroupId)
+		actualGroupID := aws.ToString(actualGroup.GroupId)
 		if actualGroupID == "" {
 			klog.Warning("Ignoring group without ID: ", actualGroup)
 			continue
@@ -4685,19 +4665,19 @@ func (c *Cloud) updateInstanceSecurityGroupsForLoadBalancer(lb *elb.LoadBalancer
 		} else {
 			klog.V(2).Infof("Removing rule for traffic from the load balancer (%s) to instance (%s)", loadBalancerSecurityGroupID, instanceSecurityGroupID)
 		}
-		sourceGroupID := &ec2.UserIdGroupPair{}
+		sourceGroupID := ec2types.UserIdGroupPair{}
 		sourceGroupID.GroupId = &loadBalancerSecurityGroupID
 
 		allProtocols := "-1"
 
-		permission := &ec2.IpPermission{}
+		permission := ec2types.IpPermission{}
 		permission.IpProtocol = &allProtocols
-		permission.UserIdGroupPairs = []*ec2.UserIdGroupPair{sourceGroupID}
+		permission.UserIdGroupPairs = []ec2types.UserIdGroupPair{sourceGroupID}
 
-		permissions := []*ec2.IpPermission{permission}
+		permissions := []ec2types.IpPermission{permission}
 
 		if add {
-			changed, err := c.addSecurityGroupIngress(instanceSecurityGroupID, permissions)
+			changed, err := c.addSecurityGroupIngress(ctx, instanceSecurityGroupID, permissions)
 			if err != nil {
 				return err
 			}
@@ -4705,7 +4685,7 @@ func (c *Cloud) updateInstanceSecurityGroupsForLoadBalancer(lb *elb.LoadBalancer
 				klog.Warning("Allowing ingress was not needed; concurrent change? groupId=", instanceSecurityGroupID)
 			}
 		} else {
-			changed, err := c.removeSecurityGroupIngress(instanceSecurityGroupID, permissions)
+			changed, err := c.removeSecurityGroupIngress(ctx, instanceSecurityGroupID, permissions)
 			if err != nil {
 				return err
 			}
@@ -4726,7 +4706,7 @@ func (c *Cloud) EnsureLoadBalancerDeleted(ctx context.Context, clusterName strin
 	loadBalancerName := c.GetLoadBalancerName(ctx, clusterName, service)
 
 	if isNLB(service.Annotations) {
-		lb, err := c.describeLoadBalancerv2(loadBalancerName)
+		lb, err := c.describeLoadBalancerv2(ctx, loadBalancerName)
 		if err != nil {
 			return err
 		}
@@ -4747,14 +4727,14 @@ func (c *Cloud) EnsureLoadBalancerDeleted(ctx context.Context, clusterName strin
 		// * Clean up SecurityGroupRules
 		{
 
-			targetGroups, err := c.elbv2.DescribeTargetGroups(
+			targetGroups, err := c.elbv2.DescribeTargetGroups(ctx,
 				&elbv2.DescribeTargetGroupsInput{LoadBalancerArn: lb.LoadBalancerArn},
 			)
 			if err != nil {
 				return fmt.Errorf("error listing target groups before deleting load balancer: %q", err)
 			}
 
-			_, err = c.elbv2.DeleteLoadBalancer(
+			_, err = c.elbv2.DeleteLoadBalancer(ctx,
 				&elbv2.DeleteLoadBalancerInput{LoadBalancerArn: lb.LoadBalancerArn},
 			)
 			if err != nil {
@@ -4762,7 +4742,7 @@ func (c *Cloud) EnsureLoadBalancerDeleted(ctx context.Context, clusterName strin
 			}
 
 			for _, group := range targetGroups.TargetGroups {
-				_, err := c.elbv2.DeleteTargetGroup(
+				_, err := c.elbv2.DeleteTargetGroup(ctx,
 					&elbv2.DeleteTargetGroupInput{TargetGroupArn: group.TargetGroupArn},
 				)
 				if err != nil {
@@ -4771,10 +4751,10 @@ func (c *Cloud) EnsureLoadBalancerDeleted(ctx context.Context, clusterName strin
 			}
 		}
 
-		return c.updateInstanceSecurityGroupsForNLB(loadBalancerName, nil, nil, nil, nil)
+		return c.updateInstanceSecurityGroupsForNLB(ctx, loadBalancerName, nil, nil, nil, nil)
 	}
 
-	lb, err := c.describeLoadBalancer(loadBalancerName)
+	lb, err := c.describeLoadBalancer(ctx, loadBalancerName)
 	if err != nil {
 		return err
 	}
@@ -4786,7 +4766,7 @@ func (c *Cloud) EnsureLoadBalancerDeleted(ctx context.Context, clusterName strin
 
 	{
 		// De-authorize the load balancer security group from the instances security group
-		err = c.updateInstanceSecurityGroupsForLoadBalancer(lb, nil, service.Annotations)
+		err = c.updateInstanceSecurityGroupsForLoadBalancer(ctx, lb, nil, service.Annotations)
 		if err != nil {
 			klog.Errorf("Error deregistering load balancer from instance security groups: %q", err)
 			return err
@@ -4798,7 +4778,7 @@ func (c *Cloud) EnsureLoadBalancerDeleted(ctx context.Context, clusterName strin
 		request := &elb.DeleteLoadBalancerInput{}
 		request.LoadBalancerName = lb.LoadBalancerName
 
-		_, err = c.elb.DeleteLoadBalancer(request)
+		_, err = c.elb.DeleteLoadBalancer(ctx, request)
 		if err != nil {
 			// TODO: Check if error was because load balancer was concurrently deleted
 			klog.Errorf("Error deleting load balancer: %q", err)
@@ -4811,13 +4791,13 @@ func (c *Cloud) EnsureLoadBalancerDeleted(ctx context.Context, clusterName strin
 		// Note that this is annoying: the load balancer disappears from the API immediately, but it is still
 		// deleting in the background.  We get a DependencyViolation until the load balancer has deleted itself
 
-		var loadBalancerSGs = aws.StringValueSlice(lb.SecurityGroups)
+		var loadBalancerSGs = lb.SecurityGroups
 
 		describeRequest := &ec2.DescribeSecurityGroupsInput{}
-		describeRequest.Filters = []*ec2.Filter{
+		describeRequest.Filters = []ec2types.Filter{
 			newEc2Filter("group-id", loadBalancerSGs...),
 		}
-		response, err := c.ec2.DescribeSecurityGroups(describeRequest)
+		response, err := c.ec2.DescribeSecurityGroups(ctx, describeRequest)
 		if err != nil {
 			return fmt.Errorf("error querying security groups for ELB: %q", err)
 		}
@@ -4834,7 +4814,7 @@ func (c *Cloud) EnsureLoadBalancerDeleted(ctx context.Context, clusterName strin
 		}
 
 		for _, sg := range response {
-			sgID := aws.StringValue(sg.GroupId)
+			sgID := aws.ToString(sg.GroupId)
 
 			if sgID == c.cfg.Global.ElbSecurityGroup {
 				//We don't want to delete a security group that was defined in the Cloud Configuration.
@@ -4865,13 +4845,14 @@ func (c *Cloud) EnsureLoadBalancerDeleted(ctx context.Context, clusterName strin
 			for securityGroupID := range securityGroupIDs {
 				request := &ec2.DeleteSecurityGroupInput{}
 				request.GroupId = &securityGroupID
-				_, err := c.ec2.DeleteSecurityGroup(request)
+				_, err := c.ec2.DeleteSecurityGroup(ctx, request)
 				if err == nil {
 					delete(securityGroupIDs, securityGroupID)
 				} else {
 					ignore := false
-					if awsError, ok := err.(awserr.Error); ok {
-						if awsError.Code() == "DependencyViolation" {
+					var ae smithy.APIError
+					if errors.As(err, &ae) {
+						if ae.ErrorCode() == "DependencyViolation" {
 							klog.V(2).Infof("Ignoring DependencyViolation while deleting load-balancer security group (%s), assuming because LB is in process of deleting", securityGroupID)
 							ignore = true
 						}
@@ -4910,13 +4891,13 @@ func (c *Cloud) UpdateLoadBalancer(ctx context.Context, clusterName string, serv
 	if isLBExternal(service.Annotations) {
 		return cloudprovider.ImplementedElsewhere
 	}
-	instances, err := c.findInstancesForELB(nodes, service.Annotations)
+	instances, err := c.findInstancesForELB(ctx, nodes, service.Annotations)
 	if err != nil {
 		return err
 	}
 	loadBalancerName := c.GetLoadBalancerName(ctx, clusterName, service)
 	if isNLB(service.Annotations) {
-		lb, err := c.describeLoadBalancerv2(loadBalancerName)
+		lb, err := c.describeLoadBalancerv2(ctx, loadBalancerName)
 		if err != nil {
 			return err
 		}
@@ -4926,7 +4907,7 @@ func (c *Cloud) UpdateLoadBalancer(ctx context.Context, clusterName string, serv
 		_, err = c.EnsureLoadBalancer(ctx, clusterName, service, nodes)
 		return err
 	}
-	lb, err := c.describeLoadBalancer(loadBalancerName)
+	lb, err := c.describeLoadBalancer(ctx, loadBalancerName)
 	if err != nil {
 		return err
 	}
@@ -4936,24 +4917,24 @@ func (c *Cloud) UpdateLoadBalancer(ctx context.Context, clusterName string, serv
 	}
 
 	if sslPolicyName, ok := service.Annotations[ServiceAnnotationLoadBalancerSSLNegotiationPolicy]; ok {
-		err := c.ensureSSLNegotiationPolicy(lb, sslPolicyName)
+		err := c.ensureSSLNegotiationPolicy(ctx, lb, sslPolicyName)
 		if err != nil {
 			return err
 		}
 		for _, port := range c.getLoadBalancerTLSPorts(lb) {
-			err := c.setSSLNegotiationPolicy(loadBalancerName, sslPolicyName, port)
+			err := c.setSSLNegotiationPolicy(ctx, loadBalancerName, sslPolicyName, port)
 			if err != nil {
 				return err
 			}
 		}
 	}
 
-	err = c.ensureLoadBalancerInstances(aws.StringValue(lb.LoadBalancerName), lb.Instances, instances)
+	err = c.ensureLoadBalancerInstances(ctx, aws.ToString(lb.LoadBalancerName), lb.Instances, instances)
 	if err != nil {
 		return nil
 	}
 
-	err = c.updateInstanceSecurityGroupsForLoadBalancer(lb, instances, service.Annotations)
+	err = c.updateInstanceSecurityGroupsForLoadBalancer(ctx, lb, instances, service.Annotations)
 	if err != nil {
 		return err
 	}
@@ -4962,8 +4943,8 @@ func (c *Cloud) UpdateLoadBalancer(ctx context.Context, clusterName string, serv
 }
 
 // Returns the instance with the specified ID
-func (c *Cloud) getInstanceByID(instanceID string) (*ec2.Instance, error) {
-	instances, err := c.getInstancesByIDs([]*string{&instanceID})
+func (c *Cloud) getInstanceByID(ctx context.Context, instanceID string) (*ec2types.Instance, error) {
+	instances, err := c.getInstancesByIDs(ctx, []string{instanceID})
 	if err != nil {
 		return nil, err
 	}
@@ -4978,8 +4959,8 @@ func (c *Cloud) getInstanceByID(instanceID string) (*ec2.Instance, error) {
 	return instances[instanceID], nil
 }
 
-func (c *Cloud) getInstancesByIDs(instanceIDs []*string) (map[string]*ec2.Instance, error) {
-	instancesByID := make(map[string]*ec2.Instance)
+func (c *Cloud) getInstancesByIDs(ctx context.Context, instanceIDs []string) (map[string]*ec2types.Instance, error) {
+	instancesByID := make(map[string]*ec2types.Instance)
 	if len(instanceIDs) == 0 {
 		return instancesByID, nil
 	}
@@ -4988,46 +4969,45 @@ func (c *Cloud) getInstancesByIDs(instanceIDs []*string) (map[string]*ec2.Instan
 		InstanceIds: instanceIDs,
 	}
 
-	instances, err := c.ec2.DescribeInstances(request)
+	instances, err := c.ec2.DescribeInstances(ctx, request)
 	if err != nil {
 		return nil, err
 	}
 
 	for _, instance := range instances {
-		instanceID := aws.StringValue(instance.InstanceId)
+		instanceID := aws.ToString(instance.InstanceId)
 		if instanceID == "" {
 			continue
 		}
 
-		instancesByID[instanceID] = instance
+		instancesByID[instanceID] = &instance
 	}
 
 	return instancesByID, nil
 }
 
-func (c *Cloud) getInstancesByNodeNames(nodeNames []string, states ...string) ([]*ec2.Instance, error) {
-	names := aws.StringSlice(nodeNames)
-	ec2Instances := []*ec2.Instance{}
+func (c *Cloud) getInstancesByNodeNames(ctx context.Context, nodeNames []string, states ...string) ([]*ec2types.Instance, error) {
+	ec2Instances := []*ec2types.Instance{}
 
-	for i := 0; i < len(names); i += filterNodeLimit {
+	for i := 0; i < len(nodeNames); i += filterNodeLimit {
 		end := i + filterNodeLimit
-		if end > len(names) {
-			end = len(names)
+		if end > len(nodeNames) {
+			end = len(nodeNames)
 		}
 
-		nameSlice := names[i:end]
+		nameSlice := nodeNames[i:end]
 
-		nodeNameFilter := &ec2.Filter{
+		nodeNameFilter := ec2types.Filter{
 			Name:   aws.String("private-dns-name"),
 			Values: nameSlice,
 		}
 
-		filters := []*ec2.Filter{nodeNameFilter}
+		filters := []ec2types.Filter{nodeNameFilter}
 		if len(states) > 0 {
 			filters = append(filters, newEc2Filter("instance-state-name", states...))
 		}
 
-		instances, err := c.describeInstances(filters)
+		instances, err := c.describeInstances(ctx, filters)
 		if err != nil {
 			klog.V(2).Infof("Failed to describe instances %v", nodeNames)
 			return nil, err
@@ -5043,20 +5023,20 @@ func (c *Cloud) getInstancesByNodeNames(nodeNames []string, states ...string) ([
 }
 
 // TODO: Move to instanceCache
-func (c *Cloud) describeInstances(filters []*ec2.Filter) ([]*ec2.Instance, error) {
+func (c *Cloud) describeInstances(ctx context.Context, filters []ec2types.Filter) ([]*ec2types.Instance, error) {
 	request := &ec2.DescribeInstancesInput{
 		Filters: filters,
 	}
 
-	response, err := c.ec2.DescribeInstances(request)
+	response, err := c.ec2.DescribeInstances(ctx, request)
 	if err != nil {
 		return nil, err
 	}
 
-	var matches []*ec2.Instance
+	var matches []*ec2types.Instance
 	for _, instance := range response {
 		if c.tagging.hasClusterTag(instance.Tags) {
-			matches = append(matches, instance)
+			matches = append(matches, &instance)
 		}
 	}
 	return matches, nil
@@ -5096,29 +5076,29 @@ func mapNodeNameToPrivateDNSName(nodeName types.NodeName) string {
 //
 // Deprecated: use instanceIDToNodeName instead. See
 // mapNodeNameToPrivateDNSName for details.
-func mapInstanceToNodeName(i *ec2.Instance) types.NodeName {
-	return types.NodeName(aws.StringValue(i.PrivateDnsName))
+func mapInstanceToNodeName(i *ec2types.Instance) types.NodeName {
+	return types.NodeName(aws.ToString(i.PrivateDnsName))
 }
 
 var aliveFilter = []string{
-	ec2.InstanceStateNamePending,
-	ec2.InstanceStateNameRunning,
-	ec2.InstanceStateNameShuttingDown,
-	ec2.InstanceStateNameStopping,
-	ec2.InstanceStateNameStopped,
+	string(ec2types.InstanceStateNamePending),
+	string(ec2types.InstanceStateNameRunning),
+	string(ec2types.InstanceStateNameShuttingDown),
+	string(ec2types.InstanceStateNameStopping),
+	string(ec2types.InstanceStateNameStopped),
 }
 
 // Returns the instance with the specified node name
 // Returns nil if it does not exist
-func (c *Cloud) findInstanceByNodeName(nodeName types.NodeName) (*ec2.Instance, error) {
+func (c *Cloud) findInstanceByNodeName(ctx context.Context, nodeName types.NodeName) (*ec2types.Instance, error) {
 	privateDNSName := mapNodeNameToPrivateDNSName(nodeName)
-	filters := []*ec2.Filter{
+	filters := []ec2types.Filter{
 		newEc2Filter("private-dns-name", privateDNSName),
 		// exclude instances in "terminated" state
 		newEc2Filter("instance-state-name", aliveFilter...),
 	}
 
-	instances, err := c.describeInstances(filters)
+	instances, err := c.describeInstances(ctx, filters)
 	if err != nil {
 		return nil, err
 	}
@@ -5134,8 +5114,8 @@ func (c *Cloud) findInstanceByNodeName(nodeName types.NodeName) (*ec2.Instance, 
 
 // Returns the instance with the specified node name
 // Like findInstanceByNodeName, but returns error if node not found
-func (c *Cloud) getInstanceByNodeName(nodeName types.NodeName) (*ec2.Instance, error) {
-	var instance *ec2.Instance
+func (c *Cloud) getInstanceByNodeName(ctx context.Context, nodeName types.NodeName) (*ec2types.Instance, error) {
+	var instance *ec2types.Instance
 
 	// we leverage node cache to try to retrieve node's instance id first, as
 	// get instance by instance id is way more efficient than by filters in
@@ -5143,9 +5123,9 @@ func (c *Cloud) getInstanceByNodeName(nodeName types.NodeName) (*ec2.Instance, e
 	awsID, err := c.nodeNameToInstanceID(nodeName)
 	if err != nil {
 		klog.V(3).Infof("Unable to convert node name %q to aws instanceID, fall back to findInstanceByNodeName: %v", nodeName, err)
-		instance, err = c.findInstanceByNodeName(nodeName)
+		instance, err = c.findInstanceByNodeName(ctx, nodeName)
 	} else {
-		instance, err = c.getInstanceByID(string(awsID))
+		instance, err = c.getInstanceByID(ctx, string(awsID))
 	}
 	if err == nil && instance == nil {
 		return nil, cloudprovider.InstanceNotFound
@@ -5153,12 +5133,12 @@ func (c *Cloud) getInstanceByNodeName(nodeName types.NodeName) (*ec2.Instance, e
 	return instance, err
 }
 
-func (c *Cloud) getFullInstance(nodeName types.NodeName) (*awsInstance, *ec2.Instance, error) {
+func (c *Cloud) getFullInstance(ctx context.Context, nodeName types.NodeName) (*awsInstance, *ec2types.Instance, error) {
 	if nodeName == "" {
-		instance, err := c.getInstanceByID(c.selfAWSInstance.awsID)
+		instance, err := c.getInstanceByID(ctx, c.selfAWSInstance.awsID)
 		return c.selfAWSInstance, instance, err
 	}
-	instance, err := c.getInstanceByNodeName(nodeName)
+	instance, err := c.getInstanceByNodeName(ctx, nodeName)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -5270,10 +5250,10 @@ func getInitialAttachDetachDelay(status string) time.Duration {
 }
 
 // describeNetworkInterfaces returns network interface information for the given DNS name.
-func (c *Cloud) describeNetworkInterfaces(nodeName string) (*ec2.NetworkInterface, error) {
+func (c *Cloud) describeNetworkInterfaces(ctx context.Context, nodeName string) (*ec2types.NetworkInterface, error) {
 	eniEndpoint := strings.TrimPrefix(nodeName, fargateNodeNamePrefix)
 
-	filters := []*ec2.Filter{
+	filters := []ec2types.Filter{
 		newEc2Filter("attachment.status", "attached"),
 		newEc2Filter("vpc-id", c.vpcID),
 	}
@@ -5291,7 +5271,7 @@ func (c *Cloud) describeNetworkInterfaces(nodeName string) (*ec2.NetworkInterfac
 		Filters: filters,
 	}
 
-	eni, err := c.ec2.DescribeNetworkInterfaces(request)
+	eni, err := c.ec2.DescribeNetworkInterfaces(ctx, request)
 	if err != nil {
 		return nil, err
 	}
@@ -5300,12 +5280,12 @@ func (c *Cloud) describeNetworkInterfaces(nodeName string) (*ec2.NetworkInterfac
 	}
 	if len(eni.NetworkInterfaces) != 1 {
 		// This should not be possible - ids should be unique
-		return nil, fmt.Errorf("multiple interfaces found with same id %q", eni.NetworkInterfaces)
+		return nil, fmt.Errorf("multiple interfaces found with same id %+v", eni.NetworkInterfaces)
 	}
-	return eni.NetworkInterfaces[0], nil
+	return &eni.NetworkInterfaces[0], nil
 }
 
-func getRegionFromMetadata(cfg CloudConfig, metadata EC2Metadata) (string, error) {
+func getRegionFromMetadata(ctx context.Context, cfg CloudConfig, metadata EC2Metadata) (string, error) {
 	// For backwards compatibility reasons, keeping this check to avoid breaking possible
 	// cases where Zone was set to override the region configuration. Otherwise, fall back
 	// to getting region the standard way.
@@ -5316,5 +5296,5 @@ func getRegionFromMetadata(cfg CloudConfig, metadata EC2Metadata) (string, error
 		return azToRegion(zone)
 	}
 
-	return cfg.GetRegion(metadata)
+	return cfg.GetRegion(ctx, metadata)
 }
