@@ -35,7 +35,7 @@ echo " + Installing ginkgo"
 go install "github.com/onsi/ginkgo/ginkgo@${GINKGO_VERSION}"
 
 if [[ -z "${KOPS_ROOT}" ]]; then
-    git clone https://github.com/kubernetes/kops.git
+    git clone --branch v1.31.0 https://github.com/kubernetes/kops.git
     KOPS_ROOT="$(pwd)/kops"
 fi
 
