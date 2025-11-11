@@ -29,6 +29,7 @@ import (
 	"k8s.io/client-go/kubernetes/fake"
 	"k8s.io/client-go/util/workqueue"
 	awsv1 "k8s.io/cloud-provider-aws/pkg/providers/v1"
+	"k8s.io/cloud-provider-aws/pkg/providers/v1/config"
 	"k8s.io/klog/v2"
 )
 
@@ -133,7 +134,7 @@ func Test_NodesJoiningAndLeaving(t *testing.T) {
 				},
 			},
 			toBeTagged:       true,
-			expectedMessages: []string{"Skip processing the node fargate-ip-10-0-55-27.us-west-2.compute.internal since it is a Fargate node"},
+			expectedMessages: []string{"Skip processing the node fargate-ip-10-0-55-27.us-west-2.compute.internal since it is a fargate node"},
 		},
 		{
 			name: "node0 leaves the cluster, failed to untag.",
@@ -194,7 +195,7 @@ func Test_NodesJoiningAndLeaving(t *testing.T) {
 	}
 
 	awsServices := awsv1.NewFakeAWSServices(TestClusterID)
-	fakeAws, _ := awsv1.NewAWSCloud(awsv1.CloudConfig{}, awsServices)
+	fakeAws, _ := awsv1.NewAWSCloud(config.CloudConfig{}, awsServices)
 
 	for _, testcase := range testcases {
 		t.Run(testcase.name, func(t *testing.T) {
@@ -236,7 +237,7 @@ func Test_NodesJoiningAndLeaving(t *testing.T) {
 			}
 
 			for tc.workqueue.Len() > 0 {
-				tc.process()
+				tc.process(context.TODO())
 
 				// sleep briefly because of exponential backoff when requeueing failed workitem
 				// resulting in workqueue to be empty if checked immediately

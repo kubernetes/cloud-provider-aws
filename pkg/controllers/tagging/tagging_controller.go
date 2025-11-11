@@ -14,8 +14,13 @@ limitations under the License.
 package tagging
 
 import (
+	"context"
 	"crypto/md5"
 	"fmt"
+	"sort"
+	"strings"
+	"time"
+
 	"golang.org/x/time/rate"
 	v1 "k8s.io/api/core/v1"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
@@ -27,17 +32,15 @@ import (
 	cloudprovider "k8s.io/cloud-provider"
 	opt "k8s.io/cloud-provider-aws/pkg/controllers/options"
 	awsv1 "k8s.io/cloud-provider-aws/pkg/providers/v1"
+	"k8s.io/cloud-provider-aws/pkg/providers/v1/variant"
 	nodehelpers "k8s.io/cloud-provider/node/helpers"
 	"k8s.io/klog/v2"
-	"sort"
-	"strings"
-	"time"
 )
 
 // workItem contains the node and an action for that node
 type workItem struct {
 	node           *v1.Node
-	action         func(node *v1.Node) error
+	action         func(ctx context.Context, node *v1.Node) error
 	requeuingCount int
 	enqueueTime    time.Time
 }
@@ -169,33 +172,33 @@ func NewTaggingController(
 
 // Run will start the controller to tag resources attached to the cluster
 // and untag resources detached from the cluster.
-func (tc *Controller) Run(stopCh <-chan struct{}) {
+func (tc *Controller) Run(ctx context.Context) {
 	defer utilruntime.HandleCrash()
 	defer tc.workqueue.ShutDown()
 
 	// Wait for the caches to be synced before starting workers
 	klog.Info("Waiting for informer caches to sync")
-	if ok := cache.WaitForCacheSync(stopCh, tc.nodesSynced); !ok {
+	if ok := cache.WaitForCacheSync(ctx.Done(), tc.nodesSynced); !ok {
 		klog.Errorf("failed to wait for caches to sync")
 		return
 	}
 
 	klog.Infof("Starting the tagging controller")
-	go wait.Until(tc.work, tc.nodeMonitorPeriod, stopCh)
+	go wait.UntilWithContext(ctx, func(ctx context.Context) { tc.work(ctx) }, tc.nodeMonitorPeriod)
 
-	<-stopCh
+	<-ctx.Done()
 }
 
 // work is a long-running function that continuously
 // call process() for each message on the workqueue
-func (tc *Controller) work() {
-	for tc.process() {
+func (tc *Controller) work(ctx context.Context) {
+	for tc.process(ctx) {
 	}
 }
 
 // process reads each message in the queue and performs either
 // tag or untag function on the Node object
-func (tc *Controller) process() bool {
+func (tc *Controller) process(ctx context.Context) bool {
 	obj, shutdown := tc.workqueue.Get()
 	if shutdown {
 		return false
@@ -226,13 +229,14 @@ func (tc *Controller) process() bool {
 		}
 		klog.Infof("Instance ID of work item %s is %s", workItem, instanceID)
 
-		if awsv1.IsFargateNode(string(instanceID)) {
-			klog.Infof("Skip processing the node %s since it is a Fargate node", instanceID)
+		if variant.IsVariantNode(string(instanceID)) {
+			klog.Infof("Skip processing the node %s since it is a %s node",
+				instanceID, variant.NodeType(string(instanceID)))
 			tc.workqueue.Forget(obj)
 			return nil
 		}
 
-		err = workItem.action(workItem.node)
+		err = workItem.action(ctx, workItem.node)
 
 		if err != nil {
 			if workItem.requeuingCount < maxRequeuingCount {
@@ -267,11 +271,11 @@ func (tc *Controller) process() bool {
 
 // tagNodesResources tag node resources
 // If we want to tag more resources, modify this function appropriately
-func (tc *Controller) tagNodesResources(node *v1.Node) error {
+func (tc *Controller) tagNodesResources(ctx context.Context, node *v1.Node) error {
 	for _, resource := range tc.resources {
 		switch resource {
 		case opt.Instance:
-			err := tc.tagEc2Instance(node)
+			err := tc.tagEc2Instance(ctx, node)
 			if err != nil {
 				return err
 			}
@@ -283,7 +287,7 @@ func (tc *Controller) tagNodesResources(node *v1.Node) error {
 
 // tagEc2Instances applies the provided tags to each EC2 instance in
 // the cluster.
-func (tc *Controller) tagEc2Instance(node *v1.Node) error {
+func (tc *Controller) tagEc2Instance(ctx context.Context, node *v1.Node) error {
 	if !tc.isTaggingRequired(node) {
 		klog.Infof("Skip tagging node %s since it was already tagged earlier.", node.GetName())
 		return nil
@@ -291,7 +295,7 @@ func (tc *Controller) tagEc2Instance(node *v1.Node) error {
 
 	instanceID, _ := awsv1.KubernetesInstanceID(node.Spec.ProviderID).MapToAWSInstanceID()
 
-	err := tc.cloud.TagResource(string(instanceID), tc.tags)
+	err := tc.cloud.TagResource(ctx, string(instanceID), tc.tags)
 
 	if err != nil {
 		if awsv1.IsAWSErrorInstanceNotFound(err) {
@@ -324,11 +328,11 @@ func (tc *Controller) tagEc2Instance(node *v1.Node) error {
 
 // untagNodeResources untag node resources
 // If we want to untag more resources, modify this function appropriately
-func (tc *Controller) untagNodeResources(node *v1.Node) error {
+func (tc *Controller) untagNodeResources(ctx context.Context, node *v1.Node) error {
 	for _, resource := range tc.resources {
 		switch resource {
 		case opt.Instance:
-			err := tc.untagEc2Instance(node)
+			err := tc.untagEc2Instance(ctx, node)
 			if err != nil {
 				return err
 			}
@@ -340,10 +344,10 @@ func (tc *Controller) untagNodeResources(node *v1.Node) error {
 
 // untagEc2Instances deletes the provided tags to each EC2 instances in
 // the cluster.
-func (tc *Controller) untagEc2Instance(node *v1.Node) error {
+func (tc *Controller) untagEc2Instance(ctx context.Context, node *v1.Node) error {
 	instanceID, _ := awsv1.KubernetesInstanceID(node.Spec.ProviderID).MapToAWSInstanceID()
 
-	err := tc.cloud.UntagResource(string(instanceID), tc.tags)
+	err := tc.cloud.UntagResource(ctx, string(instanceID), tc.tags)
 
 	if err != nil {
 		klog.Errorf("Error in untagging EC2 instance %s for node %s, error: %v", instanceID, node.GetName(), err)
@@ -357,7 +361,7 @@ func (tc *Controller) untagEc2Instance(node *v1.Node) error {
 
 // enqueueNode takes in the object and an
 // action for the object for a workitem and enqueue to the workqueue
-func (tc *Controller) enqueueNode(node *v1.Node, action func(node *v1.Node) error) {
+func (tc *Controller) enqueueNode(node *v1.Node, action func(ctx context.Context, node *v1.Node) error) {
 	item := &workItem{
 		node:           node,
 		action:         action,

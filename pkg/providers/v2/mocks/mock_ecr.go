@@ -5,10 +5,11 @@
 package mocks
 
 import (
+	context "context"
 	reflect "reflect"
 
-	ecr "github.com/aws/aws-sdk-go/service/ecr"
-	ecrpublic "github.com/aws/aws-sdk-go/service/ecrpublic"
+	ecr "github.com/aws/aws-sdk-go-v2/service/ecr"
+	ecrpublic "github.com/aws/aws-sdk-go-v2/service/ecrpublic"
 	gomock "github.com/golang/mock/gomock"
 )
 
@@ -36,18 +37,23 @@ func (m *MockECR) EXPECT() *MockECRMockRecorder {
 }
 
 // GetAuthorizationToken mocks base method.
-func (m *MockECR) GetAuthorizationToken(input *ecr.GetAuthorizationTokenInput) (*ecr.GetAuthorizationTokenOutput, error) {
+func (m *MockECR) GetAuthorizationToken(ctx context.Context, input *ecr.GetAuthorizationTokenInput, optFns ...func(*ecr.Options)) (*ecr.GetAuthorizationTokenOutput, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "GetAuthorizationToken", input)
+	varargs := []interface{}{ctx, input}
+	for _, a := range optFns {
+		varargs = append(varargs, a)
+	}
+	ret := m.ctrl.Call(m, "GetAuthorizationToken", varargs...)
 	ret0, _ := ret[0].(*ecr.GetAuthorizationTokenOutput)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
 
 // GetAuthorizationToken indicates an expected call of GetAuthorizationToken.
-func (mr *MockECRMockRecorder) GetAuthorizationToken(input interface{}) *gomock.Call {
+func (mr *MockECRMockRecorder) GetAuthorizationToken(ctx, input interface{}, optFns ...interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetAuthorizationToken", reflect.TypeOf((*MockECR)(nil).GetAuthorizationToken), input)
+	varargs := append([]interface{}{ctx, input}, optFns...)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetAuthorizationToken", reflect.TypeOf((*MockECR)(nil).GetAuthorizationToken), varargs...)
 }
 
 // MockECRPublic is a mock of ECRPublic interface.
@@ -74,16 +80,21 @@ func (m *MockECRPublic) EXPECT() *MockECRPublicMockRecorder {
 }
 
 // GetAuthorizationToken mocks base method.
-func (m *MockECRPublic) GetAuthorizationToken(input *ecrpublic.GetAuthorizationTokenInput) (*ecrpublic.GetAuthorizationTokenOutput, error) {
+func (m *MockECRPublic) GetAuthorizationToken(ctx context.Context, input *ecrpublic.GetAuthorizationTokenInput, optFns ...func(*ecrpublic.Options)) (*ecrpublic.GetAuthorizationTokenOutput, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "GetAuthorizationToken", input)
+	varargs := []interface{}{ctx, input}
+	for _, a := range optFns {
+		varargs = append(varargs, a)
+	}
+	ret := m.ctrl.Call(m, "GetAuthorizationToken", varargs...)
 	ret0, _ := ret[0].(*ecrpublic.GetAuthorizationTokenOutput)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
 
 // GetAuthorizationToken indicates an expected call of GetAuthorizationToken.
-func (mr *MockECRPublicMockRecorder) GetAuthorizationToken(input interface{}) *gomock.Call {
+func (mr *MockECRPublicMockRecorder) GetAuthorizationToken(ctx, input interface{}, optFns ...interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetAuthorizationToken", reflect.TypeOf((*MockECRPublic)(nil).GetAuthorizationToken), input)
+	varargs := append([]interface{}{ctx, input}, optFns...)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetAuthorizationToken", reflect.TypeOf((*MockECRPublic)(nil).GetAuthorizationToken), varargs...)
 }
