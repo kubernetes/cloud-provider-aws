@@ -35,6 +35,7 @@ import (
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/component-base/logs"
+	"k8s.io/klog/v2"
 	v1 "k8s.io/kubelet/pkg/apis/credentialprovider/v1"
 )
 
@@ -119,10 +120,7 @@ func (e *ecrPlugin) getPublicCredsData(ctx context.Context) (*credsData, error) 
 
 func (e *ecrPlugin) getPrivateCredsData(ctx context.Context, imageHost string, image string) (*credsData, error) {
 	klog.Infof("Getting creds for private image %s", image)
-	region, err := parseRegionFromECRPrivateHost(imageHost)
-	if err != nil {
-		return nil, err
-	}
+	var err error
 	if e.ecr == nil {
 		region := parseRegionFromECRPrivateHost(imageHost)
 		e.ecr, err = defaultECRProvider(ctx, region)
@@ -225,12 +223,12 @@ func parseHostFromImageReference(image string) (string, error) {
 	return parsed.Hostname(), nil
 }
 
-func parseRegionFromECRPrivateHost(host string) (string, error) {
+func parseRegionFromECRPrivateHost(host string) string {
 	splitHost := ecrPrivateHostPattern.FindStringSubmatch(host)
 	if len(splitHost) != 5 {
-		return "", fmt.Errorf("invalid private ECR host: %s", host)
+		return ""
 	}
-	return splitHost[3], nil
+	return splitHost[3]
 }
 
 func main() {

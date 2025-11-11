@@ -380,11 +380,7 @@ func Test_parseRegionFromECRPrivateHost(t *testing.T) {
 
 	for _, testcase := range testcases {
 		t.Run(testcase.name, func(t *testing.T) {
-			region, err := parseRegionFromECRPrivateHost(testcase.host)
-
-			if testcase.err != nil && (testcase.err.Error() != err.Error()) {
-				t.Fatalf("expected error %s, got %s", testcase.err, err)
-			}
+			region := parseRegionFromECRPrivateHost(testcase.host)
 
 			if region != testcase.region {
 				t.Fatalf("region mismatch. Expected %s, got %s", testcase.region, region)
