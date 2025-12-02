@@ -169,6 +169,16 @@ func (c *Cloud) ensureLoadBalancerv2(ctx context.Context, namespacedName types.N
 			createRequest.Scheme = elbv2types.LoadBalancerSchemeEnumInternal
 		}
 
+		// Set IP address type based on annotation
+		if ipAddressType, ok := annotations[ServiceAnnotationLoadBalancerIPAddressType]; ok {
+			if ipAddressType == string(elbv2types.IpAddressTypeDualstack) || ipAddressType == string(elbv2types.IpAddressTypeIpv4) {
+				createRequest.IpAddressType = elbv2types.IpAddressType(ipAddressType)
+			} else {
+				klog.Warningf("Invalid ip-address-type annotation value: %s, defaulting to ipv4", ipAddressType)
+				createRequest.IpAddressType = elbv2types.IpAddressTypeIpv4
+			}
+		}
+
 		var allocationIDs []string
 		if eipList, present := annotations[ServiceAnnotationLoadBalancerEIPAllocations]; present {
 			allocationIDs = strings.Split(eipList, ",")

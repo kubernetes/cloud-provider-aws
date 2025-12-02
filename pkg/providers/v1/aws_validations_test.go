@@ -417,6 +417,16 @@ func TestValidateServiceAnnotations(t *testing.T) {
 			expectedError: "target group attributes annotation is only supported for NLB",
 		},
 
+		// IPFamily annotation set to dualstack (should succeed)
+		{
+			name: "NLB with dualstack annotation - success",
+			annotations: map[string]string{
+				ServiceAnnotationLoadBalancerType:          "nlb",
+				ServiceAnnotationLoadBalancerIPAddressType: "dualstack",
+			},
+			expectedError: "",
+		},
+
 		// No annotations (should succeed)
 		{
 			name:          "no annotations - success",
