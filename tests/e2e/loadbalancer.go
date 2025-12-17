@@ -200,7 +200,9 @@ var _ = Describe("[cloud-provider-aws-e2e] loadbalancer", func() {
 					LoadBalancerArn: aws.String(lbARN),
 				})
 				framework.ExpectNoError(err, "failed to describe target groups")
-				framework.ExpectEqual(len(targetGroups.TargetGroups), 1)
+				if len(targetGroups.TargetGroups) != 1 {
+					framework.Failf("Target group size mismatch for %s: expected 1, got %v", lbARN, targetGroups.TargetGroups)
+				}
 
 				targetGroupAttributes, err := elbClient.DescribeTargetGroupAttributes(e2e.ctx, &elbv2.DescribeTargetGroupAttributesInput{
 					TargetGroupArn: aws.String(aws.ToString(targetGroups.TargetGroups[0].TargetGroupArn)),
@@ -255,7 +257,7 @@ var _ = Describe("[cloud-provider-aws-e2e] loadbalancer", func() {
 			framework.Logf("[SETUP] Test case: %s", tc.name)
 			framework.Logf("[SETUP] Worker nodes discovered: %d nodes, selector: %s, sample node: %s", e2e.nodeCount, e2e.nodeSelector, e2e.nodeSingleSample)
 
-			loadBalancerCreateTimeout := e2eservice.GetServiceLoadBalancerCreationTimeout(cs)
+			loadBalancerCreateTimeout := e2eservice.GetServiceLoadBalancerCreationTimeout(context.TODO(), cs)
 			framework.Logf("[CONFIG] AWS load balancer timeout: %s", loadBalancerCreateTimeout)
 
 			By("building service configuration with annotations")
@@ -285,7 +287,7 @@ var _ = Describe("[cloud-provider-aws-e2e] loadbalancer", func() {
 
 			By("waiting for AWS load balancer provisioning")
 			var err error
-			e2e.svc, err = e2e.LBJig.WaitForLoadBalancer(loadBalancerCreateTimeout)
+			e2e.svc, err = e2e.LBJig.WaitForLoadBalancer(context.TODO(), loadBalancerCreateTimeout)
 			// Collect comprehensive debugging information when LoadBalancer provisioning fails
 			if err != nil {
 				serviceName := e2e.LBJig.Name
@@ -306,7 +308,7 @@ var _ = Describe("[cloud-provider-aws-e2e] loadbalancer", func() {
 			framework.Logf("[AWS] Load balancer provisioned successfully")
 
 			By("creating backend server pods")
-			_, err = e2e.LBJig.Run(e2e.buildReplicationController(tc.requireAffinity))
+			_, err = e2e.LBJig.Run(context.TODO(), e2e.buildReplicationController(tc.requireAffinity))
 			if err != nil {
 				serviceName := e2e.LBJig.Name
 				if e2e.svc != nil {
@@ -382,13 +384,13 @@ var _ = Describe("[cloud-provider-aws-e2e] loadbalancer", func() {
 			} else {
 				By("testing HTTP connectivity for external/internet-facing load balancer")
 				framework.Logf("[TEST] Running external connectivity test to %s:%d", ingressAddress, svcPort)
-				e2eservice.TestReachableHTTP(ingressAddress, svcPort, e2eservice.LoadBalancerLagTimeoutAWS)
+				e2eservice.TestReachableHTTP(context.TODO(), ingressAddress, svcPort, e2eservice.LoadBalancerLagTimeoutAWS)
 			}
 			framework.Logf("[TEST] HTTP connectivity test completed successfully")
 
 			// Update the service to cluster IP
 			By("cleaning up: converting service to ClusterIP")
-			_, err = e2e.LBJig.UpdateService(func(s *v1.Service) {
+			_, err = e2e.LBJig.UpdateService(context.TODO(), func(s *v1.Service) {
 				s.Spec.Type = v1.ServiceTypeClusterIP
 			})
 			framework.ExpectNoError(err)
@@ -396,7 +398,7 @@ var _ = Describe("[cloud-provider-aws-e2e] loadbalancer", func() {
 			// Wait for the load balancer to be destroyed asynchronously
 			By("cleaning up: waiting for load balancer destruction")
 			framework.Logf("[CLEANUP] Waiting for load balancer destruction")
-			_, err = e2e.LBJig.WaitForLoadBalancerDestroy(ingressAddress, svcPort, loadBalancerCreateTimeout)
+			_, err = e2e.LBJig.WaitForLoadBalancerDestroy(context.TODO(), ingressAddress, svcPort, loadBalancerCreateTimeout)
 			framework.ExpectNoError(err)
 			framework.Logf("[CLEANUP] Load balancer destroyed successfully")
 		})
