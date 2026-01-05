@@ -269,11 +269,14 @@ func TestValidateServiceAnnotationTargetGroupAttributes(t *testing.T) {
 
 func TestValidateServiceAnnotations(t *testing.T) {
 	const byoSecurityGroupID = "sg-123456789"
+	const classicLBHostname = "my-classic-lb-1234567890.us-east-1.elb.amazonaws.com"
+	const nlbHostname = "my-nlb-1234567890.elb.us-east-1.amazonaws.com"
 
 	tests := []struct {
 		name          string
 		annotations   map[string]string
 		servicePorts  []v1.ServicePort
+		ingressStatus []v1.LoadBalancerIngress
 		expectedError string
 	}{
 		// Valid cases - CLB (Classic Load Balancer) should allow BYO security groups
@@ -420,6 +423,108 @@ func TestValidateServiceAnnotations(t *testing.T) {
 			annotations:   map[string]string{},
 			expectedError: "",
 		},
+
+		// No existing ingress - any type should be allowed
+		{
+			name:          "NLB in new service with no ingress should be allowed",
+			annotations:   map[string]string{ServiceAnnotationLoadBalancerType: "nlb"},
+			ingressStatus: nil,
+			expectedError: "",
+		},
+		{
+			name:          "CLB in new service with no ingress should be allowed",
+			annotations:   map[string]string{},
+			ingressStatus: nil,
+			expectedError: "",
+		},
+		{
+			name:          "NLB in new service with empty ingress list should be allowed",
+			annotations:   map[string]string{ServiceAnnotationLoadBalancerType: "nlb"},
+			ingressStatus: []v1.LoadBalancerIngress{},
+			expectedError: "",
+		},
+
+		// Existing Classic LB - same type should succeed
+		{
+			name:        "CLB in existing service with no type annotation should be allowed",
+			annotations: map[string]string{},
+			ingressStatus: []v1.LoadBalancerIngress{
+				{Hostname: classicLBHostname},
+			},
+			expectedError: "",
+		},
+		{
+			name:        "CLB in existing service with type annotation should be allowed",
+			annotations: map[string]string{ServiceAnnotationLoadBalancerType: "clb"},
+			ingressStatus: []v1.LoadBalancerIngress{
+				{Hostname: classicLBHostname},
+			},
+			expectedError: "",
+		},
+
+		// Existing NLB - same type should succeed
+		{
+			name:        "NLB in existing service with type annotation should be allowed",
+			annotations: map[string]string{ServiceAnnotationLoadBalancerType: "nlb"},
+			ingressStatus: []v1.LoadBalancerIngress{
+				{Hostname: nlbHostname},
+			},
+			expectedError: "",
+		},
+
+		// Type change from CLB to NLB - should fail
+		{
+			name:        "CLB in existing service with type annotation should not be allowed to change to NLB",
+			annotations: map[string]string{ServiceAnnotationLoadBalancerType: "nlb"},
+			ingressStatus: []v1.LoadBalancerIngress{
+				{Hostname: classicLBHostname},
+			},
+			expectedError: "cannot update Load Balancer Type annotation",
+		},
+
+		// Type change from NLB to CLB - should fail
+		{
+			name:        "NLB in existing service with type annotation should not be allowed to change to CLB",
+			annotations: map[string]string{},
+			ingressStatus: []v1.LoadBalancerIngress{
+				{Hostname: nlbHostname},
+			},
+			expectedError: "cannot update Load Balancer Type annotation",
+		},
+		{
+			name:        "NLB in existing service with type annotation should not be allowed to change to CLB",
+			annotations: map[string]string{ServiceAnnotationLoadBalancerType: "clb"},
+			ingressStatus: []v1.LoadBalancerIngress{
+				{Hostname: nlbHostname},
+			},
+			expectedError: "cannot update Load Balancer Type annotation",
+		},
+
+		// Edge cases with hostname patterns
+		{
+			name:        "CLB in existing service with regional hostname should be allowed",
+			annotations: map[string]string{},
+			ingressStatus: []v1.LoadBalancerIngress{
+				{Hostname: "internal-my-lb-123.eu-west-1.elb.amazonaws.com"},
+			},
+			expectedError: "",
+		},
+		{
+			name:        "NLB in existing service with different region hostname should be allowed",
+			annotations: map[string]string{ServiceAnnotationLoadBalancerType: "nlb"},
+			ingressStatus: []v1.LoadBalancerIngress{
+				{Hostname: "my-nlb-abc123.elb.ap-southeast-1.amazonaws.com"},
+			},
+			expectedError: "",
+		},
+		{
+			name:        "NLB in existing service with regional hostname should not be allowed to change to CLB",
+			annotations: map[string]string{},
+			ingressStatus: []v1.LoadBalancerIngress{
+				{Hostname: "my-nlb-abc123.elb.eu-central-1.amazonaws.com"},
+			},
+			expectedError: "cannot update Load Balancer Type annotation",
+		},
 	}
 
 	for _, tt := range tests {
@@ -435,6 +540,9 @@ func TestValidateServiceAnnotations(t *testing.T) {
 					Type:  v1.ServiceTypeLoadBalancer,
 					Ports: tt.servicePorts,
 				},
+			}
+			if tt.ingressStatus != nil {
+				service.Status.LoadBalancer.Ingress = tt.ingressStatus
 			}
 
 			// Create validation input

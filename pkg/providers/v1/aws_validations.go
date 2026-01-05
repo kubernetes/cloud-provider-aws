@@ -18,6 +18,7 @@ package aws
 
 import (
 	"fmt"
+	"strings"
 
 	v1 "k8s.io/api/core/v1"
 )
@@ -52,6 +53,25 @@ func ensureLoadBalancerValidation(v *awsValidationInput) error {
 // are valid and supported by the controller.
 func validateServiceAnnotations(v *awsValidationInput) error {
 	isNLB := isNLB(v.annotations)
+
+	// ServiceAnnotationLoadBalancerType
+	// Load Balancer Type annotation must not be updated after creation.
+	// Classic Load Balancer: hostname ends with ".elb.amazonaws.com"
+	// NLB: hostname ends with ".elb.<region>.amazonaws.com"
+	{
+		hostIsCreated := len(v.apiService.Status.LoadBalancer.Ingress) > 0
+		if hostIsCreated {
+			hostIsClassic := strings.HasSuffix(v.apiService.Status.LoadBalancer.Ingress[0].Hostname, ".elb.amazonaws.com")
+			// If annotation is set to NLB and hostname has classic pattern, return an error.
+			if isNLB && hostIsClassic {
+				return fmt.Errorf("cannot update Load Balancer Type annotation %q after creation for NLB", ServiceAnnotationLoadBalancerType)
+			}
+			// If annotation is set to CLB and hostname has NLB pattern, return an error.
+			if !isNLB && !hostIsClassic {
+				return fmt.Errorf("cannot update Load Balancer Type annotation %q after creation for Classic Load Balancer", ServiceAnnotationLoadBalancerType)
+			}
+		}
+	}
 
 	// ServiceAnnotationLoadBalancerSecurityGroups
 	// NLB only: ensure the BYO annotations are not supported and return an error.
