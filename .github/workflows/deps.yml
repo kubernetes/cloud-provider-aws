@@ -47,3 +47,13 @@ jobs:
         uses: golang/govulncheck-action@v1
         with:
           go-version-file: tests/e2e/go.mod
+  gomod-match-check:
+    runs-on: ubuntu-latest
+    steps:
+      - name: "Checkout Repository"
+        uses: actions/checkout@v4
+        with:
+          show-progress: false
+      - name: "All go.mod go directive must use version major.minor.patch that matches GOLANG_DIRECTIVE_VERSION"
+        run: |
+          make verify-go-directive

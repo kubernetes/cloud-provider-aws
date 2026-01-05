@@ -3,7 +3,7 @@
     publish = "site"
     command = """
         pip install mkdocs && pip install mkdocs-material
-        mkdocs build -d site
+        python -m mkdocs build -d site
     """
 
 [build.environment]

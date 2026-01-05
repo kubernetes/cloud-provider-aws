@@ -18,18 +18,18 @@ package aws
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"sync"
 	"testing"
 
-	awsv2 "github.com/aws/aws-sdk-go-v2/aws"
-	"github.com/aws/aws-sdk-go-v2/service/ec2/types"
-	"github.com/aws/aws-sdk-go/aws"
-	"github.com/aws/aws-sdk-go/aws/awserr"
-	"github.com/aws/aws-sdk-go/service/ec2"
+	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/service/ec2"
+	ec2types "github.com/aws/aws-sdk-go-v2/service/ec2/types"
+
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	v1 "k8s.io/api/core/v1"
-	"k8s.io/cloud-provider-aws/pkg/resourcemanagers"
 	"k8s.io/cloud-provider-aws/pkg/services"
 )
 
@@ -61,7 +61,7 @@ func TestGetProviderId(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			instance := makeMinimalInstance(tc.instanceID)
-			c, _ := mockInstancesResp(&instance, []*ec2.Instance{&instance})
+			c, _ := mockInstancesResp(&instance, []*ec2types.Instance{&instance})
 
 			result, err := c.getProviderID(context.TODO(), &tc.node)
 			if err != nil {
@@ -79,7 +79,7 @@ func TestInstanceExists(t *testing.T) {
 	for _, tc := range []struct {
 		name           string
 		instanceExists bool
-		instanceState  string
+		instanceState  ec2types.InstanceStateName
 		expectedExists bool
 	}{
 		{
@@ -91,18 +91,18 @@ func TestInstanceExists(t *testing.T) {
 		{
 			name:           "Should return true when instance is found and running",
 			instanceExists: true,
-			instanceState:  ec2.InstanceStateNameRunning,
+			instanceState:  ec2types.InstanceStateNameRunning,
 			expectedExists: true,
 		},
 		{
 			name:           "Should return false when instance is found but terminated",
 			instanceExists: true,
-			instanceState:  ec2.InstanceStateNameTerminated,
+			instanceState:  ec2types.InstanceStateNameTerminated,
 			expectedExists: false,
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			c := getCloudWithMockedDescribeInstances(tc.instanceExists, tc.instanceState)
+			c := getCloudWithMockedDescribeInstances(tc.instanceExists, tc.instanceState, "i-abc")
 
 			result, err := c.InstanceExists(context.TODO(), &v1.Node{
 				Spec: v1.NodeSpec{
@@ -124,30 +124,30 @@ func TestInstanceShutdown(t *testing.T) {
 	for _, tc := range []struct {
 		name             string
 		instanceExists   bool
-		instanceState    string
+		instanceState    ec2types.InstanceStateName
 		expectedShutdown bool
 	}{
 		{
 			name:             "Should return false when instance is found and running",
 			instanceExists:   true,
-			instanceState:    ec2.InstanceStateNameRunning,
+			instanceState:    ec2types.InstanceStateNameRunning,
 			expectedShutdown: false,
 		},
 		{
 			name:             "Should return false when instance is found and terminated",
 			instanceExists:   true,
-			instanceState:    ec2.InstanceStateNameTerminated,
+			instanceState:    ec2types.InstanceStateNameTerminated,
 			expectedShutdown: false,
 		},
 		{
 			name:             "Should return true when instance is found and stopped",
 			instanceExists:   true,
-			instanceState:    ec2.InstanceStateNameStopped,
+			instanceState:    ec2types.InstanceStateNameStopped,
 			expectedShutdown: true,
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			c := getCloudWithMockedDescribeInstances(tc.instanceExists, tc.instanceState)
+			c := getCloudWithMockedDescribeInstances(tc.instanceExists, tc.instanceState, "i-abc")
 
 			result, err := c.InstanceShutdown(context.TODO(), &v1.Node{
 				Spec: v1.NodeSpec{
@@ -168,16 +168,16 @@ func TestInstanceShutdown(t *testing.T) {
 func TestInstanceMetadata(t *testing.T) {
 	t.Run("Should return populated InstanceMetadata", func(t *testing.T) {
 		instance := makeInstance("i-00000000000000000", "192.168.0.1", "1.2.3.4", "instance-same.ec2.internal", "instance-same.ec2.external", nil, true, "ami-0000")
-		c, _ := mockInstancesResp(&instance, []*ec2.Instance{&instance})
-		var mockedTopologyManager resourcemanagers.MockedInstanceTopologyManager
+		c, _ := mockInstancesResp(&instance, []*ec2types.Instance{&instance})
+		var mockedTopologyManager MockedInstanceTopologyManager
 		c.instanceTopologyManager = &mockedTopologyManager
-		mockedTopologyManager.On("GetNodeTopology", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(&types.InstanceTopology{
-			AvailabilityZone: awsv2.String("us-west-2b"),
+		mockedTopologyManager.On("GetNodeTopology", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(&ec2types.InstanceTopology{
+			AvailabilityZone: aws.String("us-west-2b"),
 			GroupName:        new(string),
-			InstanceId:       awsv2.String("i-123456789"),
+			InstanceId:       aws.String("i-123456789"),
 			InstanceType:     new(string),
 			NetworkNodes:     []string{"nn-123456789", "nn-234567890", "nn-345678901"},
-			ZoneId:           awsv2.String("az2"),
+			ZoneId:           aws.String("az2"),
 		}, nil)
 		node := &v1.Node{
 			Spec: v1.NodeSpec{
@@ -213,8 +213,8 @@ func TestInstanceMetadata(t *testing.T) {
 
 	t.Run("Should skip additional labels if already set", func(t *testing.T) {
 		instance := makeInstance("i-00000000000000000", "192.168.0.1", "1.2.3.4", "instance-same.ec2.internal", "instance-same.ec2.external", nil, true, "ami-0000")
-		c, _ := mockInstancesResp(&instance, []*ec2.Instance{&instance})
-		var mockedTopologyManager resourcemanagers.MockedInstanceTopologyManager
+		c, _ := mockInstancesResp(&instance, []*ec2types.Instance{&instance})
+		var mockedTopologyManager MockedInstanceTopologyManager
 		c.instanceTopologyManager = &mockedTopologyManager
 		node := &v1.Node{
 			Spec: v1.NodeSpec{
@@ -242,8 +242,8 @@ func TestInstanceMetadata(t *testing.T) {
 
 	t.Run("Should swallow errors if getting node topology fails if instance type not expected to be supported", func(t *testing.T) {
 		instance := makeInstance("i-00000000000000000", "192.168.0.1", "1.2.3.4", "instance-same.ec2.internal", "instance-same.ec2.external", nil, true, "ami-0000")
-		c, _ := mockInstancesResp(&instance, []*ec2.Instance{&instance})
-		var mockedTopologyManager resourcemanagers.MockedInstanceTopologyManager
+		c, _ := mockInstancesResp(&instance, []*ec2types.Instance{&instance})
+		var mockedTopologyManager MockedInstanceTopologyManager
 		c.instanceTopologyManager = &mockedTopologyManager
 		mockedTopologyManager.On("GetNodeTopology", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil,
 			services.NewMockAPIError("InvalidParameterValue", "Nope."))
@@ -268,8 +268,8 @@ func TestInstanceMetadata(t *testing.T) {
 
 	t.Run("Should not swallow errors if getting node topology fails if instance type is expected to be supported", func(t *testing.T) {
 		instance := makeInstance("i-00000000000000000", "192.168.0.1", "1.2.3.4", "instance-same.ec2.internal", "instance-same.ec2.external", nil, true, "ami-0000")
-		c, _ := mockInstancesResp(&instance, []*ec2.Instance{&instance})
-		var mockedTopologyManager resourcemanagers.MockedInstanceTopologyManager
+		c, _ := mockInstancesResp(&instance, []*ec2types.Instance{&instance})
+		var mockedTopologyManager MockedInstanceTopologyManager
 		c.instanceTopologyManager = &mockedTopologyManager
 		mockedTopologyManager.On("GetNodeTopology", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil,
 			services.NewMockAPIError("InvalidParameterValue", "Nope."))
@@ -290,7 +290,20 @@ func TestInstanceMetadata(t *testing.T) {
 
 	t.Run("Should limit ec2:DescribeInstances calls to a single request per instance", func(t *testing.T) {
 		instance := makeInstance("i-00000000000001234", "192.168.0.1", "1.2.3.4", "instance-same.ec2.internal", "instance-same.ec2.external", nil, true, "ami-0000")
-		c, awsServices := mockInstancesResp(&instance, []*ec2.Instance{&instance})
+		c, awsServices := mockInstancesResp(&instance, []*ec2types.Instance{&instance})
+
+		// Add mock for DescribeInstanceTopology on the EC2 mock
+		awsServices.ec2.(*MockedFakeEC2).On("DescribeInstanceTopology", mock.Anything, mock.Anything).Return([]ec2types.InstanceTopology{
+			{
+				AvailabilityZone: aws.String("us-west-2b"),
+				GroupName:        new(string),
+				InstanceId:       aws.String("i-00000000000001234"),
+				InstanceType:     new(string),
+				NetworkNodes:     []string{"nn-123456789", "nn-234567890", "nn-345678901"},
+				ZoneId:           aws.String("az2"),
+			},
+		}, nil)
+
 		node := &v1.Node{
 			Spec: v1.NodeSpec{
 				ProviderID: fmt.Sprintf("aws:///us-west-2c/%s", *instance.InstanceId),
@@ -306,20 +319,211 @@ func TestInstanceMetadata(t *testing.T) {
 	})
 }
 
-func getCloudWithMockedDescribeInstances(instanceExists bool, instanceState string) *Cloud {
+func TestDescribeInstanceBatching(t *testing.T) {
 	mockedEC2API := newMockedEC2API()
-	c := &Cloud{ec2: &awsSdkEC2{ec2: mockedEC2API}}
+	batcher := newdescribeInstanceBatcher(context.Background(), &awsSdkEC2{ec2: mockedEC2API})
+
+	mockedEC2API.On("DescribeInstances", mock.Anything).Return(&ec2.DescribeInstancesOutput{
+		Reservations: []ec2types.Reservation{
+			{
+				Instances: []ec2types.Instance{
+					{
+						InstanceId: aws.String("Test-1"),
+					},
+					{
+						InstanceId: aws.String("Test-2"),
+					},
+					{
+						InstanceId: aws.String("Test-3"),
+					},
+				},
+			},
+		},
+	}, nil)
+
+	type result struct {
+		input  string
+		output []*ec2types.Instance
+		err    error
+	}
+
+	// Add extra space to channel so that we can ensure there were only 3 responses
+	resCh := make(chan result, 5)
+	helper := func(wg *sync.WaitGroup, input string) {
+		defer wg.Done()
+		res, err := batcher.DescribeInstances(context.Background(), &ec2.DescribeInstancesInput{InstanceIds: []string{input}})
+		resCh <- result{input: input, output: res, err: err}
+	}
+
+	wg := sync.WaitGroup{}
+	wg.Add(3)
+	go helper(&wg, "Test-1")
+	go helper(&wg, "Test-2")
+	go helper(&wg, "Test-3")
+	wg.Wait()
+	close(resCh)
+
+	assert.Len(t, resCh, 3)
+	for res := range resCh {
+		assert.NoError(t, res.err)
+		assert.Len(t, res.output, 1)
+		assert.Equal(t, res.input, *res.output[0].InstanceId)
+	}
+
+	mockedEC2API.AssertNumberOfCalls(t, "DescribeInstances", 1)
+}
+
+// TestDescribeInstanceBatchingWithInstanceDoesntExist will test where one of the instance doesn't exist
+func TestDescribeInstanceBatchingWithInstanceDoesntExist(t *testing.T) {
+	mockedEC2API := newMockedEC2API()
+	batcher := newdescribeInstanceBatcher(context.Background(), &awsSdkEC2{ec2: mockedEC2API})
+
+	mockedEC2API.On("DescribeInstances", mock.Anything).Return(&ec2.DescribeInstancesOutput{
+		Reservations: []ec2types.Reservation{
+			{
+				Instances: []ec2types.Instance{
+					{
+						InstanceId: aws.String("Test-1"),
+					},
+					{
+						InstanceId: aws.String("Test-2"),
+					},
+					{
+						InstanceId: aws.String("Test-3"),
+					},
+				},
+			},
+		},
+	}, nil)
+
+	type result struct {
+		input              string
+		output             []*ec2types.Instance
+		err                error
+		isInstanceNotFound bool
+	}
+
+	// Add extra space to channel so that we can ensure there were only 3 responses
+	resCh := make(chan result, 5)
+	helper := func(wg *sync.WaitGroup, input string, isInstanceNotFound bool) {
+		defer wg.Done()
+		res, err := batcher.DescribeInstances(context.Background(), &ec2.DescribeInstancesInput{InstanceIds: []string{input}})
+		resCh <- result{input: input, output: res, err: err, isInstanceNotFound: isInstanceNotFound}
+	}
+
+	wg := sync.WaitGroup{}
+	wg.Add(3)
+	go helper(&wg, "Test-1", false)
+	go helper(&wg, "Test-2", false)
+	go helper(&wg, "Test-4", true)
+	wg.Wait()
+	close(resCh)
+
+	assert.Len(t, resCh, 3)
+	for res := range resCh {
+		assert.NoError(t, res.err)
+		if !res.isInstanceNotFound {
+			assert.Len(t, res.output, 1)
+			assert.Equal(t, res.input, *res.output[0].InstanceId)
+		} else {
+			assert.Len(t, res.output, 0)
+		}
+	}
+
+	mockedEC2API.AssertNumberOfCalls(t, "DescribeInstances", 1)
+}
+
+// TestDescribeInstanceBatchingWithBatchedRequestFail will test where batched request fails but individual request succeeds
+func TestDescribeInstanceBatchingWithBatchedRequestFail(t *testing.T) {
+	mockedEC2API := newMockedEC2API()
+	batcher := newdescribeInstanceBatcher(context.Background(), &awsSdkEC2{ec2: mockedEC2API})
+	var nilResp *ec2.DescribeInstancesOutput
+	mockedEC2API.On("DescribeInstances", &ec2.DescribeInstancesInput{
+		InstanceIds: []string{"Test-1", "Test-2"},
+	}).Return(nilResp, errors.New("instances not found"))
+	mockedEC2API.On("DescribeInstances", &ec2.DescribeInstancesInput{
+		InstanceIds: []string{"Test-2", "Test-1"},
+	}).Return(nilResp, errors.New("instances not found"))
+	mockedEC2API.On("DescribeInstances",
+		&ec2.DescribeInstancesInput{
+			InstanceIds: []string{"Test-1"},
+		},
+	).Return(
+		&ec2.DescribeInstancesOutput{
+			Reservations: []ec2types.Reservation{
+				{
+					Instances: []ec2types.Instance{
+						{
+							InstanceId: aws.String("Test-1"),
+						},
+					},
+				},
+			},
+		},
+		nil,
+	)
+	mockedEC2API.On("DescribeInstances",
+		&ec2.DescribeInstancesInput{
+			InstanceIds: []string{"Test-2"},
+		},
+	).Return(
+		&ec2.DescribeInstancesOutput{
+			Reservations: []ec2types.Reservation{},
+		},
+		nil,
+	)
+
+	type result struct {
+		input              string
+		output             []*ec2types.Instance
+		err                error
+		isInstanceNotFound bool
+	}
+
+	// Add extra space to channel so that we can ensure there were only 3 responses
+	resCh := make(chan result, 5)
+	helper := func(wg *sync.WaitGroup, input string, isInstanceNotFound bool) {
+		defer wg.Done()
+		res, err := batcher.DescribeInstances(context.Background(), &ec2.DescribeInstancesInput{InstanceIds: []string{input}})
+		resCh <- result{input: input, output: res, err: err, isInstanceNotFound: isInstanceNotFound}
+	}
+
+	wg := sync.WaitGroup{}
+	wg.Add(2)
+	go helper(&wg, "Test-1", false)
+	go helper(&wg, "Test-2", true)
+	wg.Wait()
+	close(resCh)
+
+	assert.Len(t, resCh, 2)
+	for res := range resCh {
+		assert.NoError(t, res.err)
+		if !res.isInstanceNotFound {
+			assert.Len(t, res.output, 1)
+			assert.Equal(t, res.input, *res.output[0].InstanceId)
+		} else {
+			assert.Len(t, res.output, 0)
+		}
+	}
+
+	mockedEC2API.AssertNumberOfCalls(t, "DescribeInstances", 3)
+}
+
+func getCloudWithMockedDescribeInstances(instanceExists bool, instanceState ec2types.InstanceStateName, instanceID string) *Cloud {
+	mockedEC2API := newMockedEC2API()
+	c := &Cloud{ec2: &awsSdkEC2{ec2: mockedEC2API}, describeInstanceBatcher: newdescribeInstanceBatcher(context.Background(), &awsSdkEC2{ec2: mockedEC2API})}
 
 	if !instanceExists {
-		mockedEC2API.On("DescribeInstances", mock.Anything).Return(&ec2.DescribeInstancesOutput{}, awserr.New("InvalidInstanceID.NotFound", "Instance not found", nil))
+		mockedEC2API.On("DescribeInstances", mock.Anything).Return(&ec2.DescribeInstancesOutput{}, errors.New("InvalidInstanceID.NotFound: Instance not found"))
 	} else {
 		mockedEC2API.On("DescribeInstances", mock.Anything).Return(&ec2.DescribeInstancesOutput{
-			Reservations: []*ec2.Reservation{
+			Reservations: []ec2types.Reservation{
 				{
-					Instances: []*ec2.Instance{
+					Instances: []ec2types.Instance{
 						{
-							State: &ec2.InstanceState{
-								Name: aws.String(instanceState),
+							InstanceId: aws.String(instanceID),
+							State: &ec2types.InstanceState{
+								Name: instanceState,
 							},
 						},
 					},

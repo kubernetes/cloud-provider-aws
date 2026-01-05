@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package resourcemanagers
+package aws
 
 import (
 	"context"
@@ -28,7 +28,7 @@ import (
 	"github.com/aws/smithy-go"
 	"k8s.io/client-go/tools/cache"
 	"k8s.io/cloud-provider-aws/pkg/providers/v1/config"
-	"k8s.io/cloud-provider-aws/pkg/services"
+	"k8s.io/cloud-provider-aws/pkg/providers/v1/iface"
 	"k8s.io/klog/v2"
 )
 
@@ -38,14 +38,9 @@ const instanceTopologyManagerCacheTimeout = 24 * time.Hour
 We need to ensure that instance types that we expect a response will not successfully complete syncing unless
 we get a response, so we can track known instance types that we expect to get a response for.
 
-Supported instance types for DescribeInstanceTopology as of 2/6/25 from API documentation:
-https://docs.aws.amazon.com/AWSEC2/latest/APIReference/API_DescribeInstanceTopology.html
-
-hpc6a.48xlarge | hpc6id.32xlarge | hpc7a.12xlarge | hpc7a.24xlarge | hpc7a.48xlarge | hpc7a.96xlarge | hpc7g.4xlarge | hpc7g.8xlarge | hpc7g.16xlarge
-p3dn.24xlarge | p4d.24xlarge | p4de.24xlarge | p5.48xlarge | p5e.48xlarge | p5en.48xlarge
-trn1.2xlarge | trn1.32xlarge | trn1n.32xlarge | trn2.48xlarge | trn2u.48xlarge
+https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/ec2-instance-topology-prerequisites.html
 */
-var defaultSupportedTopologyInstanceTypePattern = regexp.MustCompile(`^(hpc|trn|p|inf)[0-9]+[a-z]*(\.[0-9a-z]*)$`)
+var defaultSupportedTopologyInstanceTypePattern = regexp.MustCompile(`^(hpc|trn|p)[0-9]+[a-z]*(-[a-z0-9]+)?(\.[0-9a-z]*)$`)
 
 // stringKeyFunc is a string as cache key function
 func topStringKeyFunc(obj interface{}) (string, error) {
@@ -66,13 +61,13 @@ type InstanceTopologyManager interface {
 
 // instanceTopologyManager manages getting instance topology for nodes.
 type instanceTopologyManager struct {
-	ec2                                  services.Ec2SdkV2
+	ec2                                  iface.EC2
 	unsupportedKeyStore                  cache.Store
 	supportedTopologyInstanceTypePattern *regexp.Regexp
 }
 
 // NewInstanceTopologyManager generates a new InstanceTopologyManager.
-func NewInstanceTopologyManager(ec2 services.Ec2SdkV2, cfg *config.CloudConfig) InstanceTopologyManager {
+func NewInstanceTopologyManager(ec2 iface.EC2, cfg *config.CloudConfig) InstanceTopologyManager {
 	var supportedTopologyInstanceTypePattern *regexp.Regexp
 	if cfg.Global.SupportedTopologyInstanceTypePattern != "" {
 		supportedTopologyInstanceTypePattern = regexp.MustCompile(cfg.Global.SupportedTopologyInstanceTypePattern)

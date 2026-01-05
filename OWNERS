@@ -1,23 +1,24 @@
 approvers:
+- sig-cloud-provider-leads
 - dims
-- nckturner
 - olemarkus
-- hakman
-- kishorj
 - cartermckinnon
 - mmerkes
 - wongma7
 - kmala
+- yue9944882
 reviewers:
+- sig-cloud-provider-leads
 - dims
-- nckturner
 - olemarkus
-- hakman
-- kishorj
 - cartermckinnon
 - mmerkes
 - kmala
+- yue9944882
 emeritus_approvers:
+- kishorj
+- hakman
+- nckturner
 - zmerlynn
 - gnufied
 - jsafrane

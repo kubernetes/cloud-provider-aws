@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package resourcemanagers
+package aws
 
 import (
 	"context"
@@ -27,10 +27,12 @@ import (
 )
 
 func TestDoesInstanceTypeRequireResponse(t *testing.T) {
+	// for supported instance types see: https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/ec2-instance-topology-prerequisites.html
 	instanceTypesRequireResponse := []string{
 		"hpc6a.48xlarge", "hpc6id.32xlarge", "hpc7a.12xlarge", "hpc7a.24xlarge", "hpc7a.48xlarge", "hpc7a.96xlarge", "hpc7g.4xlarge", "hpc7g.8xlarge", "hpc7g.16xlarge",
-		"p3dn.24xlarge", "p4d.24xlarge", "p4de.24xlarge", "p5.48xlarge", "p5e.48xlarge", "p5en.48xlarge",
-		"trn1.2xlarge", "trn1.32xlarge", "trn1n.32xlarge", "trn2.48xlarge", "trn2u.48xlarge", "inf2.48xlarge",
+		"p3dn.24xlarge", "p4d.24xlarge", "p4de.24xlarge", "p5.48xlarge", "p5e.48xlarge", "p5en.48xlarge", "p6e-gb200.36xlarge",
+		"trn1.2xlarge", "trn1.32xlarge", "trn1n.32xlarge", "trn2.48xlarge", "trn2u.48xlarge",
+		"p6-b200.48xlarge",
 	}
 	t.Run("Should return true for instance types that require response", func(t *testing.T) {
 		topologyManager := NewInstanceTopologyManager(nil, &config.CloudConfig{})
@@ -43,6 +45,7 @@ func TestDoesInstanceTypeRequireResponse(t *testing.T) {
 
 	instanceTypesNoRequireResponse := []string{
 		"m6g.large", "t3.large", "c3.large", "m5.large",
+		"inf2.48xlarge",
 	}
 	t.Run("Should return false for instance types that don't require response", func(t *testing.T) {
 		topologyManager := NewInstanceTopologyManager(nil, &config.CloudConfig{})
@@ -69,8 +72,8 @@ func TestDoesInstanceTypeRequireResponse(t *testing.T) {
 
 func TestGetNodeTopology(t *testing.T) {
 	t.Run("Should skip nodes that don't have instance type set", func(t *testing.T) {
-		mockedEc2SdkV2 := services.MockedEc2SdkV2{}
-		topologyManager := NewInstanceTopologyManager(&mockedEc2SdkV2, &config.CloudConfig{})
+		mockedEC2 := MockedFakeEC2{}
+		topologyManager := NewInstanceTopologyManager(&mockedEC2, &config.CloudConfig{})
 		// Loop multiple times to check cache use
 		topology, err := topologyManager.GetNodeTopology(context.TODO(), "" /* empty instance type */, "some-region", "some-id")
 		if err != nil {
@@ -80,14 +83,14 @@ func TestGetNodeTopology(t *testing.T) {
 			t.Errorf("Should not be returning a topology: %v", topology)
 		}
 
-		mockedEc2SdkV2.AssertNumberOfCalls(t, "DescribeInstanceTopology", 0)
+		mockedEC2.AssertNumberOfCalls(t, "DescribeInstanceTopology", 0)
 	})
 
 	t.Run("Should handle unsupported regions and utilize cache", func(t *testing.T) {
-		mockedEc2SdkV2 := services.MockedEc2SdkV2{}
-		topologyManager := NewInstanceTopologyManager(&mockedEc2SdkV2, &config.CloudConfig{})
+		mockedEC2 := MockedFakeEC2{}
+		topologyManager := NewInstanceTopologyManager(&mockedEC2, &config.CloudConfig{})
 
-		mockedEc2SdkV2.On("DescribeInstanceTopology", mock.Anything, mock.Anything).Return(nil,
+		mockedEC2.On("DescribeInstanceTopology", mock.Anything, mock.Anything).Return(nil,
 			services.NewMockAPIError("UnsupportedOperation", "Not supported in region"))
 
 		// Loop multiple times to check cache use
@@ -101,14 +104,14 @@ func TestGetNodeTopology(t *testing.T) {
 			}
 		}
 
-		mockedEc2SdkV2.AssertNumberOfCalls(t, "DescribeInstanceTopology", 1)
+		mockedEC2.AssertNumberOfCalls(t, "DescribeInstanceTopology", 1)
 	})
 
 	t.Run("Should handle unsupported instance types and utilize cache", func(t *testing.T) {
-		mockedEc2SdkV2 := services.MockedEc2SdkV2{}
-		topologyManager := NewInstanceTopologyManager(&mockedEc2SdkV2, &config.CloudConfig{})
+		mockedEC2 := MockedFakeEC2{}
+		topologyManager := NewInstanceTopologyManager(&mockedEC2, &config.CloudConfig{})
 
-		mockedEc2SdkV2.On("DescribeInstanceTopology", mock.Anything, mock.Anything).Return([]types.InstanceTopology{}, nil)
+		mockedEC2.On("DescribeInstanceTopology", mock.Anything, mock.Anything).Return([]types.InstanceTopology{}, nil)
 
 		// Loop multiple times to check cache use
 		for i := 0; i < 2; i++ {
@@ -121,14 +124,14 @@ func TestGetNodeTopology(t *testing.T) {
 			}
 		}
 
-		mockedEc2SdkV2.AssertNumberOfCalls(t, "DescribeInstanceTopology", 1)
+		mockedEC2.AssertNumberOfCalls(t, "DescribeInstanceTopology", 1)
 	})
 
 	t.Run("Should handle unsupported instance IDs and utilize cache", func(t *testing.T) {
-		mockedEc2SdkV2 := services.MockedEc2SdkV2{}
-		topologyManager := NewInstanceTopologyManager(&mockedEc2SdkV2, &config.CloudConfig{})
+		mockedEC2 := MockedFakeEC2{}
+		topologyManager := NewInstanceTopologyManager(&mockedEC2, &config.CloudConfig{})
 
-		mockedEc2SdkV2.On("DescribeInstanceTopology", mock.Anything, mock.Anything).Return([]types.InstanceTopology{}, nil)
+		mockedEC2.On("DescribeInstanceTopology", mock.Anything, mock.Anything).Return([]types.InstanceTopology{}, nil)
 
 		// Loop multiple times to check cache use
 		for i := 0; i < 2; i++ {
@@ -142,14 +145,14 @@ func TestGetNodeTopology(t *testing.T) {
 			}
 		}
 
-		mockedEc2SdkV2.AssertNumberOfCalls(t, "DescribeInstanceTopology", 1)
+		mockedEC2.AssertNumberOfCalls(t, "DescribeInstanceTopology", 1)
 	})
 
 	t.Run("Should handle missing permissions to call DescribeInstanceTopology", func(t *testing.T) {
-		mockedEc2SdkV2 := services.MockedEc2SdkV2{}
-		topologyManager := NewInstanceTopologyManager(&mockedEc2SdkV2, &config.CloudConfig{})
+		mockedEC2 := MockedFakeEC2{}
+		topologyManager := NewInstanceTopologyManager(&mockedEC2, &config.CloudConfig{})
 
-		mockedEc2SdkV2.On("DescribeInstanceTopology", mock.Anything, mock.Anything).Return(nil,
+		mockedEC2.On("DescribeInstanceTopology", mock.Anything, mock.Anything).Return(nil,
 			services.NewMockAPIError("UnauthorizedOperation", "Update your perms"))
 
 		// Loop multiple times to check cache use
@@ -163,14 +166,14 @@ func TestGetNodeTopology(t *testing.T) {
 			}
 		}
 
-		mockedEc2SdkV2.AssertNumberOfCalls(t, "DescribeInstanceTopology", 1)
+		mockedEC2.AssertNumberOfCalls(t, "DescribeInstanceTopology", 1)
 	})
 
 	t.Run("Should return error when exceeding request limits for DescribeInstanceTopology", func(t *testing.T) {
-		mockedEc2SdkV2 := services.MockedEc2SdkV2{}
-		topologyManager := NewInstanceTopologyManager(&mockedEc2SdkV2, &config.CloudConfig{})
+		mockedEC2 := MockedFakeEC2{}
+		topologyManager := NewInstanceTopologyManager(&mockedEC2, &config.CloudConfig{})
 
-		mockedEc2SdkV2.On("DescribeInstanceTopology", mock.Anything, mock.Anything).Return(nil,
+		mockedEC2.On("DescribeInstanceTopology", mock.Anything, mock.Anything).Return(nil,
 			services.NewMockAPIError("RequestLimitExceeded", "Slow down!"))
 
 		// Loop multiple times to check cache use
@@ -181,14 +184,14 @@ func TestGetNodeTopology(t *testing.T) {
 			}
 		}
 
-		mockedEc2SdkV2.AssertNumberOfCalls(t, "DescribeInstanceTopology", 2)
+		mockedEC2.AssertNumberOfCalls(t, "DescribeInstanceTopology", 2)
 	})
 
 	t.Run("Should return unhandled errors", func(t *testing.T) {
-		mockedEc2SdkV2 := services.MockedEc2SdkV2{}
-		topologyManager := NewInstanceTopologyManager(&mockedEc2SdkV2, &config.CloudConfig{})
+		mockedEC2 := MockedFakeEC2{}
+		topologyManager := NewInstanceTopologyManager(&mockedEC2, &config.CloudConfig{})
 
-		mockedEc2SdkV2.On("DescribeInstanceTopology", mock.Anything, mock.Anything).Return(nil,
+		mockedEC2.On("DescribeInstanceTopology", mock.Anything, mock.Anything).Return(nil,
 			services.NewMockAPIError("NOPE", "Nice try."))
 
 		_, err := topologyManager.GetNodeTopology(context.TODO(), "some-type", "some-region", "some-id")
@@ -196,6 +199,6 @@ func TestGetNodeTopology(t *testing.T) {
 			t.Errorf("Should have gotten an error")
 		}
 
-		mockedEc2SdkV2.AssertNumberOfCalls(t, "DescribeInstanceTopology", 1)
+		mockedEC2.AssertNumberOfCalls(t, "DescribeInstanceTopology", 1)
 	})
 }
