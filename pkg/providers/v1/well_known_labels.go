@@ -25,5 +25,5 @@ const (
 	// integer starting at 1.
 	LabelNetworkNodePrefix = "topology.k8s.aws/network-node-layer-"
 	// LabelImageID is a machine image label that can be applied to node resources.
-	LabelImageID = "k8s.aws/image-id"
+	LabelImageID = "node.k8s.aws/image-id"
 )
