@@ -4493,6 +4493,7 @@ func TestEnsureNLBSecurityGroup(t *testing.T) {
 		name                     string
 		annotations              map[string]string
 		configNLBSGMode          bool
+		configElbSecurityGroup   string
 		expectedSecurityGroups   []string
 		expectedError            string
 		mockDescribeLoadBalancer func(*MockedFakeELBV2)
@@ -4514,6 +4515,63 @@ func TestEnsureNLBSecurityGroup(t *testing.T) {
 				}
 			},
 		},
+		{
+			name:                   "existing NLB with BYO SG annotation - validate BYO SG is in LB",
+			annotations:            map[string]string{ServiceAnnotationLoadBalancerSecurityGroups: byoSecurityGroupID},
+			configNLBSGMode:        true,
+			expectedSecurityGroups: []string{byoSecurityGroupID},
+			expectedError:          "",
+			mockDescribeLoadBalancer: func(m *MockedFakeELBV2) {
+				m.LoadBalancers = []*elbv2types.LoadBalancer{
+					{
+						LoadBalancerName: aws.String(loadBalancerName),
+						Type:             elbv2types.LoadBalancerTypeEnumNetwork,
+						SecurityGroups:   []string{byoSecurityGroupID},
+					},
+				}
+			},
+		},
+		{
+			name:                   "existing NLB with SG drift - returns current SG (drift detected elsewhere)",
+			annotations:            map[string]string{ServiceAnnotationLoadBalancerSecurityGroups: byoSecurityGroupID},
+			configNLBSGMode:        true,
+			expectedSecurityGroups: []string{fakeSecurityGroupID}, // Returns existing SG, drift handled in ensureLoadBalancerv2
+			expectedError:          "",
+			mockDescribeLoadBalancer: func(m *MockedFakeELBV2) {
+				m.LoadBalancers = []*elbv2types.LoadBalancer{
+					{
+						LoadBalancerName: aws.String(loadBalancerName),
+						Type:             elbv2types.LoadBalancerTypeEnumNetwork,
+						SecurityGroups:   []string{fakeSecurityGroupID}, // Different SG than annotation - drift will be detected in ensureLoadBalancerv2
+					},
+				}
+			},
+		},
+		{
+			name:                   "new NLB with BYO SG annotation - returns BYO SG",
+			annotations:            map[string]string{ServiceAnnotationLoadBalancerSecurityGroups: byoSecurityGroupID},
+			configNLBSGMode:        true,
+			expectedSecurityGroups: []string{byoSecurityGroupID},
+			expectedError:          "",
+			mockDescribeLoadBalancer: func(m *MockedFakeELBV2) {
+				// No load balancer exists
+				m.LoadBalancers = []*elbv2types.LoadBalancer{}
+			},
+		},
+		{
+			name:                   "new NLB with BYO SG from global config - returns global SG",
+			annotations:            map[string]string{},
+			configNLBSGMode:        true,
+			configElbSecurityGroup: globalSecurityGroupID,
+			expectedSecurityGroups: []string{globalSecurityGroupID},
+			expectedError:          "",
+			mockDescribeLoadBalancer: func(m *MockedFakeELBV2) {
+				// No load balancer exists
+				m.LoadBalancers = []*elbv2types.LoadBalancer{}
+			},
+		},
+		// Note: Multiple BYO SGs and invalid SG format tests are in validation layer (aws_validations_test.go)
+		// These tests would have been caught by validation before reaching ensureNLBSecurityGroup
 		{
 			name:                   "new NLB with managed mode - creates new SG",
 			annotations:            map[string]string{},
@@ -4658,6 +4716,9 @@ func TestEnsureNLBSecurityGroup(t *testing.T) {
 			cfg := config.CloudConfig{}
 			if tc.configNLBSGMode {
 				cfg.Global.NLBSecurityGroupMode = config.NLBSecurityGroupModeManaged
+			}
+			if tc.configElbSecurityGroup != "" {
+				cfg.Global.ElbSecurityGroup = tc.configElbSecurityGroup
 			}
 
 			c, err := newAWSCloud(cfg, awsServices)
