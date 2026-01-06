@@ -18,6 +18,7 @@ package aws
 
 import (
 	"fmt"
+	"strings"
 
 	v1 "k8s.io/api/core/v1"
 )
@@ -54,18 +55,34 @@ func validateServiceAnnotations(v *awsValidationInput) error {
 	isNLB := isNLB(v.annotations)
 
 	// ServiceAnnotationLoadBalancerSecurityGroups
-	// NLB only: ensure the BYO annotations are not supported and return an error.
-	// FIXME: the BYO SG for NLB implementation is blocked by https://github.com/kubernetes/cloud-provider-aws/pull/1209
-	if _, hasBYOAnnotation := v.annotations[ServiceAnnotationLoadBalancerSecurityGroups]; hasBYOAnnotation {
+	// NLB: validate BYO SG constraints (only one SG, must start with "sg-")
+	if annotatedSG, hasBYOAnnotation := v.annotations[ServiceAnnotationLoadBalancerSecurityGroups]; hasBYOAnnotation {
 		if isNLB {
-			return fmt.Errorf("BYO security group annotation %q is not supported by NLB", ServiceAnnotationLoadBalancerSecurityGroups)
+			sgList := getSGListFromAnnotation(annotatedSG)
+
+			// NLB supports only one security group
+			if len(sgList) > 1 {
+				return fmt.Errorf("NLB supports only one security group, got %d security groups %v in annotation %q",
+					len(sgList), sgList, ServiceAnnotationLoadBalancerSecurityGroups)
+			}
+
+			// Validate SG ID format (must start with "sg-")
+			if len(sgList) == 1 {
+				sgID := sgList[0]
+				if !strings.HasPrefix(sgID, "sg-") {
+					return fmt.Errorf("invalid security group ID %q in annotation %q: security group ID must start with 'sg-'",
+						sgID, ServiceAnnotationLoadBalancerSecurityGroups)
+				}
+			}
 		}
 	}
 
 	// ServiceAnnotationLoadBalancerExtraSecurityGroups
+	// NLB does not support extra security groups (only one SG total is allowed)
 	if _, hasExtraBYOAnnotation := v.annotations[ServiceAnnotationLoadBalancerExtraSecurityGroups]; hasExtraBYOAnnotation {
 		if isNLB {
-			return fmt.Errorf("BYO extra security group annotation %q is not supported by NLB", ServiceAnnotationLoadBalancerExtraSecurityGroups)
+			return fmt.Errorf("extra security group annotation %q is not supported by NLB (NLB supports only one security group)",
+				ServiceAnnotationLoadBalancerExtraSecurityGroups)
 		}
 	}
 
