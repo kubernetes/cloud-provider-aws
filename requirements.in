@@ -1,0 +1,9 @@
+# Python dependencies for documentation and changelog generation
+# Generate lockfile with: uv pip compile --python-platform linux --python-version 3.8 requirements.in -o requirements.txt
+
+# Documentation (netlify.toml)
+mkdocs
+mkdocs-material
+
+# Changelog generation script (hack/changelog.py)
+PyGithub
