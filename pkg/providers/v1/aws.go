@@ -234,6 +234,11 @@ const ServiceAnnotationLoadBalancerEIPAllocations = "service.beta.kubernetes.io/
 // static IP addresses for the NLB. Only supported on elbv2 (NLB)
 const ServiceAnnotationLoadBalancerPrivateIPv4Addresses = "service.beta.kubernetes.io/aws-load-balancer-private-ipv4-addresses"
 
+// ServiceAnnotationLoadBalancerIPAddressType is the annotation used on the service
+// to specify the IP address type for the load balancer. Supported values are "ipv4" and "dualstack".
+// Defaults to "ipv4". Only supported on NLB.
+const ServiceAnnotationLoadBalancerIPAddressType = "service.beta.kubernetes.io/aws-load-balancer-ip-address-type"
+
 // ServiceAnnotationLoadBalancerTargetNodeLabels is the annotation used on the service
 // to specify a comma-separated list of key-value pairs which will be used to select
 // the target nodes for the load balancer

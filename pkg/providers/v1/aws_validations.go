@@ -98,6 +98,12 @@ func validateServiceAnnotations(v *awsValidationInput) error {
 			return err
 		}
 	}
+
+	if _, present := v.annotations[ServiceAnnotationLoadBalancerIPAddressType]; present {
+		if !isNLB {
+			return fmt.Errorf("ip address type annotation is only supported for NLB")
+		}
+	}
 	return nil
 }
 
