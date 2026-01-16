@@ -243,13 +243,26 @@ func Test_NodesJoiningAndLeaving(t *testing.T) {
 					time.Sleep(10 * time.Millisecond)
 				}
 
+				// Process all items, including those waiting in the rate limiter's delayed queue.
+				// The rate limiter has max delay of 5ms, so we wait longer than that when the
+				// queue appears empty to ensure delayed items have time to be re-added.
 				cnt := 0
-				for tc.workqueue.Len() > 0 {
-					tc.process(context.TODO())
-					cnt++
-					// sleep briefly because of exponential backoff when requeueing failed workitem
-					// resulting in workqueue to be empty if checked immediately
-					time.Sleep(7 * time.Millisecond)
+				emptyChecks := 0
+				const maxEmptyChecks = 3
+				const emptyCheckDelay = 20 * time.Millisecond // 4x the max rate limit delay of 5ms
+
+				for emptyChecks < maxEmptyChecks {
+					if tc.workqueue.Len() > 0 {
+						tc.process(context.TODO())
+						cnt++
+						emptyChecks = 0 // Reset since we found work
+						// No sleep here - process items as fast as possible
+					} else {
+						// Queue appears empty, but items might be in the delayed queue.
+						// Wait longer than the max rate limit delay before concluding we're done.
+						time.Sleep(emptyCheckDelay)
+						emptyChecks++
+					}
 				}
 
 				for _, msg := range testcase.expectedMessages {
