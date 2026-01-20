@@ -40,10 +40,12 @@ import (
 )
 
 const (
-	annotationLBType                  = "service.beta.kubernetes.io/aws-load-balancer-type"
-	annotationLBInternal              = "service.beta.kubernetes.io/aws-load-balancer-internal"
-	annotationLBTargetNodeLabels      = "service.beta.kubernetes.io/aws-load-balancer-target-node-labels"
-	annotationLBTargetGroupAttributes = "service.beta.kubernetes.io/aws-load-balancer-target-group-attributes"
+	annotationLBType                       = "service.beta.kubernetes.io/aws-load-balancer-type"
+	annotationLBInternal                   = "service.beta.kubernetes.io/aws-load-balancer-internal"
+	annotationLBTargetNodeLabels           = "service.beta.kubernetes.io/aws-load-balancer-target-node-labels"
+	annotationLBTargetGroupAttributes      = "service.beta.kubernetes.io/aws-load-balancer-target-group-attributes"
+	annotationLBIPAddressType              = "service.beta.kubernetes.io/aws-load-balancer-ip-address-type"
+	annotationLBTargetGroupIPAddressType   = "service.beta.kubernetes.io/aws-load-balancer-target-group-ip-address-type"
 )
 
 var (
@@ -243,6 +245,79 @@ var _ = Describe("[cloud-provider-aws-e2e] loadbalancer", func() {
 							framework.Logf("✓ Target group attribute %s matches expected value %s", aws.ToString(attr.Key), expectedValue)
 						}
 					}
+				}
+			},
+		},
+		// Dual stack NLB with IPv6 target group test.
+		// This test validates that a Network Load Balancer can be created with dual-stack support
+		// (IPv4 and IPv6) and that target groups can be configured to use IPv6.
+		{
+			name:           "NLB dual stack with IPv6 target group",
+			resourceSuffix: "ds-nlb-ipv6-tg",
+			extraAnnotations: map[string]string{
+				annotationLBType:                     "nlb",
+				annotationLBIPAddressType:            "dualstack",
+				annotationLBTargetGroupIPAddressType: "ipv6",
+			},
+			listenerCount: 1,
+			hookPreTest: func(e2e *e2eTestConfig) {
+				framework.Logf("running hook pre-test: verify dual stack load balancer and IPv6 target group are configured correctly")
+
+				if e2e.svc.Status.LoadBalancer.Ingress[0].Hostname == "" && e2e.svc.Status.LoadBalancer.Ingress[0].IP == "" {
+					framework.Failf("LoadBalancer ingress is empty (no hostname or IP) for service %s/%s", e2e.svc.Namespace, e2e.svc.Name)
+				}
+
+				hostAddr := e2eservice.GetIngressPoint(&e2e.svc.Status.LoadBalancer.Ingress[0])
+				framework.Logf("Load balancer's ingress address: %s", hostAddr)
+
+				if hostAddr == "" {
+					framework.Failf("Unable to get LoadBalancer ingress address for service %s/%s", e2e.svc.Namespace, e2e.svc.Name)
+				}
+
+				elbClient, err := getAWSClientLoadBalancer(e2e.ctx)
+				framework.ExpectNoError(err, "failed to create AWS ELB client")
+
+				// Find the load balancer by DNS name
+				foundLB, err := getAWSLoadBalancerFromDNSName(e2e.ctx, elbClient, hostAddr)
+				framework.ExpectNoError(err, "failed to find load balancer with DNS name %s", hostAddr)
+				if foundLB == nil {
+					framework.Failf("Found load balancer is nil for DNS name %s", hostAddr)
+				}
+
+				lbARN := aws.ToString(foundLB.LoadBalancerArn)
+				if lbARN == "" {
+					framework.Failf("Load balancer ARN is empty for DNS name %s", hostAddr)
+				}
+				framework.Logf("Found load balancer: %s with ARN: %s", aws.ToString(foundLB.LoadBalancerName), lbARN)
+
+				// Verify load balancer IP address type is dualstack
+				framework.Logf("=== Verifying Load Balancer IP Address Type ===")
+				lbIPAddressType := foundLB.IpAddressType
+				framework.Logf("Load balancer IP address type: %s", lbIPAddressType)
+				if lbIPAddressType != elbv2types.IpAddressTypeDualstack {
+					framework.Failf("Load balancer IP address type mismatch: expected %s, got %s", elbv2types.IpAddressTypeDualstack, lbIPAddressType)
+				}
+				framework.Logf("✓ Load balancer IP address type is correctly set to dualstack")
+
+				// Lookup target groups from load balancer ARN
+				targetGroups, err := elbClient.DescribeTargetGroups(e2e.ctx, &elbv2.DescribeTargetGroupsInput{
+					LoadBalancerArn: aws.String(lbARN),
+				})
+				framework.ExpectNoError(err, "failed to describe target groups")
+				gomega.Expect(len(targetGroups.TargetGroups)).To(gomega.BeNumerically(">", 0))
+
+				// Verify target group IP address type is IPv6
+				framework.Logf("=== Verifying Target Group IP Address Type ===")
+				for _, tg := range targetGroups.TargetGroups {
+					tgName := aws.ToString(tg.TargetGroupName)
+					tgIPAddressType := tg.IpAddressType
+					framework.Logf("Target group: %s, IP address type: %s", tgName, tgIPAddressType)
+
+					if tgIPAddressType != elbv2types.TargetGroupIpAddressTypeEnumIpv6 {
+						framework.Failf("Target group IP address type mismatch for %s: expected %s, got %s",
+							tgName, elbv2types.TargetGroupIpAddressTypeEnumIpv6, tgIPAddressType)
+					}
+					framework.Logf("✓ Target group %s IP address type is correctly set to ipv6", tgName)
 				}
 			},
 		},
