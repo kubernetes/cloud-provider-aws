@@ -239,6 +239,11 @@ const ServiceAnnotationLoadBalancerPrivateIPv4Addresses = "service.beta.kubernet
 // Defaults to "ipv4". Only supported on NLB.
 const ServiceAnnotationLoadBalancerIPAddressType = "service.beta.kubernetes.io/aws-load-balancer-ip-address-type"
 
+// ServiceAnnotationLoadBalancerTargetGroupIPAddressType is the annotation used on the service
+// to specify the IP address type for the target groups. Supported values are "ipv4" and "ipv6".
+// Defaults to "ipv4". Only supported on NLB.
+const ServiceAnnotationLoadBalancerTargetGroupIPAddressType = "service.beta.kubernetes.io/aws-load-balancer-target-group-ip-address-type"
+
 // ServiceAnnotationLoadBalancerTargetNodeLabels is the annotation used on the service
 // to specify a comma-separated list of key-value pairs which will be used to select
 // the target nodes for the load balancer
