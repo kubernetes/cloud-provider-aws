@@ -20,12 +20,14 @@ import (
 	"context"
 	"fmt"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/apimachinery/pkg/util/sets"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	ec2types "github.com/aws/aws-sdk-go-v2/service/ec2/types"
@@ -2099,4 +2101,266 @@ func TestIsIPv6CIDR(t *testing.T) {
 			assert.Equal(t, tt.expected, result)
 		})
 	}
+}
+
+func TestUpdateInstanceSecurityGroupForNLBTraffic_IPv6(t *testing.T) {
+	ctx := context.Background()
+	awsServices := NewFakeAWSServices("test-cluster")
+	c, err := newAWSCloud(config.CloudConfig{}, awsServices)
+	if err != nil {
+		t.Fatalf("Failed to create cloud: %v", err)
+	}
+
+	// Create a test security group
+	sgID := "sg-test"
+	awsServices.ec2.(*FakeEC2Impl).SecurityGroups[sgID] = &ec2types.SecurityGroup{
+		GroupId:       aws.String(sgID),
+		GroupName:     aws.String("test-sg"),
+		Description:   aws.String("Test security group"),
+		VpcId:         aws.String("vpc-test"),
+		IpPermissions: []ec2types.IpPermission{},
+	}
+
+	tests := []struct {
+		name                 string
+		ruleDesc             string
+		protocol             string
+		ports                []int32
+		cidrs                []string
+		expectedIPv4Rules    int
+		expectedIPv6Rules    int
+		validatePermissions  func(t *testing.T, perms []ec2types.IpPermission)
+	}{
+		{
+			name:              "IPv4 only CIDRs",
+			ruleDesc:          "test-ipv4-rule",
+			protocol:          "tcp",
+			ports:             []int32{80, 443},
+			cidrs:             []string{"10.0.0.0/8", "192.168.0.0/16"},
+			expectedIPv4Rules: 4, // 2 ports * 2 CIDRs
+			expectedIPv6Rules: 0,
+			validatePermissions: func(t *testing.T, perms []ec2types.IpPermission) {
+				ipv4Count := 0
+				for _, perm := range perms {
+					if len(perm.IpRanges) > 0 {
+						ipv4Count += len(perm.IpRanges)
+						assert.Equal(t, "tcp", aws.ToString(perm.IpProtocol))
+						assert.Contains(t, []int32{80, 443}, aws.ToInt32(perm.FromPort))
+						assert.Contains(t, []string{"10.0.0.0/8", "192.168.0.0/16"}, aws.ToString(perm.IpRanges[0].CidrIp))
+					}
+				}
+				assert.Equal(t, 4, ipv4Count, "Expected 4 IPv4 rules")
+			},
+		},
+		{
+			name:              "IPv6 only CIDRs",
+			ruleDesc:          "test-ipv6-rule",
+			protocol:          "tcp",
+			ports:             []int32{80, 443},
+			cidrs:             []string{"2001:db8::/32", "::/0"},
+			expectedIPv4Rules: 0,
+			expectedIPv6Rules: 4, // 2 ports * 2 CIDRs
+			validatePermissions: func(t *testing.T, perms []ec2types.IpPermission) {
+				ipv6Count := 0
+				for _, perm := range perms {
+					if len(perm.Ipv6Ranges) > 0 {
+						ipv6Count += len(perm.Ipv6Ranges)
+						assert.Equal(t, "tcp", aws.ToString(perm.IpProtocol))
+						assert.Contains(t, []int32{80, 443}, aws.ToInt32(perm.FromPort))
+						assert.Contains(t, []string{"2001:db8::/32", "::/0"}, aws.ToString(perm.Ipv6Ranges[0].CidrIpv6))
+					}
+				}
+				assert.Equal(t, 4, ipv6Count, "Expected 4 IPv6 rules")
+			},
+		},
+		{
+			name:              "Mixed IPv4 and IPv6 CIDRs (dual-stack)",
+			ruleDesc:          "test-dual-stack-rule",
+			protocol:          "tcp",
+			ports:             []int32{80, 443},
+			cidrs:             []string{"0.0.0.0/0", "::/0", "10.0.1.0/24", "2001:db8:1::/64"},
+			expectedIPv4Rules: 4, // 2 ports * 2 IPv4 CIDRs
+			expectedIPv6Rules: 4, // 2 ports * 2 IPv6 CIDRs
+			validatePermissions: func(t *testing.T, perms []ec2types.IpPermission) {
+				ipv4Count := 0
+				ipv6Count := 0
+				for _, perm := range perms {
+					if len(perm.IpRanges) > 0 {
+						ipv4Count += len(perm.IpRanges)
+						assert.Equal(t, "tcp", aws.ToString(perm.IpProtocol))
+						assert.Contains(t, []int32{80, 443}, aws.ToInt32(perm.FromPort))
+						assert.Contains(t, []string{"0.0.0.0/0", "10.0.1.0/24"}, aws.ToString(perm.IpRanges[0].CidrIp))
+					}
+					if len(perm.Ipv6Ranges) > 0 {
+						ipv6Count += len(perm.Ipv6Ranges)
+						assert.Equal(t, "tcp", aws.ToString(perm.IpProtocol))
+						assert.Contains(t, []int32{80, 443}, aws.ToInt32(perm.FromPort))
+						assert.Contains(t, []string{"::/0", "2001:db8:1::/64"}, aws.ToString(perm.Ipv6Ranges[0].CidrIpv6))
+					}
+				}
+				assert.Equal(t, 4, ipv4Count, "Expected 4 IPv4 rules")
+				assert.Equal(t, 4, ipv6Count, "Expected 4 IPv6 rules")
+			},
+		},
+		{
+			name:              "UDP protocol with IPv6",
+			ruleDesc:          "test-udp-ipv6-rule",
+			protocol:          "udp",
+			ports:             []int32{53},
+			cidrs:             []string{"2001:db8::/32"},
+			expectedIPv4Rules: 0,
+			expectedIPv6Rules: 1,
+			validatePermissions: func(t *testing.T, perms []ec2types.IpPermission) {
+				ipv6Count := 0
+				for _, perm := range perms {
+					if len(perm.Ipv6Ranges) > 0 {
+						ipv6Count += len(perm.Ipv6Ranges)
+						assert.Equal(t, "udp", aws.ToString(perm.IpProtocol))
+						assert.Equal(t, int32(53), aws.ToInt32(perm.FromPort))
+						assert.Equal(t, "2001:db8::/32", aws.ToString(perm.Ipv6Ranges[0].CidrIpv6))
+					}
+				}
+				assert.Equal(t, 1, ipv6Count, "Expected 1 IPv6 UDP rule")
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Reset security group permissions before each test
+			awsServices.ec2.(*FakeEC2Impl).SecurityGroups[sgID].IpPermissions = []ec2types.IpPermission{}
+
+			// Convert ports slice to sets.Set
+			portSet := sets.Set[int32]{}
+			for _, port := range tt.ports {
+				portSet.Insert(port)
+			}
+
+			// Call the function under test
+			sgPerms := NewIPPermissionSet()
+			err := c.updateInstanceSecurityGroupForNLBTraffic(ctx, sgID, sgPerms, tt.ruleDesc, tt.protocol, portSet, tt.cidrs)
+			if err != nil {
+				t.Fatalf("updateInstanceSecurityGroupForNLBTraffic failed: %v", err)
+			}
+
+			// Get the updated security group
+			sg := awsServices.ec2.(*FakeEC2Impl).SecurityGroups[sgID]
+			if sg == nil {
+				t.Fatal("Security group not found after update")
+			}
+
+			// Count IPv4 and IPv6 rules
+			ipv4RuleCount := 0
+			ipv6RuleCount := 0
+			for _, perm := range sg.IpPermissions {
+				ipv4RuleCount += len(perm.IpRanges)
+				ipv6RuleCount += len(perm.Ipv6Ranges)
+			}
+
+			// Verify counts
+			assert.Equal(t, tt.expectedIPv4Rules, ipv4RuleCount, "IPv4 rule count mismatch")
+			assert.Equal(t, tt.expectedIPv6Rules, ipv6RuleCount, "IPv6 rule count mismatch")
+
+			// Run custom validation
+			if tt.validatePermissions != nil {
+				tt.validatePermissions(t, sg.IpPermissions)
+			}
+		})
+	}
+}
+
+func TestUpdateInstanceSecurityGroupForNLBTraffic_DualStack_Integration(t *testing.T) {
+	ctx := context.Background()
+	awsServices := NewFakeAWSServices("test-cluster")
+	c, err := newAWSCloud(config.CloudConfig{}, awsServices)
+	if err != nil {
+		t.Fatalf("Failed to create cloud: %v", err)
+	}
+
+	// Create a test security group
+	sgID := "sg-dualstack-test"
+	awsServices.ec2.(*FakeEC2Impl).SecurityGroups[sgID] = &ec2types.SecurityGroup{
+		GroupId:       aws.String(sgID),
+		GroupName:     aws.String("dualstack-test-sg"),
+		Description:   aws.String("Dual-stack test security group"),
+		VpcId:         aws.String("vpc-test"),
+		IpPermissions: []ec2types.IpPermission{},
+	}
+
+	// Simulate a dual-stack NLB scenario with both client traffic and health checks
+	clientPorts := sets.Set[int32]{}
+	clientPorts.Insert(80)
+	clientPorts.Insert(443)
+
+	healthCheckPorts := sets.Set[int32]{}
+	healthCheckPorts.Insert(80)
+	healthCheckPorts.Insert(443)
+
+	// Client traffic CIDRs (dual-stack: IPv4 and IPv6 default routes)
+	clientCIDRs := []string{"0.0.0.0/0", "::/0"}
+
+	// Health check CIDRs (subnet CIDRs in dual-stack)
+	subnetCIDRs := []string{"10.0.1.0/24", "10.0.2.0/24", "2001:db8:1::/64", "2001:db8:2::/64"}
+
+	sgPerms := NewIPPermissionSet()
+
+	// Add client traffic rules
+	err = c.updateInstanceSecurityGroupForNLBTraffic(ctx, sgID, sgPerms, "client-traffic-nlb=test-lb", "tcp", clientPorts, clientCIDRs)
+	if err != nil {
+		t.Fatalf("Failed to add client traffic rules: %v", err)
+	}
+
+	// Add health check rules
+	err = c.updateInstanceSecurityGroupForNLBTraffic(ctx, sgID, sgPerms, "health-check-nlb=test-lb", "tcp", healthCheckPorts, subnetCIDRs)
+	if err != nil {
+		t.Fatalf("Failed to add health check rules: %v", err)
+	}
+
+	// Get the updated security group
+	sg := awsServices.ec2.(*FakeEC2Impl).SecurityGroups[sgID]
+	if sg == nil {
+		t.Fatal("Security group not found after update")
+	}
+
+	// Verify the rules
+	clientIPv4Rules := 0
+	clientIPv6Rules := 0
+	healthCheckIPv4Rules := 0
+	healthCheckIPv6Rules := 0
+
+	for _, perm := range sg.IpPermissions {
+		for _, ipRange := range perm.IpRanges {
+			desc := aws.ToString(ipRange.Description)
+			if strings.Contains(desc, "client-traffic-nlb") {
+				clientIPv4Rules++
+				assert.Equal(t, "0.0.0.0/0", aws.ToString(ipRange.CidrIp))
+			} else if strings.Contains(desc, "health-check-nlb") {
+				healthCheckIPv4Rules++
+				assert.Contains(t, []string{"10.0.1.0/24", "10.0.2.0/24"}, aws.ToString(ipRange.CidrIp))
+			}
+		}
+		for _, ipv6Range := range perm.Ipv6Ranges {
+			desc := aws.ToString(ipv6Range.Description)
+			if strings.Contains(desc, "client-traffic-nlb") {
+				clientIPv6Rules++
+				assert.Equal(t, "::/0", aws.ToString(ipv6Range.CidrIpv6))
+			} else if strings.Contains(desc, "health-check-nlb") {
+				healthCheckIPv6Rules++
+				assert.Contains(t, []string{"2001:db8:1::/64", "2001:db8:2::/64"}, aws.ToString(ipv6Range.CidrIpv6))
+			}
+		}
+	}
+
+	// Verify counts for client traffic rules (2 ports * 1 IPv4 CIDR = 2, 2 ports * 1 IPv6 CIDR = 2)
+	assert.Equal(t, 2, clientIPv4Rules, "Expected 2 client IPv4 rules")
+	assert.Equal(t, 2, clientIPv6Rules, "Expected 2 client IPv6 rules")
+
+	// Verify counts for health check rules (2 ports * 2 IPv4 CIDRs = 4, 2 ports * 2 IPv6 CIDRs = 4)
+	assert.Equal(t, 4, healthCheckIPv4Rules, "Expected 4 health check IPv4 rules")
+	assert.Equal(t, 4, healthCheckIPv6Rules, "Expected 4 health check IPv6 rules")
+
+	t.Logf("Successfully created dual-stack security group rules:")
+	t.Logf("  Client traffic: %d IPv4 rules, %d IPv6 rules", clientIPv4Rules, clientIPv6Rules)
+	t.Logf("  Health checks: %d IPv4 rules, %d IPv6 rules", healthCheckIPv4Rules, healthCheckIPv6Rules)
+	t.Logf("  Total: %d rules", len(sg.IpPermissions))
 }

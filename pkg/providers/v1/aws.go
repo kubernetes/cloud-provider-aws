@@ -1306,6 +1306,20 @@ func ipPermissionExists(newPermission, existing *ec2types.IpPermission, compareG
 		}
 	}
 
+	// Check IPv6 ranges
+	for j := range newPermission.Ipv6Ranges {
+		found := false
+		for k := range existing.Ipv6Ranges {
+			if isEqualStringPointer(newPermission.Ipv6Ranges[j].CidrIpv6, existing.Ipv6Ranges[k].CidrIpv6) {
+				found = true
+				break
+			}
+		}
+		if !found {
+			return false
+		}
+	}
+
 	for _, leftPair := range newPermission.UserIdGroupPairs {
 		found := false
 		for _, rightPair := range existing.UserIdGroupPairs {
