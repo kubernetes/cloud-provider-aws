@@ -22,6 +22,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"net/netip"
 	"reflect"
 	"regexp"
 	"strconv"
@@ -1111,23 +1112,49 @@ func (c *Cloud) updateInstanceSecurityGroupsForNLB(ctx context.Context, lbName s
 	return nil
 }
 
+// isIPv6CIDR returns true if the given CIDR is an IPv6 CIDR.
+// It uses netip.ParsePrefix to properly parse and validate the CIDR notation.
+func isIPv6CIDR(cidr string) bool {
+	prefix, err := netip.ParsePrefix(cidr)
+	if err != nil {
+		// If parsing fails, fall back to simple string check for backward compatibility
+		// This shouldn't happen with valid AWS CIDR blocks, but we handle it gracefully
+		klog.Warningf("Failed to parse CIDR %s: %v, falling back to string-based detection", cidr, err)
+		return strings.Contains(cidr, ":")
+	}
+	return prefix.Addr().Is6()
+}
+
 // updateInstanceSecurityGroupForNLBTraffic will manage permissions set(identified by ruleDesc) on securityGroup to match desired set(allow protocol traffic from ports/cidr).
 // Note: sgPerms will be updated to reflect the current permission set on SG after update.
 func (c *Cloud) updateInstanceSecurityGroupForNLBTraffic(ctx context.Context, sgID string, sgPerms IPPermissionSet, ruleDesc string, protocol string, ports sets.Set[int32], cidrs []string) error {
 	desiredPerms := NewIPPermissionSet()
 	for port := range ports {
 		for _, cidr := range cidrs {
-			desiredPerms.Insert(ec2types.IpPermission{
+			perm := ec2types.IpPermission{
 				IpProtocol: aws.String(protocol),
 				FromPort:   aws.Int32(int32(port)),
 				ToPort:     aws.Int32(int32(port)),
-				IpRanges: []ec2types.IpRange{
+			}
+
+			// Determine if this is an IPv4 or IPv6 CIDR
+			if isIPv6CIDR(cidr) {
+				perm.Ipv6Ranges = []ec2types.Ipv6Range{
+					{
+						CidrIpv6:    aws.String(cidr),
+						Description: aws.String(ruleDesc),
+					},
+				}
+			} else {
+				perm.IpRanges = []ec2types.IpRange{
 					{
 						CidrIp:      aws.String(cidr),
 						Description: aws.String(ruleDesc),
 					},
-				},
-			})
+				}
+			}
+
+			desiredPerms.Insert(perm)
 		}
 	}
 

@@ -2034,3 +2034,69 @@ func TestCloud_reconcileTargetGroupsAttributes(t *testing.T) {
 		})
 	}
 }
+
+func TestIsIPv6CIDR(t *testing.T) {
+	tests := []struct {
+		name     string
+		cidr     string
+		expected bool
+	}{
+		{
+			name:     "IPv4 CIDR - single IP",
+			cidr:     "192.168.1.1/32",
+			expected: false,
+		},
+		{
+			name:     "IPv4 CIDR - network",
+			cidr:     "10.0.0.0/8",
+			expected: false,
+		},
+		{
+			name:     "IPv4 CIDR - default route",
+			cidr:     "0.0.0.0/0",
+			expected: false,
+		},
+		{
+			name:     "IPv6 CIDR - single IP",
+			cidr:     "2001:db8::1/128",
+			expected: true,
+		},
+		{
+			name:     "IPv6 CIDR - network",
+			cidr:     "2001:db8::/32",
+			expected: true,
+		},
+		{
+			name:     "IPv6 CIDR - default route",
+			cidr:     "::/0",
+			expected: true,
+		},
+		{
+			name:     "IPv6 CIDR - link local",
+			cidr:     "fe80::/10",
+			expected: true,
+		},
+		{
+			name:     "IPv6 CIDR - unique local",
+			cidr:     "fc00::/7",
+			expected: true,
+		},
+		{
+			name:     "IPv6 CIDR - full address",
+			cidr:     "2001:0db8:85a3:0000:0000:8a2e:0370:7334/128",
+			expected: true,
+		},
+		{
+			name:     "IPv6 CIDR - compressed",
+			cidr:     "2001:db8::8a2e:370:7334/64",
+			expected: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := isIPv6CIDR(tt.cidr)
+			assert.Equal(t, tt.expected, result)
+		})
+	}
+}
