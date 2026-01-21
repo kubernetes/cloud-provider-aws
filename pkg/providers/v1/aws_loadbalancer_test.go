@@ -1015,8 +1015,9 @@ func TestCloud_diffTargetGroupTargets(t *testing.T) {
 
 func TestCloud_computeTargetGroupExpectedTargets(t *testing.T) {
 	type args struct {
-		instanceIDs []string
-		port        int32
+		instances     map[InstanceID]*ec2types.Instance
+		port          int32
+		ipAddressType elbv2types.TargetGroupIpAddressTypeEnum
 	}
 	tests := []struct {
 		name string
@@ -1026,16 +1027,20 @@ func TestCloud_computeTargetGroupExpectedTargets(t *testing.T) {
 		{
 			name: "no instance",
 			args: args{
-				instanceIDs: nil,
-				port:        8080,
+				instances:     nil,
+				port:          8080,
+				ipAddressType: elbv2types.TargetGroupIpAddressTypeEnumIpv4,
 			},
 			want: []*elbv2types.TargetDescription{},
 		},
 		{
-			name: "one instance",
+			name: "one instance - IPv4",
 			args: args{
-				instanceIDs: []string{"i-abcdef1"},
-				port:        8080,
+				instances: map[InstanceID]*ec2types.Instance{
+					"i-abcdef1": {},
+				},
+				port:          8080,
+				ipAddressType: elbv2types.TargetGroupIpAddressTypeEnumIpv4,
 			},
 			want: []*elbv2types.TargetDescription{
 				{
@@ -1045,10 +1050,15 @@ func TestCloud_computeTargetGroupExpectedTargets(t *testing.T) {
 			},
 		},
 		{
-			name: "multiple instances",
+			name: "multiple instances - IPv4",
 			args: args{
-				instanceIDs: []string{"i-abcdef1", "i-abcdef2", "i-abcdef3"},
-				port:        8080,
+				instances: map[InstanceID]*ec2types.Instance{
+					"i-abcdef1": {},
+					"i-abcdef2": {},
+					"i-abcdef3": {},
+				},
+				port:          8080,
+				ipAddressType: elbv2types.TargetGroupIpAddressTypeEnumIpv4,
 			},
 			want: []*elbv2types.TargetDescription{
 				{
@@ -1065,12 +1075,115 @@ func TestCloud_computeTargetGroupExpectedTargets(t *testing.T) {
 				},
 			},
 		},
+		{
+			name: "one instance - IPv6",
+			args: args{
+				instances: map[InstanceID]*ec2types.Instance{
+					"i-abcdef1": {
+						NetworkInterfaces: []ec2types.InstanceNetworkInterface{
+							{
+								Status: ec2types.NetworkInterfaceStatusInUse,
+								Ipv6Addresses: []ec2types.InstanceIpv6Address{
+									{
+										Ipv6Address: aws.String("2001:db8::1"),
+									},
+								},
+							},
+						},
+					},
+				},
+				port:          8080,
+				ipAddressType: elbv2types.TargetGroupIpAddressTypeEnumIpv6,
+			},
+			want: []*elbv2types.TargetDescription{
+				{
+					Id:   aws.String("2001:db8::1"),
+					Port: aws.Int32(8080),
+				},
+			},
+		},
+		{
+			name: "multiple instances - IPv6",
+			args: args{
+				instances: map[InstanceID]*ec2types.Instance{
+					"i-abcdef1": {
+						NetworkInterfaces: []ec2types.InstanceNetworkInterface{
+							{
+								Status: ec2types.NetworkInterfaceStatusInUse,
+								Ipv6Addresses: []ec2types.InstanceIpv6Address{
+									{
+										Ipv6Address: aws.String("2001:db8::1"),
+									},
+								},
+							},
+						},
+					},
+					"i-abcdef2": {
+						NetworkInterfaces: []ec2types.InstanceNetworkInterface{
+							{
+								Status: ec2types.NetworkInterfaceStatusInUse,
+								Ipv6Addresses: []ec2types.InstanceIpv6Address{
+									{
+										Ipv6Address: aws.String("2001:db8::2"),
+									},
+								},
+							},
+						},
+					},
+					"i-abcdef3": {
+						NetworkInterfaces: []ec2types.InstanceNetworkInterface{
+							{
+								Status: ec2types.NetworkInterfaceStatusInUse,
+								Ipv6Addresses: []ec2types.InstanceIpv6Address{
+									{
+										Ipv6Address: aws.String("2001:db8::3"),
+									},
+								},
+							},
+						},
+					},
+				},
+				port:          8080,
+				ipAddressType: elbv2types.TargetGroupIpAddressTypeEnumIpv6,
+			},
+			want: []*elbv2types.TargetDescription{
+				{
+					Id:   aws.String("2001:db8::1"),
+					Port: aws.Int32(8080),
+				},
+				{
+					Id:   aws.String("2001:db8::2"),
+					Port: aws.Int32(8080),
+				},
+				{
+					Id:   aws.String("2001:db8::3"),
+					Port: aws.Int32(8080),
+				},
+			},
+		},
+		{
+			name: "instance without IPv6 - IPv6 target group",
+			args: args{
+				instances: map[InstanceID]*ec2types.Instance{
+					"i-abcdef1": {
+						NetworkInterfaces: []ec2types.InstanceNetworkInterface{
+							{
+								Status: ec2types.NetworkInterfaceStatusInUse,
+							},
+						},
+					},
+				},
+				port:          8080,
+				ipAddressType: elbv2types.TargetGroupIpAddressTypeEnumIpv6,
+			},
+			want: []*elbv2types.TargetDescription{},
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			c := &Cloud{}
-			got := c.computeTargetGroupExpectedTargets(tt.args.instanceIDs, tt.args.port)
-			assert.Equal(t, tt.want, got)
+			got := c.computeTargetGroupExpectedTargets(tt.args.instances, tt.args.port, tt.args.ipAddressType)
+			assert.ElementsMatch(t, tt.want, got)
 		})
 	}
 }

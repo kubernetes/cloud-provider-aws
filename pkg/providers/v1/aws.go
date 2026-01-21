@@ -2440,11 +2440,6 @@ func (c *Cloud) EnsureLoadBalancer(ctx context.Context, clusterName string, apiS
 		loadBalancerName := c.GetLoadBalancerName(ctx, clusterName, apiService)
 		serviceName := types.NamespacedName{Namespace: apiService.Namespace, Name: apiService.Name}
 
-		instanceIDs := []string{}
-		for id := range instances {
-			instanceIDs = append(instanceIDs, string(id))
-		}
-
 		securityGroups, err := c.ensureNLBSecurityGroup(ctx,
 			loadBalancerName,
 			clusterName,
@@ -2457,7 +2452,7 @@ func (c *Cloud) EnsureLoadBalancer(ctx context.Context, clusterName string, apiS
 			serviceName,
 			loadBalancerName,
 			v2Mappings,
-			instanceIDs,
+			instances,
 			discoveredSubnetIDs,
 			internalELB,
 			annotations,

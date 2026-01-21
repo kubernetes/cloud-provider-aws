@@ -145,7 +145,7 @@ func getKeyValuePropertiesFromAnnotation(annotations map[string]string, annotati
 }
 
 // ensureLoadBalancerv2 ensures a v2 load balancer is created
-func (c *Cloud) ensureLoadBalancerv2(ctx context.Context, namespacedName types.NamespacedName, loadBalancerName string, mappings []nlbPortMapping, instanceIDs, discoveredSubnetIDs []string, internalELB bool, annotations map[string]string, securityGroups []string) (*elbv2types.LoadBalancer, error) {
+func (c *Cloud) ensureLoadBalancerv2(ctx context.Context, namespacedName types.NamespacedName, loadBalancerName string, mappings []nlbPortMapping, instances map[InstanceID]*ec2types.Instance, discoveredSubnetIDs []string, internalELB bool, annotations map[string]string, securityGroups []string) (*elbv2types.LoadBalancer, error) {
 	loadBalancer, err := c.describeLoadBalancerv2(ctx, loadBalancerName)
 	if err != nil {
 		return nil, err
@@ -218,7 +218,7 @@ func (c *Cloud) ensureLoadBalancerv2(ctx context.Context, namespacedName types.N
 		for i := range mappings {
 			// It is easier to keep track of updates by having possibly
 			// duplicate target groups where the backend port is the same
-			_, err := c.createListenerV2(ctx, createResponse.LoadBalancers[0].LoadBalancerArn, mappings[i], namespacedName, instanceIDs, *createResponse.LoadBalancers[0].VpcId, tags, annotations)
+			_, err := c.createListenerV2(ctx, createResponse.LoadBalancers[0].LoadBalancerArn, mappings[i], namespacedName, instances, *createResponse.LoadBalancers[0].VpcId, tags, annotations)
 			if err != nil {
 				return nil, fmt.Errorf("error creating listener: %q", err)
 			}
@@ -312,7 +312,7 @@ func (c *Cloud) ensureLoadBalancerv2(ctx context.Context, namespacedName types.N
 							nil,
 							namespacedName,
 							mapping,
-							instanceIDs,
+							instances,
 							*loadBalancer.VpcId,
 							tags,
 							annotations,
@@ -362,7 +362,7 @@ func (c *Cloud) ensureLoadBalancerv2(ctx context.Context, namespacedName types.N
 							targetGroup,
 							namespacedName,
 							mapping,
-							instanceIDs,
+							instances,
 							*loadBalancer.VpcId,
 							tags,
 							annotations,
@@ -376,7 +376,7 @@ func (c *Cloud) ensureLoadBalancerv2(ctx context.Context, namespacedName types.N
 				}
 
 				// Additions
-				_, err := c.createListenerV2(ctx, loadBalancer.LoadBalancerArn, mapping, namespacedName, instanceIDs, *loadBalancer.VpcId, tags, annotations)
+				_, err := c.createListenerV2(ctx, loadBalancer.LoadBalancerArn, mapping, namespacedName, instances, *loadBalancer.VpcId, tags, annotations)
 				if err != nil {
 					return nil, err
 				}
@@ -697,12 +697,12 @@ func (c *Cloud) buildTargetGroupName(serviceName types.NamespacedName, servicePo
 	return fmt.Sprintf("k8s-%.8s-%.8s-%.10s", sanitizedNamespace, sanitizedServiceName, tgUUID)
 }
 
-func (c *Cloud) createListenerV2(ctx context.Context, loadBalancerArn *string, mapping nlbPortMapping, namespacedName types.NamespacedName, instanceIDs []string, vpcID string, tags map[string]string, annotations map[string]string) (listener *elbv2types.Listener, err error) {
+func (c *Cloud) createListenerV2(ctx context.Context, loadBalancerArn *string, mapping nlbPortMapping, namespacedName types.NamespacedName, instances map[InstanceID]*ec2types.Instance, vpcID string, tags map[string]string, annotations map[string]string) (listener *elbv2types.Listener, err error) {
 	target, err := c.ensureTargetGroup(ctx,
 		nil,
 		namespacedName,
 		mapping,
-		instanceIDs,
+		instances,
 		vpcID,
 		tags,
 		annotations,
@@ -762,9 +762,18 @@ func (c *Cloud) deleteListenerV2(ctx context.Context, listener *elbv2types.Liste
 }
 
 // ensureTargetGroup creates a target group with a set of instances.
-func (c *Cloud) ensureTargetGroup(ctx context.Context, targetGroup *elbv2types.TargetGroup, serviceName types.NamespacedName, mapping nlbPortMapping, instances []string, vpcID string, tags map[string]string, annotations map[string]string) (*elbv2types.TargetGroup, error) {
+func (c *Cloud) ensureTargetGroup(ctx context.Context, targetGroup *elbv2types.TargetGroup, serviceName types.NamespacedName, mapping nlbPortMapping, instances map[InstanceID]*ec2types.Instance, vpcID string, tags map[string]string, annotations map[string]string) (*elbv2types.TargetGroup, error) {
 	dirty := false
-	expectedTargets := c.computeTargetGroupExpectedTargets(instances, mapping.TrafficPort)
+
+	// Determine target group IP address type
+	var tgIPAddressType elbv2types.TargetGroupIpAddressTypeEnum
+	if ipType, ok := annotations[ServiceAnnotationLoadBalancerTargetGroupIPAddressType]; ok {
+		tgIPAddressType = elbv2types.TargetGroupIpAddressTypeEnum(ipType)
+	} else {
+		tgIPAddressType = elbv2types.TargetGroupIpAddressTypeEnumIpv4
+	}
+
+	expectedTargets := c.computeTargetGroupExpectedTargets(instances, mapping.TrafficPort, tgIPAddressType)
 	if targetGroup == nil {
 		targetType := elbv2types.TargetTypeEnumInstance
 		name := c.buildTargetGroupName(serviceName, mapping.FrontendPort, mapping.TrafficPort, mapping.TrafficProtocol, targetType, mapping)
@@ -909,13 +918,48 @@ func (c *Cloud) ensureTargetGroupTargets(ctx context.Context, tgARN string, expe
 	return nil
 }
 
-func (c *Cloud) computeTargetGroupExpectedTargets(instanceIDs []string, port int32) []*elbv2types.TargetDescription {
-	expectedTargets := make([]*elbv2types.TargetDescription, 0, len(instanceIDs))
-	for _, instanceID := range instanceIDs {
-		expectedTargets = append(expectedTargets, &elbv2types.TargetDescription{
-			Id:   aws.String(instanceID),
-			Port: aws.Int32(port),
-		})
+// extractInstanceIPv6Address extracts the first IPv6 address from an EC2 instance.
+// Returns empty string if no IPv6 address is found.
+func extractInstanceIPv6Address(instance *ec2types.Instance) string {
+	if instance == nil {
+		return ""
+	}
+
+	// Check network interfaces for IPv6 addresses
+	for _, networkInterface := range instance.NetworkInterfaces {
+		if networkInterface.Status != ec2types.NetworkInterfaceStatusInUse {
+			continue
+		}
+		if len(networkInterface.Ipv6Addresses) > 0 {
+			// Return the first IPv6 address
+			return aws.ToString(networkInterface.Ipv6Addresses[0].Ipv6Address)
+		}
+	}
+	return ""
+}
+
+func (c *Cloud) computeTargetGroupExpectedTargets(instances map[InstanceID]*ec2types.Instance, port int32, ipAddressType elbv2types.TargetGroupIpAddressTypeEnum) []*elbv2types.TargetDescription {
+	expectedTargets := make([]*elbv2types.TargetDescription, 0, len(instances))
+
+	for instanceID, instance := range instances {
+		if ipAddressType == elbv2types.TargetGroupIpAddressTypeEnumIpv6 {
+			// For IPv6 target groups, register using the instance's IPv6 address
+			ipv6Address := extractInstanceIPv6Address(instance)
+			if ipv6Address != "" {
+				expectedTargets = append(expectedTargets, &elbv2types.TargetDescription{
+					Id:   aws.String(ipv6Address),
+					Port: aws.Int32(port),
+				})
+			} else {
+				klog.Warningf("Instance %s has no IPv6 address, skipping registration to IPv6 target group", instanceID)
+			}
+		} else {
+			// For IPv4 target groups, register using the instance ID
+			expectedTargets = append(expectedTargets, &elbv2types.TargetDescription{
+				Id:   aws.String(string(instanceID)),
+				Port: aws.Int32(port),
+			})
+		}
 	}
 	return expectedTargets
 }
@@ -1629,9 +1673,9 @@ func (c *Cloud) ensureLoadBalancerHealthCheck(ctx context.Context, loadBalancer 
 }
 
 // Makes sure that exactly the specified hosts are registered as instances with the load balancer
-func (c *Cloud) ensureLoadBalancerInstances(ctx context.Context, loadBalancerName string, lbInstances []elbtypes.Instance, instanceIDs map[InstanceID]*ec2types.Instance) error {
+func (c *Cloud) ensureLoadBalancerInstances(ctx context.Context, loadBalancerName string, lbInstances []elbtypes.Instance, instances map[InstanceID]*ec2types.Instance) error {
 	expected := sets.NewString()
-	for id := range instanceIDs {
+	for id := range instances {
 		expected.Insert(string(id))
 	}
 
