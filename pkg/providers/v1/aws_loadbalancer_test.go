@@ -28,6 +28,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
+	"k8s.io/utils/ptr"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	ec2types "github.com/aws/aws-sdk-go-v2/service/ec2/types"
@@ -2363,4 +2364,247 @@ func TestUpdateInstanceSecurityGroupForNLBTraffic_DualStack_Integration(t *testi
 	t.Logf("  Client traffic: %d IPv4 rules, %d IPv6 rules", clientIPv4Rules, clientIPv6Rules)
 	t.Logf("  Health checks: %d IPv4 rules, %d IPv6 rules", healthCheckIPv4Rules, healthCheckIPv6Rules)
 	t.Logf("  Total: %d rules", len(sg.IpPermissions))
+}
+
+// TestGetLBIPAddressType validates the getLBIPAddressType function
+func TestGetLBIPAddressType(t *testing.T) {
+	tests := []struct {
+		name     string
+		service  *v1.Service
+		expected elbv2types.IpAddressType
+	}{
+		// Annotation precedence tests
+		{
+			name: "annotation takes precedence over spec - dualstack annotation with SingleStack spec",
+			service: &v1.Service{
+				ObjectMeta: metav1.ObjectMeta{
+					Annotations: map[string]string{
+						ServiceAnnotationLoadBalancerIPAddressType: "dualstack",
+					},
+				},
+				Spec: v1.ServiceSpec{
+					IPFamilyPolicy: ptr.To(v1.IPFamilyPolicySingleStack),
+					IPFamilies:     []v1.IPFamily{v1.IPv4Protocol},
+				},
+			},
+			expected: elbv2types.IpAddressTypeDualstack,
+		},
+		{
+			name: "annotation takes precedence - ipv4 annotation with PreferDualStack spec",
+			service: &v1.Service{
+				ObjectMeta: metav1.ObjectMeta{
+					Annotations: map[string]string{
+						ServiceAnnotationLoadBalancerIPAddressType: "ipv4",
+					},
+				},
+				Spec: v1.ServiceSpec{
+					IPFamilyPolicy: ptr.To(v1.IPFamilyPolicyPreferDualStack),
+					IPFamilies:     []v1.IPFamily{v1.IPv4Protocol, v1.IPv6Protocol},
+				},
+			},
+			expected: elbv2types.IpAddressTypeIpv4,
+		},
+
+		// Dual-stack scenarios
+		{
+			name: "PreferDualStack with both IPv4 and IPv6 - returns dualstack",
+			service: &v1.Service{
+				Spec: v1.ServiceSpec{
+					IPFamilyPolicy: ptr.To(v1.IPFamilyPolicyPreferDualStack),
+					IPFamilies:     []v1.IPFamily{v1.IPv4Protocol, v1.IPv6Protocol},
+				},
+			},
+			expected: elbv2types.IpAddressTypeDualstack,
+		},
+		{
+			name: "PreferDualStack with IPv6 first - returns dualstack",
+			service: &v1.Service{
+				Spec: v1.ServiceSpec{
+					IPFamilyPolicy: ptr.To(v1.IPFamilyPolicyPreferDualStack),
+					IPFamilies:     []v1.IPFamily{v1.IPv6Protocol, v1.IPv4Protocol},
+				},
+			},
+			expected: elbv2types.IpAddressTypeDualstack,
+		},
+		{
+			name: "PreferDualStack with incomplete families - falls back to ipv4",
+			service: &v1.Service{
+				Spec: v1.ServiceSpec{
+					IPFamilyPolicy: ptr.To(v1.IPFamilyPolicyPreferDualStack),
+					IPFamilies:     []v1.IPFamily{v1.IPv4Protocol},
+				},
+			},
+			expected: elbv2types.IpAddressTypeIpv4,
+		},
+
+		{
+			name: "RequireDualStack with both families - returns dualstack",
+			service: &v1.Service{
+				Spec: v1.ServiceSpec{
+					IPFamilyPolicy: ptr.To(v1.IPFamilyPolicyRequireDualStack),
+					IPFamilies:     []v1.IPFamily{v1.IPv4Protocol, v1.IPv6Protocol},
+				},
+			},
+			expected: elbv2types.IpAddressTypeDualstack,
+		},
+		{
+			name: "RequireDualStack with IPv6 first - returns dualstack",
+			service: &v1.Service{
+				Spec: v1.ServiceSpec{
+					IPFamilyPolicy: ptr.To(v1.IPFamilyPolicyRequireDualStack),
+					IPFamilies:     []v1.IPFamily{v1.IPv6Protocol, v1.IPv4Protocol},
+				},
+			},
+			expected: elbv2types.IpAddressTypeDualstack,
+		},
+		{
+			name: "RequireDualStack with only IPv4 - falls back to ipv4 (validation should catch this)",
+			service: &v1.Service{
+				Spec: v1.ServiceSpec{
+					IPFamilyPolicy: ptr.To(v1.IPFamilyPolicyRequireDualStack),
+					IPFamilies:     []v1.IPFamily{v1.IPv4Protocol},
+				},
+			},
+			expected: elbv2types.IpAddressTypeIpv4,
+		},
+
+		// Single-stack scenarios
+		{
+			name: "SingleStack with IPv4 - returns ipv4",
+			service: &v1.Service{
+				Spec: v1.ServiceSpec{
+					IPFamilyPolicy: ptr.To(v1.IPFamilyPolicySingleStack),
+					IPFamilies:     []v1.IPFamily{v1.IPv4Protocol},
+				},
+			},
+			expected: elbv2types.IpAddressTypeIpv4,
+		},
+		{
+			name: "SingleStack with IPv6 - returns ipv4 (AWS limitation)",
+			service: &v1.Service{
+				Spec: v1.ServiceSpec{
+					IPFamilyPolicy: ptr.To(v1.IPFamilyPolicySingleStack),
+					IPFamilies:     []v1.IPFamily{v1.IPv6Protocol},
+				},
+			},
+			expected: elbv2types.IpAddressTypeIpv4,
+		},
+
+		// Default/fallback scenarios
+		{
+			name: "no ipFamilyPolicy or ipFamilies - defaults to ipv4",
+			service: &v1.Service{
+				Spec: v1.ServiceSpec{},
+			},
+			expected: elbv2types.IpAddressTypeIpv4,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			c := &Cloud{}
+			result := c.getLBIPAddressType(tt.service)
+			if result != tt.expected {
+				t.Errorf("getLBIPAddressType() = %v, want %v", result, tt.expected)
+			}
+		})
+	}
+}
+
+// TestGetTargetGroupIPAddressType validates the getTargetGroupIPAddressType function
+func TestGetTargetGroupIPAddressType(t *testing.T) {
+	tests := []struct {
+		name     string
+		service  *v1.Service
+		expected elbv2types.TargetGroupIpAddressTypeEnum
+	}{
+		// Priority: Annotations take precedence
+		{
+			name: "annotation takes precedence - ipv6 annotation with IPv4 spec",
+			service: &v1.Service{
+				ObjectMeta: metav1.ObjectMeta{
+					Annotations: map[string]string{
+						ServiceAnnotationLoadBalancerTargetGroupIPAddressType: "ipv6",
+					},
+				},
+				Spec: v1.ServiceSpec{
+					IPFamilies: []v1.IPFamily{v1.IPv4Protocol},
+				},
+			},
+			expected: elbv2types.TargetGroupIpAddressTypeEnumIpv6,
+		},
+		{
+			name: "annotation takes precedence - ipv4 annotation with IPv6 spec",
+			service: &v1.Service{
+				ObjectMeta: metav1.ObjectMeta{
+					Annotations: map[string]string{
+						ServiceAnnotationLoadBalancerTargetGroupIPAddressType: "ipv4",
+					},
+				},
+				Spec: v1.ServiceSpec{
+					IPFamilies: []v1.IPFamily{v1.IPv6Protocol},
+				},
+			},
+			expected: elbv2types.TargetGroupIpAddressTypeEnumIpv4,
+		},
+
+		// Spec-based: IPv6 primary
+		{
+			name: "IPv6 as first family - returns ipv6",
+			service: &v1.Service{
+				Spec: v1.ServiceSpec{
+					IPFamilies: []v1.IPFamily{v1.IPv6Protocol, v1.IPv4Protocol},
+				},
+			},
+			expected: elbv2types.TargetGroupIpAddressTypeEnumIpv6,
+		},
+		{
+			name: "IPv6 only - returns ipv6",
+			service: &v1.Service{
+				Spec: v1.ServiceSpec{
+					IPFamilies: []v1.IPFamily{v1.IPv6Protocol},
+				},
+			},
+			expected: elbv2types.TargetGroupIpAddressTypeEnumIpv6,
+		},
+
+		// Spec-based: IPv4 primary
+		{
+			name: "IPv4 as first family - returns ipv4",
+			service: &v1.Service{
+				Spec: v1.ServiceSpec{
+					IPFamilies: []v1.IPFamily{v1.IPv4Protocol, v1.IPv6Protocol},
+				},
+			},
+			expected: elbv2types.TargetGroupIpAddressTypeEnumIpv4,
+		},
+		{
+			name: "IPv4 only - returns ipv4",
+			service: &v1.Service{
+				Spec: v1.ServiceSpec{
+					IPFamilies: []v1.IPFamily{v1.IPv4Protocol},
+				},
+			},
+			expected: elbv2types.TargetGroupIpAddressTypeEnumIpv4,
+		},
+
+		// Default/fallback scenarios
+		{
+			name: "no ipFamilies field - defaults to ipv4",
+			service: &v1.Service{
+				Spec: v1.ServiceSpec{},
+			},
+			expected: elbv2types.TargetGroupIpAddressTypeEnumIpv4,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			c := &Cloud{}
+			result := c.getTargetGroupIPAddressType(tt.service)
+			if result != tt.expected {
+				t.Errorf("getTargetGroupIPAddressType() = %v, want %v", result, tt.expected)
+			}
+		})
+	}
 }

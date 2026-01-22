@@ -2480,6 +2480,7 @@ func (c *Cloud) EnsureLoadBalancer(ctx context.Context, clusterName string, apiS
 			internalELB,
 			annotations,
 			securityGroups,
+			apiService,
 		)
 		if err != nil {
 			return nil, err
@@ -2513,8 +2514,8 @@ func (c *Cloud) EnsureLoadBalancer(ctx context.Context, clusterName string, apiS
 			sourceRangeCidrs = append(sourceRangeCidrs, "0.0.0.0/0")
 
 			// For dual-stack or IPv6 load balancers, also add IPv6 default route
-			lbIPAddressType := annotations[ServiceAnnotationLoadBalancerIPAddressType]
-			if lbIPAddressType == string(elbv2types.IpAddressTypeDualstack) {
+			lbIPAddressType := c.getLBIPAddressType(apiService)
+			if lbIPAddressType == elbv2types.IpAddressTypeDualstack {
 				sourceRangeCidrs = append(sourceRangeCidrs, "::/0")
 			}
 		}

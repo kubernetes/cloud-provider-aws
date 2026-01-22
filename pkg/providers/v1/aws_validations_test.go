@@ -17,11 +17,13 @@ limitations under the License.
 package aws
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/utils/ptr"
 )
 
 func TestValidateServiceAnnotationTargetGroupAttributes(t *testing.T) {
@@ -608,6 +610,331 @@ func TestValidateServiceAnnotations(t *testing.T) {
 			} else {
 				assert.Error(t, err, "Expected error for test case: %s", tt.name)
 				assert.Contains(t, err.Error(), tt.expectedError, "Error message should contain expected text for test case: %s", tt.name)
+			}
+		})
+	}
+}
+
+// TestValidateIPFamilyPolicy validates the validateIPFamilyPolicy function
+func TestValidateIPFamilyPolicy(t *testing.T) {
+	tests := []struct {
+		name        string
+		service     *v1.Service
+		annotations map[string]string
+		wantErr     bool
+		errContains string
+	}{
+		// RequireDualStack validation
+		{
+			name: "RequireDualStack on NLB with both families - valid",
+			service: &v1.Service{
+				ObjectMeta: metav1.ObjectMeta{
+					Annotations: map[string]string{
+						ServiceAnnotationLoadBalancerType: "nlb",
+					},
+				},
+				Spec: v1.ServiceSpec{
+					IPFamilyPolicy: ptr.To(v1.IPFamilyPolicyRequireDualStack),
+					IPFamilies:     []v1.IPFamily{v1.IPv4Protocol, v1.IPv6Protocol},
+				},
+			},
+			annotations: map[string]string{
+				ServiceAnnotationLoadBalancerType: "nlb",
+			},
+			wantErr: false,
+		},
+		{
+			name: "RequireDualStack on NLB with IPv6 first - valid",
+			service: &v1.Service{
+				ObjectMeta: metav1.ObjectMeta{
+					Annotations: map[string]string{
+						ServiceAnnotationLoadBalancerType: "nlb",
+					},
+				},
+				Spec: v1.ServiceSpec{
+					IPFamilyPolicy: ptr.To(v1.IPFamilyPolicyRequireDualStack),
+					IPFamilies:     []v1.IPFamily{v1.IPv6Protocol, v1.IPv4Protocol},
+				},
+			},
+			annotations: map[string]string{
+				ServiceAnnotationLoadBalancerType: "nlb",
+			},
+			wantErr: false,
+		},
+		{
+			name: "RequireDualStack on CLB - invalid",
+			service: &v1.Service{
+				ObjectMeta: metav1.ObjectMeta{
+					Annotations: map[string]string{},
+				},
+				Spec: v1.ServiceSpec{
+					IPFamilyPolicy: ptr.To(v1.IPFamilyPolicyRequireDualStack),
+					IPFamilies:     []v1.IPFamily{v1.IPv4Protocol, v1.IPv6Protocol},
+				},
+			},
+			annotations: map[string]string{},
+			wantErr:     true,
+			errContains: "only supported for NLB",
+		},
+		{
+			name: "RequireDualStack with incomplete families - invalid",
+			service: &v1.Service{
+				ObjectMeta: metav1.ObjectMeta{
+					Annotations: map[string]string{
+						ServiceAnnotationLoadBalancerType: "nlb",
+					},
+				},
+				Spec: v1.ServiceSpec{
+					IPFamilyPolicy: ptr.To(v1.IPFamilyPolicyRequireDualStack),
+					IPFamilies:     []v1.IPFamily{v1.IPv4Protocol},
+				},
+			},
+			annotations: map[string]string{
+				ServiceAnnotationLoadBalancerType: "nlb",
+			},
+			wantErr:     true,
+			errContains: "requires both IPv4 and IPv6",
+		},
+
+		// SingleStack validation
+		{
+			name: "SingleStack with IPv4 on NLB - valid",
+			service: &v1.Service{
+				ObjectMeta: metav1.ObjectMeta{
+					Annotations: map[string]string{
+						ServiceAnnotationLoadBalancerType: "nlb",
+					},
+				},
+				Spec: v1.ServiceSpec{
+					IPFamilyPolicy: ptr.To(v1.IPFamilyPolicySingleStack),
+					IPFamilies:     []v1.IPFamily{v1.IPv4Protocol},
+				},
+			},
+			annotations: map[string]string{
+				ServiceAnnotationLoadBalancerType: "nlb",
+			},
+			wantErr: false,
+		},
+		{
+			name: "SingleStack with IPv4 on CLB - valid",
+			service: &v1.Service{
+				ObjectMeta: metav1.ObjectMeta{
+					Annotations: map[string]string{},
+				},
+				Spec: v1.ServiceSpec{
+					IPFamilyPolicy: ptr.To(v1.IPFamilyPolicySingleStack),
+					IPFamilies:     []v1.IPFamily{v1.IPv4Protocol},
+				},
+			},
+			annotations: map[string]string{},
+			wantErr:     false,
+		},
+		{
+			name: "SingleStack with IPv6 only - invalid (AWS limitation)",
+			service: &v1.Service{
+				ObjectMeta: metav1.ObjectMeta{
+					Annotations: map[string]string{
+						ServiceAnnotationLoadBalancerType: "nlb",
+					},
+				},
+				Spec: v1.ServiceSpec{
+					IPFamilyPolicy: ptr.To(v1.IPFamilyPolicySingleStack),
+					IPFamilies:     []v1.IPFamily{v1.IPv6Protocol},
+				},
+			},
+			annotations: map[string]string{
+				ServiceAnnotationLoadBalancerType: "nlb",
+			},
+			wantErr:     true,
+			errContains: "IPv6-only load balancers are not supported",
+		},
+
+		// PreferDualStack validation
+		{
+			name: "PreferDualStack on NLB - valid",
+			service: &v1.Service{
+				ObjectMeta: metav1.ObjectMeta{
+					Annotations: map[string]string{
+						ServiceAnnotationLoadBalancerType: "nlb",
+					},
+				},
+				Spec: v1.ServiceSpec{
+					IPFamilyPolicy: ptr.To(v1.IPFamilyPolicyPreferDualStack),
+					IPFamilies:     []v1.IPFamily{v1.IPv4Protocol, v1.IPv6Protocol},
+				},
+			},
+			annotations: map[string]string{
+				ServiceAnnotationLoadBalancerType: "nlb",
+			},
+			wantErr: false,
+		},
+		{
+			name: "PreferDualStack on CLB - valid (will create IPv4-only)",
+			service: &v1.Service{
+				ObjectMeta: metav1.ObjectMeta{
+					Annotations: map[string]string{},
+				},
+				Spec: v1.ServiceSpec{
+					IPFamilyPolicy: ptr.To(v1.IPFamilyPolicyPreferDualStack),
+					IPFamilies:     []v1.IPFamily{v1.IPv4Protocol, v1.IPv6Protocol},
+				},
+			},
+			annotations: map[string]string{},
+			wantErr:     false,
+		},
+		{
+			name: "PreferDualStack with only IPv4 - valid",
+			service: &v1.Service{
+				ObjectMeta: metav1.ObjectMeta{
+					Annotations: map[string]string{
+						ServiceAnnotationLoadBalancerType: "nlb",
+					},
+				},
+				Spec: v1.ServiceSpec{
+					IPFamilyPolicy: ptr.To(v1.IPFamilyPolicyPreferDualStack),
+					IPFamilies:     []v1.IPFamily{v1.IPv4Protocol},
+				},
+			},
+			annotations: map[string]string{
+				ServiceAnnotationLoadBalancerType: "nlb",
+			},
+			wantErr: false,
+		},
+		{
+			name: "PreferDualStack with only IPv6 - valid",
+			service: &v1.Service{
+				ObjectMeta: metav1.ObjectMeta{
+					Annotations: map[string]string{
+						ServiceAnnotationLoadBalancerType: "nlb",
+					},
+				},
+				Spec: v1.ServiceSpec{
+					IPFamilyPolicy: ptr.To(v1.IPFamilyPolicyPreferDualStack),
+					IPFamilies:     []v1.IPFamily{v1.IPv6Protocol},
+				},
+			},
+			annotations: map[string]string{
+				ServiceAnnotationLoadBalancerType: "nlb",
+			},
+			wantErr: false,
+		},
+
+		// No ipFamilyPolicy
+		{
+			name: "nil ipFamilyPolicy - valid",
+			service: &v1.Service{
+				ObjectMeta: metav1.ObjectMeta{
+					Annotations: map[string]string{
+						ServiceAnnotationLoadBalancerType: "nlb",
+					},
+				},
+				Spec: v1.ServiceSpec{
+					IPFamilyPolicy: nil,
+					IPFamilies:     []v1.IPFamily{v1.IPv4Protocol},
+				},
+			},
+			annotations: map[string]string{
+				ServiceAnnotationLoadBalancerType: "nlb",
+			},
+			wantErr: false,
+		},
+		{
+			name: "no ipFamilyPolicy or ipFamilies - valid",
+			service: &v1.Service{
+				ObjectMeta: metav1.ObjectMeta{
+					Annotations: map[string]string{
+						ServiceAnnotationLoadBalancerType: "nlb",
+					},
+				},
+				Spec: v1.ServiceSpec{},
+			},
+			annotations: map[string]string{
+				ServiceAnnotationLoadBalancerType: "nlb",
+			},
+			wantErr: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			v := &awsValidationInput{
+				apiService:  tt.service,
+				annotations: tt.annotations,
+			}
+			err := validateIPFamilyPolicy(v)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("validateIPFamilyPolicy() error = %v, wantErr %v", err, tt.wantErr)
+				return
+			}
+			if err != nil && tt.errContains != "" {
+				if !strings.Contains(err.Error(), tt.errContains) {
+					t.Errorf("validateIPFamilyPolicy() error = %v, should contain %v", err, tt.errContains)
+				}
+			}
+		})
+	}
+}
+
+// TestValidateIPFamilyPolicy_Errors validates that IP family policy validation
+// errors are properly propagated through the ensureLoadBalancerValidation pipeline
+func TestValidateIPFamilyPolicy_Errors(t *testing.T) {
+	tests := []struct {
+		name        string
+		service     *v1.Service
+		wantErr     bool
+		errContains string
+	}{
+		{
+			name: "RequireDualStack on CLB triggers validation error",
+			service: &v1.Service{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:        "test",
+					Namespace:   "default",
+					UID:         "test-uid",
+					Annotations: map[string]string{}, // CLB (no nlb annotation)
+				},
+				Spec: v1.ServiceSpec{
+					Type:           v1.ServiceTypeLoadBalancer,
+					IPFamilyPolicy: ptr.To(v1.IPFamilyPolicyRequireDualStack),
+					IPFamilies:     []v1.IPFamily{v1.IPv4Protocol, v1.IPv6Protocol},
+					Ports:          []v1.ServicePort{{Port: 80, Protocol: v1.ProtocolTCP}},
+				},
+			},
+			wantErr:     true,
+			errContains: "only supported for NLB",
+		},
+		{
+			name: "IPv6-only SingleStack triggers validation error",
+			service: &v1.Service{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:        "test",
+					Namespace:   "default",
+					UID:         "test-uid",
+					Annotations: map[string]string{ServiceAnnotationLoadBalancerType: "nlb"},
+				},
+				Spec: v1.ServiceSpec{
+					Type:           v1.ServiceTypeLoadBalancer,
+					IPFamilyPolicy: ptr.To(v1.IPFamilyPolicySingleStack),
+					IPFamilies:     []v1.IPFamily{v1.IPv6Protocol},
+					Ports:          []v1.ServicePort{{Port: 80, Protocol: v1.ProtocolTCP}},
+				},
+			},
+			wantErr:     true,
+			errContains: "IPv6-only load balancers are not supported",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := ensureLoadBalancerValidation(&awsValidationInput{
+				apiService:  tt.service,
+				annotations: tt.service.Annotations,
+			})
+			if (err != nil) != tt.wantErr {
+				t.Errorf("ensureLoadBalancerValidation() error = %v, wantErr %v", err, tt.wantErr)
+			}
+			if err != nil && !strings.Contains(err.Error(), tt.errContains) {
+				t.Errorf("Error message %q does not contain %q", err.Error(), tt.errContains)
 			}
 		})
 	}

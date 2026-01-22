@@ -95,6 +95,71 @@ func isLBExternal(annotations map[string]string) bool {
 	return false
 }
 
+// getLBIPAddressType determines the load balancer IP address type from Service spec or annotations.
+// Priority order: annotations > spec fields > default (ipv4)
+func (c *Cloud) getLBIPAddressType(service *v1.Service) elbv2types.IpAddressType {
+	// Check annotation first for backward compatibility
+	if ipType, ok := service.Annotations[ServiceAnnotationLoadBalancerIPAddressType]; ok {
+		klog.V(4).Infof("Using load balancer IP address type from annotation: %s", ipType)
+		return elbv2types.IpAddressType(ipType)
+	}
+
+	// Fall back to spec.ipFamilies and spec.ipFamilyPolicy
+	if service.Spec.IPFamilyPolicy != nil {
+		switch *service.Spec.IPFamilyPolicy {
+		case v1.IPFamilyPolicyPreferDualStack, v1.IPFamilyPolicyRequireDualStack:
+			// Check if both IPv4 and IPv6 are in ipFamilies
+			hasIPv4 := false
+			hasIPv6 := false
+			for _, family := range service.Spec.IPFamilies {
+				if family == v1.IPv4Protocol {
+					hasIPv4 = true
+				} else if family == v1.IPv6Protocol {
+					hasIPv6 = true
+				}
+			}
+			if hasIPv4 && hasIPv6 {
+				klog.V(4).Infof("Using dual-stack load balancer based on ipFamilyPolicy=%s and ipFamilies=%v",
+					*service.Spec.IPFamilyPolicy, service.Spec.IPFamilies)
+				return elbv2types.IpAddressTypeDualstack
+			}
+		case v1.IPFamilyPolicySingleStack:
+			// SingleStack - use ipv4 (AWS NLB doesn't support IPv6-only load balancers)
+			klog.V(4).Infof("Using ipv4 load balancer based on ipFamilyPolicy=SingleStack")
+			return elbv2types.IpAddressTypeIpv4
+		}
+	}
+
+	// Default to IPv4
+	klog.V(4).Infof("Using default ipv4 load balancer")
+	return elbv2types.IpAddressTypeIpv4
+}
+
+// getTargetGroupIPAddressType determines the target group IP address type from Service spec or annotations.
+// Priority order: annotations > spec fields > default (ipv4)
+func (c *Cloud) getTargetGroupIPAddressType(service *v1.Service) elbv2types.TargetGroupIpAddressTypeEnum {
+	// Check annotation first for backward compatibility
+	if ipType, ok := service.Annotations[ServiceAnnotationLoadBalancerTargetGroupIPAddressType]; ok {
+		klog.V(4).Infof("Using target group IP address type from annotation: %s", ipType)
+		return elbv2types.TargetGroupIpAddressTypeEnum(ipType)
+	}
+
+	// Determine from spec.ipFamilies - use the first family as primary
+	if len(service.Spec.IPFamilies) > 0 {
+		primaryFamily := service.Spec.IPFamilies[0]
+		if primaryFamily == v1.IPv6Protocol {
+			klog.V(4).Infof("Using ipv6 target group based on primary ipFamily: %s", primaryFamily)
+			return elbv2types.TargetGroupIpAddressTypeEnumIpv6
+		}
+		klog.V(4).Infof("Using ipv4 target group based on primary ipFamily: %s", primaryFamily)
+		return elbv2types.TargetGroupIpAddressTypeEnumIpv4
+	}
+
+	// Default to IPv4
+	klog.V(4).Infof("Using default ipv4 target group")
+	return elbv2types.TargetGroupIpAddressTypeEnumIpv4
+}
+
 type healthCheckConfig struct {
 	Port               string
 	Path               string
@@ -146,7 +211,7 @@ func getKeyValuePropertiesFromAnnotation(annotations map[string]string, annotati
 }
 
 // ensureLoadBalancerv2 ensures a v2 load balancer is created
-func (c *Cloud) ensureLoadBalancerv2(ctx context.Context, namespacedName types.NamespacedName, loadBalancerName string, mappings []nlbPortMapping, instances map[InstanceID]*ec2types.Instance, discoveredSubnetIDs []string, internalELB bool, annotations map[string]string, securityGroups []string) (*elbv2types.LoadBalancer, error) {
+func (c *Cloud) ensureLoadBalancerv2(ctx context.Context, namespacedName types.NamespacedName, loadBalancerName string, mappings []nlbPortMapping, instances map[InstanceID]*ec2types.Instance, discoveredSubnetIDs []string, internalELB bool, annotations map[string]string, securityGroups []string, apiService *v1.Service) (*elbv2types.LoadBalancer, error) {
 	loadBalancer, err := c.describeLoadBalancerv2(ctx, loadBalancerName)
 	if err != nil {
 		return nil, err
@@ -170,15 +235,8 @@ func (c *Cloud) ensureLoadBalancerv2(ctx context.Context, namespacedName types.N
 			createRequest.Scheme = elbv2types.LoadBalancerSchemeEnumInternal
 		}
 
-		// Set IP address type based on annotation
-		if ipAddressType, ok := annotations[ServiceAnnotationLoadBalancerIPAddressType]; ok {
-			if ipAddressType == string(elbv2types.IpAddressTypeDualstack) || ipAddressType == string(elbv2types.IpAddressTypeIpv4) {
-				createRequest.IpAddressType = elbv2types.IpAddressType(ipAddressType)
-			} else {
-				klog.Warningf("Invalid ip-address-type annotation value: %s, defaulting to ipv4", ipAddressType)
-				createRequest.IpAddressType = elbv2types.IpAddressTypeIpv4
-			}
-		}
+		// Set IP address type from spec or annotation
+		createRequest.IpAddressType = c.getLBIPAddressType(apiService)
 
 		var allocationIDs []string
 		if eipList, present := annotations[ServiceAnnotationLoadBalancerEIPAllocations]; present {
@@ -219,7 +277,7 @@ func (c *Cloud) ensureLoadBalancerv2(ctx context.Context, namespacedName types.N
 		for i := range mappings {
 			// It is easier to keep track of updates by having possibly
 			// duplicate target groups where the backend port is the same
-			_, err := c.createListenerV2(ctx, createResponse.LoadBalancers[0].LoadBalancerArn, mappings[i], namespacedName, instances, *createResponse.LoadBalancers[0].VpcId, tags, annotations)
+			_, err := c.createListenerV2(ctx, createResponse.LoadBalancers[0].LoadBalancerArn, mappings[i], namespacedName, instances, *createResponse.LoadBalancers[0].VpcId, tags, annotations, apiService)
 			if err != nil {
 				return nil, fmt.Errorf("error creating listener: %q", err)
 			}
@@ -317,6 +375,7 @@ func (c *Cloud) ensureLoadBalancerv2(ctx context.Context, namespacedName types.N
 							*loadBalancer.VpcId,
 							tags,
 							annotations,
+							apiService,
 						)
 						if err != nil {
 							return nil, err
@@ -367,6 +426,7 @@ func (c *Cloud) ensureLoadBalancerv2(ctx context.Context, namespacedName types.N
 							*loadBalancer.VpcId,
 							tags,
 							annotations,
+							apiService,
 						)
 						if err != nil {
 							return nil, err
@@ -377,7 +437,7 @@ func (c *Cloud) ensureLoadBalancerv2(ctx context.Context, namespacedName types.N
 				}
 
 				// Additions
-				_, err := c.createListenerV2(ctx, loadBalancer.LoadBalancerArn, mapping, namespacedName, instances, *loadBalancer.VpcId, tags, annotations)
+				_, err := c.createListenerV2(ctx, loadBalancer.LoadBalancerArn, mapping, namespacedName, instances, *loadBalancer.VpcId, tags, annotations, apiService)
 				if err != nil {
 					return nil, err
 				}
@@ -698,7 +758,7 @@ func (c *Cloud) buildTargetGroupName(serviceName types.NamespacedName, servicePo
 	return fmt.Sprintf("k8s-%.8s-%.8s-%.10s", sanitizedNamespace, sanitizedServiceName, tgUUID)
 }
 
-func (c *Cloud) createListenerV2(ctx context.Context, loadBalancerArn *string, mapping nlbPortMapping, namespacedName types.NamespacedName, instances map[InstanceID]*ec2types.Instance, vpcID string, tags map[string]string, annotations map[string]string) (listener *elbv2types.Listener, err error) {
+func (c *Cloud) createListenerV2(ctx context.Context, loadBalancerArn *string, mapping nlbPortMapping, namespacedName types.NamespacedName, instances map[InstanceID]*ec2types.Instance, vpcID string, tags map[string]string, annotations map[string]string, apiService *v1.Service) (listener *elbv2types.Listener, err error) {
 	target, err := c.ensureTargetGroup(ctx,
 		nil,
 		namespacedName,
@@ -707,6 +767,7 @@ func (c *Cloud) createListenerV2(ctx context.Context, loadBalancerArn *string, m
 		vpcID,
 		tags,
 		annotations,
+		apiService,
 	)
 	if err != nil {
 		return nil, err
@@ -763,16 +824,11 @@ func (c *Cloud) deleteListenerV2(ctx context.Context, listener *elbv2types.Liste
 }
 
 // ensureTargetGroup creates a target group with a set of instances.
-func (c *Cloud) ensureTargetGroup(ctx context.Context, targetGroup *elbv2types.TargetGroup, serviceName types.NamespacedName, mapping nlbPortMapping, instances map[InstanceID]*ec2types.Instance, vpcID string, tags map[string]string, annotations map[string]string) (*elbv2types.TargetGroup, error) {
+func (c *Cloud) ensureTargetGroup(ctx context.Context, targetGroup *elbv2types.TargetGroup, serviceName types.NamespacedName, mapping nlbPortMapping, instances map[InstanceID]*ec2types.Instance, vpcID string, tags map[string]string, annotations map[string]string, apiService *v1.Service) (*elbv2types.TargetGroup, error) {
 	dirty := false
 
-	// Determine target group IP address type
-	var tgIPAddressType elbv2types.TargetGroupIpAddressTypeEnum
-	if ipType, ok := annotations[ServiceAnnotationLoadBalancerTargetGroupIPAddressType]; ok {
-		tgIPAddressType = elbv2types.TargetGroupIpAddressTypeEnum(ipType)
-	} else {
-		tgIPAddressType = elbv2types.TargetGroupIpAddressTypeEnumIpv4
-	}
+	// Determine target group IP address type from spec or annotation
+	tgIPAddressType := c.getTargetGroupIPAddressType(apiService)
 
 	expectedTargets := c.computeTargetGroupExpectedTargets(instances, mapping.TrafficPort, tgIPAddressType)
 	if targetGroup == nil {
@@ -797,15 +853,8 @@ func (c *Cloud) ensureTargetGroup(ctx context.Context, targetGroup *elbv2types.T
 			input.HealthCheckPath = aws.String(mapping.HealthCheckConfig.Path)
 		}
 
-		// Set IP address type based on annotation
-		if tgIPAddressType, ok := annotations[ServiceAnnotationLoadBalancerTargetGroupIPAddressType]; ok {
-			if tgIPAddressType == string(elbv2types.TargetGroupIpAddressTypeEnumIpv6) || tgIPAddressType == string(elbv2types.TargetGroupIpAddressTypeEnumIpv4) {
-				input.IpAddressType = elbv2types.TargetGroupIpAddressTypeEnum(tgIPAddressType)
-			} else {
-				klog.Warningf("Invalid target-group-ip-address-type annotation value: %s, defaulting to ipv4", tgIPAddressType)
-				input.IpAddressType = elbv2types.TargetGroupIpAddressTypeEnumIpv4
-			}
-		}
+		// Set IP address type from spec or annotation
+		input.IpAddressType = tgIPAddressType
 
 		if len(tags) != 0 {
 			targetGroupTags := make([]elbv2types.Tag, 0, len(tags))

@@ -48,6 +48,7 @@ import (
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/client-go/informers"
 	"k8s.io/client-go/kubernetes/fake"
+	"k8s.io/utils/ptr"
 
 	"k8s.io/cloud-provider-aws/pkg/providers/v1/config"
 )
@@ -2533,6 +2534,12 @@ func (m *MockedFakeELBV2) CreateLoadBalancer(ctx context.Context, input *elbv2.C
 	if len(input.SecurityGroups) > 0 {
 		newLB.SecurityGroups = input.SecurityGroups
 	}
+	// Capture IpAddressType from input
+	if input.IpAddressType != "" {
+		newLB.IpAddressType = input.IpAddressType
+	} else {
+		newLB.IpAddressType = elbv2types.IpAddressTypeIpv4 // Default
+	}
 
 	m.LoadBalancers = append(m.LoadBalancers, &newLB)
 
@@ -2644,6 +2651,12 @@ func (m *MockedFakeELBV2) CreateTargetGroup(ctx context.Context, input *elbv2.Cr
 		HealthCheckIntervalSeconds: input.HealthCheckIntervalSeconds,
 		HealthyThresholdCount:      input.HealthyThresholdCount,
 		UnhealthyThresholdCount:    input.UnhealthyThresholdCount,
+	}
+	// Capture IpAddressType from input
+	if input.IpAddressType != "" {
+		newTG.IpAddressType = input.IpAddressType
+	} else {
+		newTG.IpAddressType = elbv2types.TargetGroupIpAddressTypeEnumIpv4 // Default
 	}
 
 	m.TargetGroups = append(m.TargetGroups, &newTG)
@@ -3123,6 +3136,55 @@ func newMockedFakeAWSServices(id string) *FakeAWSServices {
 	s.elb = &MockedFakeELB{FakeELB: s.elb.(*FakeELB)}
 	s.elbv2 = &MockedFakeELBV2{FakeELBV2: s.elbv2.(*FakeELBV2)}
 	return s
+}
+
+// setupMockELBV2ForTest initializes a MockedFakeELBV2 with empty state for testing
+func setupMockELBV2ForTest(awsServices *FakeAWSServices) *MockedFakeELBV2 {
+	mockedELBV2 := awsServices.elbv2.(*MockedFakeELBV2)
+	mockedELBV2.LoadBalancers = []*elbv2types.LoadBalancer{}
+	mockedELBV2.TargetGroups = []*elbv2types.TargetGroup{}
+	mockedELBV2.Listeners = []*elbv2types.Listener{}
+	mockedELBV2.LoadBalancerAttributes = make(map[string]map[string]string)
+	mockedELBV2.Tags = make(map[string][]elbv2types.Tag)
+	mockedELBV2.RegisteredInstances = make(map[string][]string)
+	return mockedELBV2
+}
+
+// setupTestSubnetsWithIGW configures subnets and route tables with an internet gateway
+func setupTestSubnetsWithIGW(ec2 *MockedFakeEC2, clusterTagKey string) {
+	ec2.Subnets = []ec2types.Subnet{
+		{
+			AvailabilityZone: aws.String("us-west-2a"),
+			SubnetId:         aws.String("subnet-abc123de"),
+			Tags: []ec2types.Tag{
+				{
+					Key:   aws.String(clusterTagKey),
+					Value: aws.String("owned"),
+				},
+			},
+		},
+	}
+
+	ec2.RouteTables = []ec2types.RouteTable{
+		{
+			Associations: []ec2types.RouteTableAssociation{
+				{
+					Main:                    aws.Bool(true),
+					RouteTableAssociationId: aws.String("rtbassoc-abc123def456abc78"),
+					RouteTableId:            aws.String("rtb-abc123def456abc78"),
+					SubnetId:                aws.String("subnet-abc123de"),
+				},
+			},
+			RouteTableId: aws.String("rtb-abc123def456abc78"),
+			Routes: []ec2types.Route{
+				{
+					DestinationCidrBlock: aws.String("0.0.0.0/0"),
+					GatewayId:            aws.String("igw-abc123def456abc78"),
+					State:                ec2types.RouteStateActive,
+				},
+			},
+		},
+	}
 }
 
 func TestAzToRegion(t *testing.T) {
@@ -5201,6 +5263,162 @@ func TestCloud_GetSecurityGroupNameForNLB(t *testing.T) {
 			// But our pattern should only produce: a-z, A-Z, 0-9, and -
 			validPattern := regexp.MustCompile(`^[a-zA-Z0-9-]+$`)
 			assert.True(t, validPattern.MatchString(result), "Result should contain only alphanumeric characters and dashes")
+		})
+	}
+}
+
+// TestEnsureLoadBalancerWithIPFamilies tests the complete flow from Service creation
+// through to AWS API calls using mocked AWS SDK for IPFamily configurations
+func TestEnsureLoadBalancerWithIPFamilies(t *testing.T) {
+	tests := []struct {
+		name             string
+		service          *v1.Service
+		expectedLBIPType elbv2types.IpAddressType
+		expectedTGIPType elbv2types.TargetGroupIpAddressTypeEnum
+	}{
+		{
+			name: "spec-based dual-stack creates dualstack LB and IPv4 TG",
+			service: &v1.Service{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-service",
+					Namespace: "default",
+					UID:       "test-uid-1",
+					Annotations: map[string]string{
+						ServiceAnnotationLoadBalancerType: "nlb",
+					},
+				},
+				Spec: v1.ServiceSpec{
+					Type:            v1.ServiceTypeLoadBalancer,
+					SessionAffinity: v1.ServiceAffinityNone,
+					IPFamilyPolicy:  ptr.To(v1.IPFamilyPolicyPreferDualStack),
+					IPFamilies:      []v1.IPFamily{v1.IPv4Protocol, v1.IPv6Protocol},
+					Ports: []v1.ServicePort{
+						{
+							Name:       "http",
+							Port:       80,
+							TargetPort: intstr.FromInt(8080),
+							Protocol:   v1.ProtocolTCP,
+							NodePort:   30080,
+						},
+					},
+				},
+			},
+			expectedLBIPType: elbv2types.IpAddressTypeDualstack,
+			expectedTGIPType: elbv2types.TargetGroupIpAddressTypeEnumIpv4,
+		},
+		{
+			name: "spec-based dual-stack with IPv6 first creates IPv6 TG",
+			service: &v1.Service{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-service-ipv6",
+					Namespace: "default",
+					UID:       "test-uid-2",
+					Annotations: map[string]string{
+						ServiceAnnotationLoadBalancerType: "nlb",
+					},
+				},
+				Spec: v1.ServiceSpec{
+					Type:            v1.ServiceTypeLoadBalancer,
+					SessionAffinity: v1.ServiceAffinityNone,
+					IPFamilyPolicy:  ptr.To(v1.IPFamilyPolicyPreferDualStack),
+					IPFamilies:      []v1.IPFamily{v1.IPv6Protocol, v1.IPv4Protocol},
+					Ports: []v1.ServicePort{
+						{
+							Name:       "http",
+							Port:       80,
+							TargetPort: intstr.FromInt(8080),
+							Protocol:   v1.ProtocolTCP,
+							NodePort:   30080,
+						},
+					},
+				},
+			},
+			expectedLBIPType: elbv2types.IpAddressTypeDualstack,
+			expectedTGIPType: elbv2types.TargetGroupIpAddressTypeEnumIpv6,
+		},
+		{
+			name: "SingleStack IPv4 creates IPv4-only LB",
+			service: &v1.Service{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-service-ss",
+					Namespace: "default",
+					UID:       "test-uid-3",
+					Annotations: map[string]string{
+						ServiceAnnotationLoadBalancerType: "nlb",
+					},
+				},
+				Spec: v1.ServiceSpec{
+					Type:            v1.ServiceTypeLoadBalancer,
+					SessionAffinity: v1.ServiceAffinityNone,
+					IPFamilyPolicy:  ptr.To(v1.IPFamilyPolicySingleStack),
+					IPFamilies:      []v1.IPFamily{v1.IPv4Protocol},
+					Ports: []v1.ServicePort{
+						{
+							Name:       "http",
+							Port:       80,
+							TargetPort: intstr.FromInt(8080),
+							Protocol:   v1.ProtocolTCP,
+							NodePort:   30080,
+						},
+					},
+				},
+			},
+			expectedLBIPType: elbv2types.IpAddressTypeIpv4,
+			expectedTGIPType: elbv2types.TargetGroupIpAddressTypeEnumIpv4,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			awsServices := newMockedFakeAWSServices(TestClusterID)
+
+			// Initialize MockedFakeELBV2 with required fields
+			mockedELBV2 := setupMockELBV2ForTest(awsServices)
+
+			c, err := newAWSCloud(config.CloudConfig{}, awsServices)
+			if err != nil {
+				t.Fatalf("Error building aws cloud: %v", err)
+			}
+
+			// Configure subnets and route tables
+			setupTestSubnetsWithIGW(awsServices.ec2.(*MockedFakeEC2), c.tagging.clusterTagKey())
+
+			// Expect security group lookups
+			awsServices.ec2.(*MockedFakeEC2).maybeExpectDescribeSecurityGroups(TestClusterID, "k8s-elb-aid")
+
+			// Create nodes
+			nodes := []*v1.Node{
+				{
+					ObjectMeta: metav1.ObjectMeta{Name: "node-1"},
+					Spec: v1.NodeSpec{
+						ProviderID: "aws:///us-west-2a/i-abc123",
+					},
+				},
+			}
+
+			// Call EnsureLoadBalancer
+			_, err = c.EnsureLoadBalancer(context.TODO(), TestClusterName, tt.service, nodes)
+			if err != nil {
+				t.Fatalf("EnsureLoadBalancer() failed: %v", err)
+			}
+
+			// Verify load balancer was created with correct IP address type
+			lbs := mockedELBV2.LoadBalancers
+			if len(lbs) != 1 {
+				t.Fatalf("Expected 1 load balancer, got %d", len(lbs))
+			}
+			if lbs[0].IpAddressType != tt.expectedLBIPType {
+				t.Errorf("Load balancer IP type = %v, want %v", lbs[0].IpAddressType, tt.expectedLBIPType)
+			}
+
+			// Verify target group was created with correct IP address type
+			tgs := mockedELBV2.TargetGroups
+			if len(tgs) != 1 {
+				t.Fatalf("Expected 1 target group, got %d", len(tgs))
+			}
+			if tgs[0].IpAddressType != tt.expectedTGIPType {
+				t.Errorf("Target group IP type = %v, want %v", tgs[0].IpAddressType, tt.expectedTGIPType)
+			}
 		})
 	}
 }
