@@ -2123,14 +2123,14 @@ func TestUpdateInstanceSecurityGroupForNLBTraffic_IPv6(t *testing.T) {
 	}
 
 	tests := []struct {
-		name                 string
-		ruleDesc             string
-		protocol             string
-		ports                []int32
-		cidrs                []string
-		expectedIPv4Rules    int
-		expectedIPv6Rules    int
-		validatePermissions  func(t *testing.T, perms []ec2types.IpPermission)
+		name                string
+		ruleDesc            string
+		protocol            string
+		ports               []int32
+		cidrs               []string
+		expectedIPv4Rules   int
+		expectedIPv6Rules   int
+		validatePermissions func(t *testing.T, perms []ec2types.IpPermission)
 	}{
 		{
 			name:              "IPv4 only CIDRs",

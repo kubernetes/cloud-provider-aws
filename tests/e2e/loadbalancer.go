@@ -40,12 +40,12 @@ import (
 )
 
 const (
-	annotationLBType                       = "service.beta.kubernetes.io/aws-load-balancer-type"
-	annotationLBInternal                   = "service.beta.kubernetes.io/aws-load-balancer-internal"
-	annotationLBTargetNodeLabels           = "service.beta.kubernetes.io/aws-load-balancer-target-node-labels"
-	annotationLBTargetGroupAttributes      = "service.beta.kubernetes.io/aws-load-balancer-target-group-attributes"
-	annotationLBIPAddressType              = "service.beta.kubernetes.io/aws-load-balancer-ip-address-type"
-	annotationLBTargetGroupIPAddressType   = "service.beta.kubernetes.io/aws-load-balancer-target-group-ip-address-type"
+	annotationLBType                     = "service.beta.kubernetes.io/aws-load-balancer-type"
+	annotationLBInternal                 = "service.beta.kubernetes.io/aws-load-balancer-internal"
+	annotationLBTargetNodeLabels         = "service.beta.kubernetes.io/aws-load-balancer-target-node-labels"
+	annotationLBTargetGroupAttributes    = "service.beta.kubernetes.io/aws-load-balancer-target-group-attributes"
+	annotationLBIPAddressType            = "service.beta.kubernetes.io/aws-load-balancer-ip-address-type"
+	annotationLBTargetGroupIPAddressType = "service.beta.kubernetes.io/aws-load-balancer-target-group-ip-address-type"
 )
 
 var (

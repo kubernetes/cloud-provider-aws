@@ -442,7 +442,7 @@ func TestValidateServiceAnnotations(t *testing.T) {
 		{
 			name: "NLB with ipv6 target group annotation - success",
 			annotations: map[string]string{
-				ServiceAnnotationLoadBalancerType:                    "nlb",
+				ServiceAnnotationLoadBalancerType:                     "nlb",
 				ServiceAnnotationLoadBalancerTargetGroupIPAddressType: "ipv6",
 			},
 			expectedError: "",
@@ -452,7 +452,7 @@ func TestValidateServiceAnnotations(t *testing.T) {
 		{
 			name: "NLB with ipv4 target group annotation - success",
 			annotations: map[string]string{
-				ServiceAnnotationLoadBalancerType:                    "nlb",
+				ServiceAnnotationLoadBalancerType:                     "nlb",
 				ServiceAnnotationLoadBalancerTargetGroupIPAddressType: "ipv4",
 			},
 			expectedError: "",
