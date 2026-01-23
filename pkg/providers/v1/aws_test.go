@@ -124,6 +124,14 @@ func (m *MockedFakeEC2) CreateSecurityGroup(ctx context.Context, request *ec2.Cr
 	return args.Get(0).(*ec2.CreateSecurityGroupOutput), args.Error(1)
 }
 
+func (m *MockedFakeEC2) AuthorizeSecurityGroupIngress(ctx context.Context, request *ec2.AuthorizeSecurityGroupIngressInput, optFns ...func(*ec2.Options)) (*ec2.AuthorizeSecurityGroupIngressOutput, error) {
+	args := m.Called(request)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*ec2.AuthorizeSecurityGroupIngressOutput), args.Error(1)
+}
+
 func (m *MockedFakeEC2) DescribeInstanceTopology(ctx context.Context, request *ec2.DescribeInstanceTopologyInput, optFns ...func(*ec2.Options)) ([]ec2types.InstanceTopology, error) {
 	args := m.Called(ctx, request)
 	if args.Get(1) != nil {
@@ -4193,6 +4201,11 @@ func TestEnsureLoadBalancer(t *testing.T) {
 				},
 			}, nil)
 
+			// Mock AuthorizeSecurityGroupIngress for NLB managed security group
+			awsServices.ec2.(*MockedFakeEC2).On("AuthorizeSecurityGroupIngress", mock.MatchedBy(func(input *ec2.AuthorizeSecurityGroupIngressInput) bool {
+				return input.GroupId != nil && *input.GroupId == "sg-123456789"
+			})).Return(&ec2.AuthorizeSecurityGroupIngressOutput{}, nil).Maybe()
+
 			awsServices.ec2.(*MockedFakeEC2).On("DescribeSecurityGroups", &ec2.DescribeSecurityGroupsInput{
 				Filters: []ec2types.Filter{
 					{
@@ -4209,6 +4222,11 @@ func TestEnsureLoadBalancer(t *testing.T) {
 			awsServices.ec2.(*MockedFakeEC2).On("DescribeSecurityGroups", &ec2.DescribeSecurityGroupsInput{
 				GroupIds: []string{fakeSecurityGroupID},
 			}).Return([]ec2types.SecurityGroup{{GroupId: aws.String(fakeSecurityGroupID)}}, nil)
+
+			// Mock AuthorizeSecurityGroupIngress for security group rule creation
+			awsServices.ec2.(*MockedFakeEC2).On("AuthorizeSecurityGroupIngress", mock.Anything).Return(
+				&ec2.AuthorizeSecurityGroupIngressOutput{}, nil,
+			).Maybe()
 
 			awsServices.ec2.(*MockedFakeEC2).On("DescribeSecurityGroups", &ec2.DescribeSecurityGroupsInput{
 				Filters:    nil,
