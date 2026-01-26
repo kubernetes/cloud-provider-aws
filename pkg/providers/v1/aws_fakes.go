@@ -64,7 +64,10 @@ type FakeAWSServices struct {
 func NewFakeAWSServices(clusterID string) *FakeAWSServices {
 	s := &FakeAWSServices{}
 	s.region = "us-west-2"
-	s.ec2 = &FakeEC2Impl{aws: s}
+	s.ec2 = &FakeEC2Impl{
+		aws:            s,
+		SecurityGroups: make(map[string]*ec2types.SecurityGroup),
+	}
 	s.elb = &FakeELB{aws: s}
 	s.elbv2 = &FakeELBV2{aws: s}
 	s.asg = &FakeASG{aws: s}
@@ -198,6 +201,7 @@ type FakeEC2Impl struct {
 	DescribeSubnetsInput     *ec2.DescribeSubnetsInput
 	RouteTables              []ec2types.RouteTable
 	DescribeRouteTablesInput *ec2.DescribeRouteTablesInput
+	SecurityGroups           map[string]*ec2types.SecurityGroup
 }
 
 // DescribeInstances returns fake instance descriptions
@@ -272,18 +276,32 @@ func (ec2i *FakeEC2Impl) DeleteVolume(request *ec2.DeleteVolumeInput) (resp *ec2
 	panic("Not implemented")
 }
 
-// DescribeSecurityGroups is not implemented but is required for interface
-// conformance
+// DescribeSecurityGroups returns fake security group descriptions
 func (ec2i *FakeEC2Impl) DescribeSecurityGroups(ctx context.Context, request *ec2.DescribeSecurityGroupsInput, optFns ...func(*ec2.Options)) ([]ec2types.SecurityGroup, error) {
-	panic("Not implemented")
+	var result []ec2types.SecurityGroup
+
+	for _, groupID := range request.GroupIds {
+		if sg, ok := ec2i.SecurityGroups[groupID]; ok {
+			result = append(result, *sg)
+		}
+	}
+
+	return result, nil
 }
 
-// CreateSecurityGroup is not implemented but is required for interface
-// conformance
+// CreateSecurityGroup creates a fake security group
 func (ec2i *FakeEC2Impl) CreateSecurityGroup(ctx context.Context, request *ec2.CreateSecurityGroupInput, optFns ...func(*ec2.Options)) (*ec2.CreateSecurityGroupOutput, error) {
-	// Mock implementation for testing
+	groupID := fmt.Sprintf("sg-%d", len(ec2i.SecurityGroups)+1)
+	sg := &ec2types.SecurityGroup{
+		GroupId:       aws.String(groupID),
+		GroupName:     request.GroupName,
+		Description:   request.Description,
+		VpcId:         request.VpcId,
+		IpPermissions: []ec2types.IpPermission{},
+	}
+	ec2i.SecurityGroups[groupID] = sg
 	return &ec2.CreateSecurityGroupOutput{
-		GroupId: aws.String("sg-123456"),
+		GroupId: aws.String(groupID),
 	}, nil
 }
 
@@ -293,20 +311,73 @@ func (ec2i *FakeEC2Impl) DeleteSecurityGroup(ctx context.Context, request *ec2.D
 	panic("Not implemented")
 }
 
-// AuthorizeSecurityGroupIngress is not implemented but is required for
-// interface conformance
+// AuthorizeSecurityGroupIngress adds ingress rules to a security group
 func (ec2i *FakeEC2Impl) AuthorizeSecurityGroupIngress(ctx context.Context, request *ec2.AuthorizeSecurityGroupIngressInput, optFns ...func(*ec2.Options)) (*ec2.AuthorizeSecurityGroupIngressOutput, error) {
-	// Mock implementation for testing
 	if request.GroupId == nil || len(request.IpPermissions) == 0 {
 		return nil, errors.New("Invalid input: GroupId or IpPermissions missing")
 	}
+
+	sg, ok := ec2i.SecurityGroups[*request.GroupId]
+	if !ok {
+		return nil, fmt.Errorf("Security group not found: %s", *request.GroupId)
+	}
+
+	// Add the new permissions to the security group
+	sg.IpPermissions = append(sg.IpPermissions, request.IpPermissions...)
+
 	return &ec2.AuthorizeSecurityGroupIngressOutput{}, nil
 }
 
-// RevokeSecurityGroupIngress is not implemented but is required for interface
-// conformance
+// RevokeSecurityGroupIngress removes ingress rules from a security group
 func (ec2i *FakeEC2Impl) RevokeSecurityGroupIngress(ctx context.Context, request *ec2.RevokeSecurityGroupIngressInput, optFns ...func(*ec2.Options)) (*ec2.RevokeSecurityGroupIngressOutput, error) {
-	panic("Not implemented")
+	if request.GroupId == nil || len(request.IpPermissions) == 0 {
+		return nil, errors.New("Invalid input: GroupId or IpPermissions missing")
+	}
+
+	sg, ok := ec2i.SecurityGroups[*request.GroupId]
+	if !ok {
+		return nil, fmt.Errorf("Security group not found: %s", *request.GroupId)
+	}
+
+	// Remove the specified permissions from the security group
+	// This is a simplified implementation for testing
+	var newPermissions []ec2types.IpPermission
+	for _, existingPerm := range sg.IpPermissions {
+		keep := true
+		for _, removePerm := range request.IpPermissions {
+			if ipPermissionsEqual(existingPerm, removePerm) {
+				keep = false
+				break
+			}
+		}
+		if keep {
+			newPermissions = append(newPermissions, existingPerm)
+		}
+	}
+	sg.IpPermissions = newPermissions
+
+	return &ec2.RevokeSecurityGroupIngressOutput{}, nil
+}
+
+// ipPermissionsEqual is a helper function to compare two IpPermission objects
+func ipPermissionsEqual(a, b ec2types.IpPermission) bool {
+	if aws.ToString(a.IpProtocol) != aws.ToString(b.IpProtocol) {
+		return false
+	}
+	if aws.ToInt32(a.FromPort) != aws.ToInt32(b.FromPort) {
+		return false
+	}
+	if aws.ToInt32(a.ToPort) != aws.ToInt32(b.ToPort) {
+		return false
+	}
+	// For simplicity, just compare the first IP range/IPv6 range
+	if len(a.IpRanges) > 0 && len(b.IpRanges) > 0 {
+		return aws.ToString(a.IpRanges[0].CidrIp) == aws.ToString(b.IpRanges[0].CidrIp)
+	}
+	if len(a.Ipv6Ranges) > 0 && len(b.Ipv6Ranges) > 0 {
+		return aws.ToString(a.Ipv6Ranges[0].CidrIpv6) == aws.ToString(b.Ipv6Ranges[0].CidrIpv6)
+	}
+	return false
 }
 
 // DescribeVolumeModifications is not implemented but is required for interface
