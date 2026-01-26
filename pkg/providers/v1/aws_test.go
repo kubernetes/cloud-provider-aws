@@ -69,7 +69,7 @@ func (m *MockedFakeEC2) expectDescribeSecurityGroups(clusterID, groupName string
 	m.On("DescribeSecurityGroups", &ec2.DescribeSecurityGroupsInput{Filters: []ec2types.Filter{
 		newEc2Filter("group-name", groupName),
 		newEc2Filter("vpc-id", ""),
-	}}).Return([]ec2types.SecurityGroup{{Tags: tags}})
+	}}).Return([]ec2types.SecurityGroup{{Tags: tags}}, nil)
 }
 
 func (m *MockedFakeEC2) expectDescribeSecurityGroupsAll(clusterID string) {
@@ -81,7 +81,7 @@ func (m *MockedFakeEC2) expectDescribeSecurityGroupsAll(clusterID string) {
 	m.On("DescribeSecurityGroups", &ec2.DescribeSecurityGroupsInput{}).Return([]ec2types.SecurityGroup{{
 		GroupId: aws.String("sg-123456"),
 		Tags:    tags,
-	}})
+	}}, nil)
 }
 
 func (m *MockedFakeEC2) expectDescribeSecurityGroupsByFilter(clusterID, filterName string, filterValues ...string) {
@@ -92,7 +92,7 @@ func (m *MockedFakeEC2) expectDescribeSecurityGroupsByFilter(clusterID, filterNa
 
 	m.On("DescribeSecurityGroups", &ec2.DescribeSecurityGroupsInput{Filters: []ec2types.Filter{
 		newEc2Filter(filterName, filterValues...),
-	}}).Return([]ec2types.SecurityGroup{{Tags: tags}})
+	}}).Return([]ec2types.SecurityGroup{{Tags: tags}}, nil)
 }
 
 func (m *MockedFakeEC2) RevokeSecurityGroupIngress(ctx context.Context, request *ec2.RevokeSecurityGroupIngressInput, optFns ...func(*ec2.Options)) (*ec2.RevokeSecurityGroupIngressOutput, error) {
@@ -112,10 +112,11 @@ func (m *MockedFakeEC2) DescribeSecurityGroups(ctx context.Context, request *ec2
 		return []ec2types.SecurityGroup{}, nil
 	}
 	args := m.Called(request)
-	if len(args) > 1 {
-		return args.Get(0).([]ec2types.SecurityGroup), args.Error(1)
+	// Handle case where no expectations are set up (returns default values)
+	if len(args) < 2 {
+		return args.Get(0).([]ec2types.SecurityGroup), nil
 	}
-	return args.Get(0).([]ec2types.SecurityGroup), nil
+	return args.Get(0).([]ec2types.SecurityGroup), args.Error(1)
 }
 
 func (m *MockedFakeEC2) CreateSecurityGroup(ctx context.Context, request *ec2.CreateSecurityGroupInput, optFns ...func(*ec2.Options)) (*ec2.CreateSecurityGroupOutput, error) {

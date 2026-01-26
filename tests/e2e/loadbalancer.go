@@ -37,6 +37,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/config"
 	elbv2 "github.com/aws/aws-sdk-go-v2/service/elasticloadbalancingv2"
 	elbv2types "github.com/aws/aws-sdk-go-v2/service/elasticloadbalancingv2/types"
+	"k8s.io/apimachinery/pkg/api/errors"
 )
 
 const (
@@ -44,6 +45,7 @@ const (
 	annotationLBInternal              = "service.beta.kubernetes.io/aws-load-balancer-internal"
 	annotationLBTargetNodeLabels      = "service.beta.kubernetes.io/aws-load-balancer-target-node-labels"
 	annotationLBTargetGroupAttributes = "service.beta.kubernetes.io/aws-load-balancer-target-group-attributes"
+	annotationLBSecurityGroups        = "service.beta.kubernetes.io/aws-load-balancer-security-groups"
 )
 
 var (
@@ -246,6 +248,78 @@ var _ = Describe("[cloud-provider-aws-e2e] loadbalancer", func() {
 				}
 			},
 		},
+		// BYO Security Group tests.
+		// The "CLB with managed security group mut update to BYO..." must  validate the features:
+		// - existing Service CLB with managed SG have correct tags
+		// - existing Service CLB with managed SG is updated to BYO SG (user-provided) through annotation
+		// - controller removes the managed SG when BYO SG is applied
+		// - load balancer is reachable after the update
+		{
+			name:           "CLB with managed Security Group must update to BYO Security Group",
+			resourceSuffix: "clb-sg",
+			listenerCount:  1,
+			hookPreTest: func(cfg *e2eTestConfig) {
+				framework.Logf("running hook post-service-config patching service annotation with BYO security group")
+				isNLB := false
+				lbDNS := cfg.svc.Status.LoadBalancer.Ingress[0].Hostname
+
+				managedSecurityGroups, err := cfg.awsHelper.getLoadBalancerSecurityGroups(isNLB, lbDNS)
+				framework.ExpectNoError(err, "Failed to get load balancer security groups")
+				framework.Logf("Load balancer %s has security groups: %+v", lbDNS, managedSecurityGroups)
+
+				for _, sgID := range managedSecurityGroups {
+					managed, err := cfg.awsHelper.isSecurityGroupManaged(sgID)
+					framework.ExpectNoError(err, fmt.Sprintf("Failed to check if security group %q is managed", sgID))
+					if !managed {
+						framework.Failf("Security group %q is not managed by the controller", sgID)
+					}
+				}
+
+				securityGroupName := cfg.svc.Namespace + "-" + cfg.svc.Name + "-sg-byo"
+				cfg.byoSecurityGroupID, err = cfg.awsHelper.createSecurityGroup(securityGroupName, fmt.Sprintf("BYO Security Group for e2e test service %s/%s", cfg.svc.Namespace, cfg.svc.Name))
+				framework.ExpectNoError(err, "Failed to create BYO security group")
+
+				// Currently controller does not update rules for BYO SG.
+				// TODO: Verify if controller needs to update rules for BYO SG.
+				framework.ExpectNoError(cfg.awsHelper.authorizeSecurityGroupToPorts(cfg.byoSecurityGroupID, cfg.svc.Spec.Ports), "Failed to authorize BYO security group to service ports")
+
+				// Verify the rules were actually created
+				framework.ExpectNoError(cfg.awsHelper.verifySecurityGroupRules(cfg.byoSecurityGroupID, cfg.svc.Spec.Ports), "Failed to verify BYO security group rules")
+
+				framework.Logf("Patching Service %q with BYO SG %q", cfg.svc.Name, cfg.byoSecurityGroupID)
+				cfg.svc.Annotations[annotationLBSecurityGroups] = cfg.byoSecurityGroupID
+				newSvc, err := cfg.kubeClient.CoreV1().Services(cfg.LBJig.Namespace).Update(cfg.ctx, cfg.svc, metav1.UpdateOptions{})
+				framework.ExpectNoError(err, "Failed to update Kubernetes Service")
+				cfg.svc = newSvc
+
+				time.Sleep(10 * time.Second)
+
+				byoSecurityGroups, err := cfg.awsHelper.getLoadBalancerSecurityGroups(isNLB, lbDNS)
+				framework.ExpectNoError(err, "Failed to get load balancer security groups")
+
+				framework.Logf("Load balancer %s has security groups: %+v", lbDNS, byoSecurityGroups)
+				for _, sgID := range byoSecurityGroups {
+					if sgID == cfg.byoSecurityGroupID {
+						break
+					}
+					framework.Failf("Load balancer %s has different security group than expected. Want=%q got=%q", lbDNS, cfg.byoSecurityGroupID, sgID)
+				}
+
+				framework.Logf("Checking if managed SGs were removed")
+				for _, sgID := range managedSecurityGroups {
+					sg, err := cfg.awsHelper.getSecurityGroup(sgID)
+					if err != nil && strings.Contains(err.Error(), "InvalidGroup.NotFound") {
+						framework.Logf("Managed security group %q removed", sgID)
+						break
+					}
+					if sg != nil {
+						framework.Failf("expected managed security group %q removed by controller, got %q", sgID, aws.ToString(sg.GroupId))
+					}
+					framework.Failf("managed security group %q was not removed by controller: %v", sgID, err)
+				}
+				framework.Logf("pre-test hook completed")
+			},
+		},
 	}
 
 	serviceNameBase := "lbconfig-test"
@@ -254,6 +328,8 @@ var _ = Describe("[cloud-provider-aws-e2e] loadbalancer", func() {
 			By("setting up test environment and discovering worker nodes")
 			e2e := newE2eTestConfig(cs)
 			e2e.discoverClusterWorkerNode()
+			defer e2e.cleanup()
+
 			framework.Logf("[SETUP] Test case: %s", tc.name)
 			framework.Logf("[SETUP] Worker nodes discovered: %d nodes, selector: %s, sample node: %s", e2e.nodeCount, e2e.nodeSelector, e2e.nodeSingleSample)
 
@@ -376,11 +452,11 @@ var _ = Describe("[cloud-provider-aws-e2e] loadbalancer", func() {
 			if tc.overrideTestRunInClusterReachableHTTP {
 				By("testing HTTP connectivity for internal load balancer")
 				framework.Logf("[TEST] Running internal connectivity test from node: %s", e2e.nodeSingleSample)
-				err := inClusterTestReachableHTTP(cs, ns.Name, e2e.nodeSingleSample, ingressAddress, svcPort)
+				err := e2e.inClusterTestReachableHTTP(ingressAddress, svcPort)
 				if err != nil && tc.skipTestFailure {
 					Skip(err.Error())
 				}
-				framework.ExpectNoError(err)
+				framework.ExpectNoError(err, "Failed to test HTTP connectivity from internal network")
 			} else {
 				By("testing HTTP connectivity for external/internet-facing load balancer")
 				framework.Logf("[TEST] Running external connectivity test to %s:%d", ingressAddress, svcPort)
@@ -393,13 +469,13 @@ var _ = Describe("[cloud-provider-aws-e2e] loadbalancer", func() {
 			_, err = e2e.LBJig.UpdateService(ctx, func(s *v1.Service) {
 				s.Spec.Type = v1.ServiceTypeClusterIP
 			})
-			framework.ExpectNoError(err)
+			framework.ExpectNoError(err, "Failed to update service to ClusterIP")
 
 			// Wait for the load balancer to be destroyed asynchronously
 			By("cleaning up: waiting for load balancer destruction")
 			framework.Logf("[CLEANUP] Waiting for load balancer destruction")
 			_, err = e2e.LBJig.WaitForLoadBalancerDestroy(ctx, ingressAddress, svcPort, loadBalancerCreateTimeout)
-			framework.ExpectNoError(err)
+			framework.ExpectNoError(err, "Failed to wait for load balancer destruction")
 			framework.Logf("[CLEANUP] Load balancer destroyed successfully")
 		})
 	}
@@ -408,6 +484,11 @@ var _ = Describe("[cloud-provider-aws-e2e] loadbalancer", func() {
 type e2eTestConfig struct {
 	ctx        context.Context
 	kubeClient clientset.Interface
+
+	// AWS helper
+	awsHelper *awsHelper
+
+	byoSecurityGroupID string
 
 	// service configuration
 	cfgPortCount          int
@@ -431,6 +512,9 @@ func newE2eTestConfig(cs clientset.Interface) *e2eTestConfig {
 	ctx, cancel := context.WithTimeout(context.Background(), 25*time.Minute)
 	_ = cancel // We'll let the test framework handle cleanup
 
+	h, err := newAWSHelper(ctx, cs)
+	framework.ExpectNoError(err, "Failed to create AWS helper")
+
 	return &e2eTestConfig{
 		kubeClient:     cs,
 		cfgPortCount:   2,
@@ -441,6 +525,7 @@ func newE2eTestConfig(cs clientset.Interface) *e2eTestConfig {
 			"aws-load-balancer-backend-protocol": "http",
 			"aws-load-balancer-ssl-ports":        "https",
 		},
+		awsHelper: h,
 	}
 }
 
@@ -689,14 +774,12 @@ func getAWSLoadBalancerFromDNSName(ctx context.Context, elbClient *elbv2.Client,
 }
 
 // inClusterTestReachableHTTP creates a pod within the cluster to test HTTP connectivity to a target IP and port.
-// It schedules the pod on the specified node using node affinity to test the hairpin scenario.
-// The pod uses a curl-based container to perform the HTTP request and validates the response.
-// The function waits for the pod to complete its execution and inspects its exit code to determine success or failure.
+// It schedules a client pod on the specified node using node affinity to test the hairpin scenario.
+// The client pod uses a curl-based container to perform the HTTP request to the target server (behind the load balancer)
+// and validates the response.
+// The function waits for the client pod to complete its execution and inspects its exit code to determine success or failure.
 //
 // Parameters:
-// - cs: Kubernetes clientset interface used to interact with the cluster.
-// - namespace: The namespace in which the test pod will be created.
-// - nodeName: The name of the node where the test pod should be scheduled.
 // - target: The IP address or Hostname of the target HTTP server.
 // - targetPort: The port number of the target HTTP server.
 //
@@ -704,22 +787,40 @@ func getAWSLoadBalancerFromDNSName(ctx context.Context, elbClient *elbv2.Client,
 // - error: Returns an error if the pod creation, execution, or cleanup fails, or if the HTTP test fails unexpectedly.
 //
 // Behavior:
-// - The function creates a pod with a curl-based container to perform the HTTP request.
-// - It configures the pod to run as a non-root user with security settings.
-// - The pod is scheduled on the specified node using node affinity.
-// - Logs are periodically collected during the pod's execution for troubleshooting.
-// - Events are inspected if the pod remains in a pending state for too long.
-// - The function waits for the pod to complete and inspects its exit code to determine success or failure.
-// - If the pod fails, an error is returned.
-// - The pod is cleaned up after the test completes.
-func inClusterTestReachableHTTP(cs clientset.Interface, namespace, nodeName, target string, targetPort int) error {
+// - The function creates a client pod with a curl-based container to perform the HTTP request.
+// - The client pod is scheduled on the specified node using node affinity.
+// - Logs are periodically collected during the client pod's execution for troubleshooting.
+// - Events are inspected if the client pod remains in a pending state for too long.
+// - The function waits for the client pod to complete and inspects its exit code to determine success or failure.
+//
+// Acknowledgement:
+// Documentation generated by Cursor AI, reviewed by Human.
+// Function generated by Human, reviewed and verbosity increased by Cursor AI.
+func (e2e *e2eTestConfig) inClusterTestReachableHTTP(target string, targetPort int) error {
 	podName := "http-test-pod"
+
+	// Enhanced curl configuration for better resilience
+	// Total timeout calculation: 30 retries * 30s delay + 15min curl max time = ~25 minutes
+	// This aligns with the 25-minute polling timeout below
+	curlArgs := []string{
+		"--retry", "30", // Increase retries for new LBs
+		"--retry-delay", "30", // Longer delay for DNS propagation
+		"--retry-max-time", "900", // 15 minutes max for curl operations
+		"--retry-all-errors",      // Retry on all errors including DNS
+		"--retry-connrefused",     // Explicitly retry connection refused
+		"--connect-timeout", "30", // 30s connection timeout
+		"--max-time", "45", // 45s per individual request
+		"--trace-time", // Include timestamps for debugging
+		"--verbose",    // More detailed output for troubleshooting
+		"-w", "\"\\nCURL_SUMMARY: HTTPCode=%{http_code} Time=%{time_total}s ConnectTime=%{time_connect}s DNSTime=%{time_namelookup}s\\n\"",
+		fmt.Sprintf("http://%s:%d/echo?msg=hello", target, targetPort),
+	}
 
 	// client http test (curl) pod spec.
 	pod := &v1.Pod{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      podName,
-			Namespace: namespace,
+			Namespace: e2e.svc.Namespace,
 		},
 		Spec: v1.PodSpec{
 			Containers: []v1.Container{
@@ -727,21 +828,20 @@ func inClusterTestReachableHTTP(cs clientset.Interface, namespace, nodeName, tar
 					Name:    "curl",
 					Image:   imageutils.GetE2EImage(imageutils.Agnhost),
 					Command: []string{"curl"},
-					Args: []string{
-						"--retry", "15", // Retry up to 15 times in case of transient network issues.
-						"--retry-delay", "20", // Wait 20 seconds between retries.
-						"--retry-max-time", "480", // Maximum time for retries is 480 seconds.
-						"--retry-all-errors",                                                       // Retry on all errors, ensuring robustness against temporary failures.
-						"--trace-time",                                                             // Include timestamps in trace output for debugging.
-						"-w", "\\\"\\n---> HTTPCode=%{http_code} Time=%{time_total}ms <---\\n\\\"", // Format output to include HTTP code and response time.
-						fmt.Sprintf("http://%s:%d/echo?msg=hello", target, targetPort),
+					Args:    curlArgs,
+					SecurityContext: &v1.SecurityContext{
+						AllowPrivilegeEscalation: aws.Bool(false),
+						Capabilities: &v1.Capabilities{
+							Drop: []v1.Capability{"ALL"},
+						},
+						ReadOnlyRootFilesystem: aws.Bool(true),
 					},
 				},
 			},
 			SecurityContext: &v1.PodSecurityContext{
-				RunAsNonRoot: aws.Bool(true),  // Ensures the pod runs as a non-root user for enhanced security.
-				RunAsUser:    aws.Int64(1000), // Specifies the user ID for the container process.
-				RunAsGroup:   aws.Int64(1000), // Specifies the group ID for the container process.
+				RunAsNonRoot: aws.Bool(true),
+				RunAsUser:    aws.Int64(1000),
+				RunAsGroup:   aws.Int64(1000),
 				SeccompProfile: &v1.SeccompProfile{
 					Type: v1.SeccompProfileTypeRuntimeDefault, // Enforces runtime default seccomp profile for syscall filtering.
 				},
@@ -756,7 +856,7 @@ func inClusterTestReachableHTTP(cs clientset.Interface, namespace, nodeName, tar
 									{
 										Key:      "kubernetes.io/hostname",
 										Operator: v1.NodeSelectorOpIn,
-										Values:   []string{nodeName}, // Ensures the pod is scheduled on the specified node.
+										Values:   []string{e2e.nodeSingleSample},
 									},
 								},
 							},
@@ -770,44 +870,72 @@ func inClusterTestReachableHTTP(cs clientset.Interface, namespace, nodeName, tar
 	framework.Logf("In-Cluster test PodSpec Image=%v Command=%v Args=%v", ct.Image, ct.Command, ct.Args)
 
 	// Create the pod
-	_, err := cs.CoreV1().Pods(namespace).Create(context.TODO(), pod, metav1.CreateOptions{})
+	_, err := e2e.kubeClient.CoreV1().Pods(e2e.svc.Namespace).Create(e2e.ctx, pod, metav1.CreateOptions{})
 	if err != nil {
 		return fmt.Errorf("failed to create HTTP test pod: %v", err)
 	}
 	// Clean up the pod
 	defer func() {
-		err = cs.CoreV1().Pods(namespace).Delete(context.TODO(), podName, metav1.DeleteOptions{})
+		err = e2e.kubeClient.CoreV1().Pods(e2e.svc.Namespace).Delete(e2e.ctx, podName, metav1.DeleteOptions{})
 		if err != nil {
 			framework.Logf("Failed to delete pod %s: %v", podName, err)
 		}
 	}()
 
-	// Pod logs wrapper. Collect recent logs, or all, from a test pod.
-	gatherLogs := func(tail int) string {
-		opts := &v1.PodLogOptions{}
-		if tail == 0 {
-			tail = 20
-		}
-		opts.TailLines = aws.Int64(int64(tail))
-		logs, errL := cs.CoreV1().Pods(namespace).GetLogs(podName, opts).DoRaw(context.TODO())
-		if errL != nil {
-			framework.Logf("Failed to retrieve pod logs: %v", errL)
-			return ""
-		}
-		return string(logs)
-	}
-
-	// Wait for the test pod to complete. Limit waiter be higher than curl retries.
+	// Wait for the test pod to complete. Align timeout with curl retry configuration
+	// Curl timeout: 30 retries * 30s delay + 900s max = ~1800s (~25-30 minutes)
+	// Pod polling timeout: 25 minutes + buffer = ~30 minutes
 	waitCount := 0
 	pendingCount := 0
-	err = wait.PollImmediate(15*time.Second, 15*time.Minute, func() (bool, error) {
-		p, err := cs.CoreV1().Pods(namespace).Get(context.TODO(), podName, metav1.GetOptions{})
+	consecutiveErrorCount := 0
+	maxConsecutiveErrors := 3
+	lastLoggedPhase := ""
+	podPollingTimeout := 30 * time.Minute
+
+	framework.Logf("=== STARTING POD MONITORING ===")
+	framework.Logf("Pod polling timeout: %v (aligned with curl timeout)", podPollingTimeout)
+
+	err = wait.PollUntilContextTimeout(e2e.ctx, 15*time.Second, podPollingTimeout, true, func(ctx context.Context) (bool, error) {
+		p, err := e2e.kubeClient.CoreV1().Pods(e2e.svc.Namespace).Get(ctx, podName, metav1.GetOptions{})
 		if err != nil {
-			framework.Logf("Error getting pod %s: %v", podName, err)
+			consecutiveErrorCount++
+			framework.Logf("Error getting pod %s (attempt %d/%d): %v", podName, consecutiveErrorCount, maxConsecutiveErrors, err)
+
+			// Debugging information for CI troubleshooting
+			if consecutiveErrorCount == 1 {
+				framework.Logf("=== CI Environment Debug Info ===")
+				framework.Logf("Namespace: %s, PodName: %s, NodeName: %s", e2e.svc.Namespace, podName, e2e.nodeSingleSample)
+				framework.Logf("Error type: %T", err)
+				framework.Logf("Error details: %v", err)
+				framework.Logf("API server connectivity issue detected in CI environment")
+			}
+
+			// Check if this is a retriable error (API server issues, network problems, etc.)
+			if isRetriableKubernetesError(err) && consecutiveErrorCount < maxConsecutiveErrors {
+				framework.Logf("Treating as transient API server error, will retry in 15 seconds...")
+				return false, nil // Continue polling, don't fail immediately
+			}
+
+			// If we've had too many consecutive errors or this is a non-retriable error, fail
+			framework.Logf("Permanent error or too many consecutive errors (%d), failing test", consecutiveErrorCount)
 			return false, err
 		}
-		framework.Logf("Pod %s status: Phase=%s", podName, p.Status.Phase)
+
+		consecutiveErrorCount = 0
+
+		// Log phase changes
+		if string(p.Status.Phase) != lastLoggedPhase {
+			framework.Logf("Pod %s phase changed: %s -> %s", podName, lastLoggedPhase, p.Status.Phase)
+			lastLoggedPhase = string(p.Status.Phase)
+		}
+
 		podFinished := p.Status.Phase == v1.PodSucceeded || p.Status.Phase == v1.PodFailed
+
+		if p.Status.Phase == v1.PodFailed {
+			framework.Logf("Pod entered Failed state - performing detailed analysis:")
+			framework.Logf("%s", analyzePodFailure(p))
+			framework.Logf("Recent logs from failed pod:\n%s", gatherPodLogs(e2e, podName, 50))
+		}
 
 		// Troubleshoot pending pods
 		if p.Status.Phase == v1.PodPending {
@@ -815,61 +943,168 @@ func inClusterTestReachableHTTP(cs clientset.Interface, namespace, nodeName, tar
 		}
 		if pendingCount%10 == 0 && pendingCount > 0 {
 			framework.Logf("Pod %s is pending for too long, checking events...", podName)
-			events, errE := cs.CoreV1().Events(namespace).List(context.TODO(), metav1.ListOptions{
+
+			// Collect pod-specific events
+			events, errE := e2e.kubeClient.CoreV1().Events(e2e.svc.Namespace).List(ctx, metav1.ListOptions{
 				FieldSelector: fmt.Sprintf("involvedObject.name=%s", podName),
 			})
 			if errE != nil {
 				framework.Logf("Failed to list events for pod %s: %v", podName, errE)
 			} else {
+				framework.Logf("Pod-specific events:")
 				for _, event := range events.Items {
-					framework.Logf("Event: %s - %s", event.Reason, event.Message)
+					framework.Logf("  [%s] %s: %s (Count: %d)",
+						event.Type, event.Reason, event.Message, event.Count)
 				}
 			}
+
+			// Collect node-level events if pod is scheduled
+			if p.Spec.NodeName != "" {
+				nodeEvents, errNE := e2e.kubeClient.CoreV1().Events(e2e.svc.Namespace).List(ctx, metav1.ListOptions{
+					FieldSelector: fmt.Sprintf("involvedObject.name=%s", p.Spec.NodeName),
+				})
+				if errNE != nil {
+					framework.Logf("Failed to list events for node %s: %v", p.Spec.NodeName, errNE)
+				} else if len(nodeEvents.Items) > 0 {
+					framework.Logf("Node %s recent events:", p.Spec.NodeName)
+					for _, event := range nodeEvents.Items {
+						framework.Logf("  [%s] %s: %s", event.Type, event.Reason, event.Message)
+					}
+				}
+			}
+
+			framework.Logf("Preliminary analysis for pending pod:")
+			framework.Logf("%s", analyzePodFailure(p))
 		}
 		// frequently collect logs.
 		if waitCount > 0 && waitCount%4 == 0 {
-			framework.Logf("Tail logs for HTTP test pod:\n%s", gatherLogs(5))
+			framework.Logf("Tail logs for HTTP test pod:\n%s", gatherPodLogs(e2e, podName, 5))
 		}
 		if podFinished {
-			framework.Logf("Tail logs for HTTP test pod:\n%s", gatherLogs(0))
+			framework.Logf("Tail logs for HTTP test pod:\n%s", gatherPodLogs(e2e, podName, 0))
 		}
 		waitCount++
 		return podFinished, nil
 	})
-	// Check overall error
 	if err != nil {
 		return fmt.Errorf("error waiting for pod %s to complete: %v", podName, err)
 	}
 
 	// Inspect the pod's container status for exit code
-	pod, errS := cs.CoreV1().Pods(namespace).Get(context.TODO(), podName, metav1.GetOptions{})
+	pod, errS := e2e.kubeClient.CoreV1().Pods(e2e.svc.Namespace).Get(e2e.ctx, podName, metav1.GetOptions{})
 	if errS != nil {
 		return fmt.Errorf("failed to get pod %s: %v", podName, errS)
 	}
-	if len(pod.Status.ContainerStatuses) == 0 {
-		return fmt.Errorf("no container statuses found for pod %s", podName)
-	}
-	containerStatus := pod.Status.ContainerStatuses[0]
 
+	framework.Logf("=== FINAL POD STATUS ANALYSIS ===")
+	framework.Logf("Final pod phase: %s", pod.Status.Phase)
+
+	if len(pod.Status.ContainerStatuses) == 0 {
+		framework.Logf("WARNING: No container statuses found - this indicates a scheduling or node issue")
+		framework.Logf("%s", analyzePodFailure(pod))
+		return fmt.Errorf("no container statuses found for pod %s - check pod failure analysis above", podName)
+	}
+
+	containerStatus := pod.Status.ContainerStatuses[0]
+	framework.Logf("Container state analysis:")
+	framework.Logf("  Ready: %t", containerStatus.Ready)
+	framework.Logf("  Restart count: %d", containerStatus.RestartCount)
+
+	// Detailed termination analysis
 	if containerStatus.State.Terminated != nil {
-		exitCode := containerStatus.State.Terminated.ExitCode
+		termination := containerStatus.State.Terminated
+		exitCode := termination.ExitCode
+		framework.Logf("  Termination reason: %s", termination.Reason)
+		framework.Logf("  Exit code: %d", exitCode)
+		framework.Logf("  Termination message: %s", termination.Message)
+
 		if exitCode != 0 {
-			errmsg := fmt.Errorf("pod %s exited with code %d", podName, exitCode)
-			framework.Logf("WARNING: %s.", errmsg.Error())
+			// Gather comprehensive failure information
+			framework.Logf("=== CURL TEST FAILURE ANALYSIS ===")
+			framework.Logf("Exit code %d indicates curl command failed", exitCode)
+			framework.Logf("Common exit codes:")
+			framework.Logf("  6: Couldn't resolve host")
+			framework.Logf("  7: Failed to connect to host")
+			framework.Logf("  28: Operation timeout")
+			framework.Logf("  52: Empty reply from server")
+			framework.Logf("  56: Failure in receiving network data")
+
+			finalLogs := gatherPodLogs(e2e, podName, 0)
+			framework.Logf("Final container logs:\n%s", finalLogs)
+
+			// Provide specific guidance based on exit code
+			var guidance string
+			switch exitCode {
+			case 6:
+				guidance = "DNS resolution failure - check if target hostname is resolvable"
+			case 7:
+				guidance = "Connection refused - check if target service is accessible and load balancer is working"
+			case 28:
+				guidance = "Timeout - check if target service is responding or increase curl timeout"
+			case 52:
+				guidance = "Empty reply - target service might be misconfigured or not running"
+			case 56:
+				guidance = "Network data receive failure - possible network connectivity issues"
+			default:
+				guidance = "Check curl logs above for specific error details"
+			}
+
+			errmsg := fmt.Errorf("HTTP connectivity test failed: pod %s exited with code %d. Guidance: %s", podName, exitCode, guidance)
+			framework.Logf("CONNECTIVITY TEST RESULT: FAILED - %s", errmsg.Error())
 			return errmsg
 		}
+	} else if containerStatus.State.Waiting != nil {
+		framework.Logf("Container still waiting: %s - %s",
+			containerStatus.State.Waiting.Reason, containerStatus.State.Waiting.Message)
+		framework.Logf("%s", analyzePodFailure(pod))
+		return fmt.Errorf("pod %s container never started properly - check failure analysis above", podName)
+	} else if containerStatus.State.Running != nil {
+		framework.Logf("WARNING: Container still running - this shouldn't happen with RestartPolicy=Never")
+		return fmt.Errorf("pod %s container still running after timeout - unexpected state", podName)
 	}
 
-	// Validate HTTP response format
-	// Expected format: HTTPCode=200 Time=<time>ms
-	response := gatherLogs(0)
-	if !strings.Contains(response, "HTTPCode=200") {
-		errmsg := fmt.Errorf("HTTP response validation failed: HTTP response format must be HTTPCode=200")
-		framework.Logf("WARNING: %s.", errmsg.Error())
+	// Validate HTTP response format with enhanced checking
+	// Expected format: CURL_SUMMARY: HTTPCode=200 Time=<time>s ConnectTime=<time>s DNSTime=<time>s
+	response := gatherPodLogs(e2e, podName, 0)
+	framework.Logf("=== HTTP RESPONSE VALIDATION ===")
+	framework.Logf("Full curl output:\n%s", response)
+
+	// Check for successful HTTP response
+	if strings.Contains(response, "CURL_SUMMARY: HTTPCode=200") {
+		framework.Logf("✓ HTTP connectivity test PASSED - Found HTTPCode=200")
+
+		if strings.Contains(response, "DNSTime=") {
+			lines := strings.Split(response, "\n")
+			for _, line := range lines {
+				if strings.Contains(line, "CURL_SUMMARY:") {
+					framework.Logf("Connection timing: %s", strings.TrimSpace(line))
+					break
+				}
+			}
+		}
+		return nil
+	}
+
+	// Check for partial success (HTTP response received but not 200)
+	if strings.Contains(response, "HTTPCode=") {
+		framework.Logf("HTTP response received but not successful")
+		// Try to extract the actual HTTP code
+		lines := strings.Split(response, "\n")
+		for _, line := range lines {
+			if strings.Contains(line, "HTTPCode=") && !strings.Contains(line, "HTTPCode=200") {
+				framework.Logf("Received HTTP response: %s", strings.TrimSpace(line))
+				break
+			}
+		}
+		errmsg := fmt.Errorf("HTTP response validation failed: received non-200 response code")
+		framework.Logf("CONNECTIVITY TEST RESULT: PARTIAL FAILURE - %s", errmsg.Error())
 		return errmsg
 	}
 
-	return nil
+	// No HTTP response found at all
+	errmsg := fmt.Errorf("HTTP response validation failed: no HTTP response detected in curl output")
+	framework.Logf("CONNECTIVITY TEST RESULT: FAILED - %s", errmsg.Error())
+	return errmsg
 }
 
 // Gather information from the cluster to help debug failures.
@@ -892,7 +1127,7 @@ func gatherResourceEvents(ctx context.Context, cs clientset.Interface, namespace
 	}
 }
 
-func gatherAllEvents(ctx context.Context, cs clientset.Interface, namespace, resourceName string) {
+func gatherAllEvents(ctx context.Context, cs clientset.Interface, namespace string) {
 	framework.Logf("=== Collecting all namespace events ===")
 	allEvents, err := cs.CoreV1().Events(namespace).List(ctx, metav1.ListOptions{})
 	if err != nil {
@@ -908,7 +1143,7 @@ func gatherAllEvents(ctx context.Context, cs clientset.Interface, namespace, res
 	}
 }
 
-func gatherControllerLogs(ctx context.Context, cs clientset.Interface, namespace, resourceName string) {
+func gatherControllerLogs(ctx context.Context, cs clientset.Interface) {
 	framework.Logf("=== Collecting cloud controller manager logs ===")
 	ccmPods, err := cs.CoreV1().Pods("").List(ctx, metav1.ListOptions{
 		LabelSelector: "app=cloud-controller-manager",
@@ -951,7 +1186,155 @@ func gatherServiceStatus(ctx context.Context, cs clientset.Interface, namespace,
 
 func gatherEventosOnFailure(ctx context.Context, cs clientset.Interface, namespace, resourceName string) {
 	gatherResourceEvents(ctx, cs, namespace, resourceName)
-	gatherAllEvents(ctx, cs, namespace, resourceName)
-	gatherControllerLogs(ctx, cs, namespace, resourceName)
+	gatherAllEvents(ctx, cs, namespace)
+	gatherControllerLogs(ctx, cs)
 	gatherServiceStatus(ctx, cs, namespace, resourceName)
+}
+
+// isRetriableKubernetesError checks if a Kubernetes API error is likely transient and worth retrying.
+// This helps distinguish between temporary API server issues and permanent errors.
+func isRetriableKubernetesError(err error) bool {
+	if err == nil {
+		return false
+	}
+
+	errMsg := err.Error()
+
+	// Common transient error patterns in CI environments
+	transientErrors := []string{
+		"unknown", // Generic server error, often transient
+		"connection refused",
+		"connection reset",
+		"timeout",
+		"temporary failure",
+		"server is currently unable to handle the request",
+		"service unavailable",
+		"internal error",
+		"etcd",
+		"context deadline exceeded",
+		"i/o timeout",
+		"dial tcp",
+		"no such host",
+	}
+
+	lowerErrMsg := strings.ToLower(errMsg)
+	for _, transientPattern := range transientErrors {
+		if strings.Contains(lowerErrMsg, transientPattern) {
+			return true
+		}
+	}
+
+	// Check for specific Kubernetes API error types that are typically transient
+	if errors.IsInternalError(err) ||
+		errors.IsServerTimeout(err) ||
+		errors.IsServiceUnavailable(err) ||
+		errors.IsTooManyRequests(err) {
+		return true
+	}
+
+	return false
+}
+
+// gatherPodLogs is a helper to collect recent logs, or all, from a test pod.
+func gatherPodLogs(e2e *e2eTestConfig, podName string, tail int) string {
+	opts := &v1.PodLogOptions{}
+	if tail == 0 {
+		tail = 20
+	}
+	opts.TailLines = aws.Int64(int64(tail))
+
+	// Try multiple approaches to get logs
+	logs, errL := e2e.kubeClient.CoreV1().Pods(e2e.svc.Namespace).GetLogs(podName, opts).DoRaw(e2e.ctx)
+	if errL != nil {
+		framework.Logf("Failed to retrieve pod logs (attempt 1): %v", errL)
+
+		// Try without tail limit if that was the issue
+		opts.TailLines = nil
+		logs, errL = e2e.kubeClient.CoreV1().Pods(e2e.svc.Namespace).GetLogs(podName, opts).DoRaw(e2e.ctx)
+		if errL != nil {
+			framework.Logf("Failed to retrieve pod logs (attempt 2, no tail): %v", errL)
+
+			// Try with different container if multi-container pod
+			opts.Container = "curl"
+			logs, errL = e2e.kubeClient.CoreV1().Pods(e2e.svc.Namespace).GetLogs(podName, opts).DoRaw(e2e.ctx)
+			if errL != nil {
+				framework.Logf("Failed to retrieve pod logs (attempt 3, explicit container): %v", errL)
+				return fmt.Sprintf("[LOG COLLECTION FAILED: %v]", errL)
+			}
+		}
+	}
+	return string(logs)
+}
+
+// analyzePodFailure is a helper to analyze pod failure.
+func analyzePodFailure(pod *v1.Pod) string {
+	var analysis []string
+	analysis = append(analysis, "=== POD FAILURE ANALYSIS ===")
+	analysis = append(analysis, fmt.Sprintf("Pod Name: %s", pod.Name))
+	analysis = append(analysis, fmt.Sprintf("Pod Phase: %s", pod.Status.Phase))
+	analysis = append(analysis, fmt.Sprintf("Pod Reason: %s", pod.Status.Reason))
+	analysis = append(analysis, fmt.Sprintf("Pod Message: %s", pod.Status.Message))
+
+	// Analyze node scheduling
+	if pod.Spec.NodeName != "" {
+		analysis = append(analysis, fmt.Sprintf("Scheduled on Node: %s", pod.Spec.NodeName))
+	} else {
+		analysis = append(analysis, "WARNING: Pod not scheduled to any node")
+	}
+
+	// Analyze container statuses
+	if len(pod.Status.ContainerStatuses) > 0 {
+		for i, cs := range pod.Status.ContainerStatuses {
+			analysis = append(analysis, fmt.Sprintf("Container[%d] %s:", i, cs.Name))
+			analysis = append(analysis, fmt.Sprintf("  Ready: %t, Started: %t", cs.Ready, cs.Started != nil && *cs.Started))
+			analysis = append(analysis, fmt.Sprintf("  Restart Count: %d", cs.RestartCount))
+
+			if cs.State.Waiting != nil {
+				analysis = append(analysis, fmt.Sprintf("  State: Waiting - Reason: %s", cs.State.Waiting.Reason))
+				analysis = append(analysis, fmt.Sprintf("  Message: %s", cs.State.Waiting.Message))
+			} else if cs.State.Running != nil {
+				analysis = append(analysis, fmt.Sprintf("  State: Running since %s", cs.State.Running.StartedAt))
+			} else if cs.State.Terminated != nil {
+				analysis = append(analysis, fmt.Sprintf("  State: Terminated - Reason: %s", cs.State.Terminated.Reason))
+				analysis = append(analysis, fmt.Sprintf("  Exit Code: %d", cs.State.Terminated.ExitCode))
+				analysis = append(analysis, fmt.Sprintf("  Message: %s", cs.State.Terminated.Message))
+				analysis = append(analysis, fmt.Sprintf("  Started: %s, Finished: %s",
+					cs.State.Terminated.StartedAt, cs.State.Terminated.FinishedAt))
+			}
+
+			if cs.LastTerminationState.Terminated != nil {
+				t := cs.LastTerminationState.Terminated
+				analysis = append(analysis, fmt.Sprintf("  Last Termination: Reason: %s, Exit Code: %d", t.Reason, t.ExitCode))
+			}
+		}
+	} else {
+		analysis = append(analysis, "WARNING: No container statuses found")
+	}
+
+	// Analyze pod conditions
+	if len(pod.Status.Conditions) > 0 {
+		analysis = append(analysis, "Pod Conditions:")
+		for _, cond := range pod.Status.Conditions {
+			analysis = append(analysis, fmt.Sprintf("  %s: %s (%s) - %s",
+				cond.Type, cond.Status, cond.Reason, cond.Message))
+		}
+	}
+
+	// Check resource requests vs limits
+	for _, container := range pod.Spec.Containers {
+		if container.Resources.Requests != nil || container.Resources.Limits != nil {
+			analysis = append(analysis, fmt.Sprintf("Container %s Resources:", container.Name))
+			if req := container.Resources.Requests; req != nil {
+				analysis = append(analysis, fmt.Sprintf("  Requests: CPU=%s, Memory=%s",
+					req.Cpu(), req.Memory()))
+			}
+			if lim := container.Resources.Limits; lim != nil {
+				analysis = append(analysis, fmt.Sprintf("  Limits: CPU=%s, Memory=%s",
+					lim.Cpu(), lim.Memory()))
+			}
+		}
+	}
+
+	analysis = append(analysis, "=== END POD FAILURE ANALYSIS ===")
+	return strings.Join(analysis, "\n")
 }
