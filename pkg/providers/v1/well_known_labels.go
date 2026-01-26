@@ -24,4 +24,6 @@ const (
 	// but will be initially applied to nodes. The suffix should be an incremented
 	// integer starting at 1.
 	LabelNetworkNodePrefix = "topology.k8s.aws/network-node-layer-"
+	// LabelImageID is a machine image label that can be applied to node resources.
+	LabelImageID = "node.k8s.aws/image-id"
 )
