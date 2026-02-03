@@ -1100,7 +1100,7 @@ func TestCloud_computeTargetGroupExpectedTargets(t *testing.T) {
 			},
 			want: []*elbv2types.TargetDescription{
 				{
-					Id:   aws.String("2001:db8::1"),
+					Id:   aws.String("i-abcdef1"),
 					Port: aws.Int32(8080),
 				},
 			},
@@ -1151,15 +1151,15 @@ func TestCloud_computeTargetGroupExpectedTargets(t *testing.T) {
 			},
 			want: []*elbv2types.TargetDescription{
 				{
-					Id:   aws.String("2001:db8::1"),
+					Id:   aws.String("i-abcdef1"),
 					Port: aws.Int32(8080),
 				},
 				{
-					Id:   aws.String("2001:db8::2"),
+					Id:   aws.String("i-abcdef2"),
 					Port: aws.Int32(8080),
 				},
 				{
-					Id:   aws.String("2001:db8::3"),
+					Id:   aws.String("i-abcdef3"),
 					Port: aws.Int32(8080),
 				},
 			},

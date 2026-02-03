@@ -993,23 +993,19 @@ func (c *Cloud) computeTargetGroupExpectedTargets(instances map[InstanceID]*ec2t
 
 	for instanceID, instance := range instances {
 		if ipAddressType == elbv2types.TargetGroupIpAddressTypeEnumIpv6 {
-			// For IPv6 target groups, register using the instance's IPv6 address
+			// For IPv6 target groups, verify instance has IPv6 address before registering
 			ipv6Address := extractInstanceIPv6Address(instance)
-			if ipv6Address != "" {
-				expectedTargets = append(expectedTargets, &elbv2types.TargetDescription{
-					Id:   aws.String(ipv6Address),
-					Port: aws.Int32(port),
-				})
-			} else {
+			if ipv6Address == "" {
 				klog.Warningf("Instance %s has no IPv6 address, skipping registration to IPv6 target group", instanceID)
+				continue
 			}
-		} else {
-			// For IPv4 target groups, register using the instance ID
-			expectedTargets = append(expectedTargets, &elbv2types.TargetDescription{
-				Id:   aws.String(string(instanceID)),
-				Port: aws.Int32(port),
-			})
 		}
+		// Register using instance ID for both IPv4 and IPv6 target groups
+		// AWS will route to the appropriate IP address based on the target group's IpAddressType
+		expectedTargets = append(expectedTargets, &elbv2types.TargetDescription{
+			Id:   aws.String(string(instanceID)),
+			Port: aws.Int32(port),
+		})
 	}
 	return expectedTargets
 }
