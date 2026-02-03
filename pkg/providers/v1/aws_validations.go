@@ -104,17 +104,6 @@ func validateServiceAnnotations(v *awsValidationInput) error {
 		}
 	}
 
-	if _, present := v.annotations[ServiceAnnotationLoadBalancerIPAddressType]; present {
-		if !isNLB {
-			return fmt.Errorf("ip address type annotation is only supported for NLB")
-		}
-	}
-
-	if _, present := v.annotations[ServiceAnnotationLoadBalancerTargetGroupIPAddressType]; present {
-		if !isNLB {
-			return fmt.Errorf("target group ip address type annotation is only supported for NLB")
-		}
-	}
 	return nil
 }
 

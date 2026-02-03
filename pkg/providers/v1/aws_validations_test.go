@@ -419,54 +419,6 @@ func TestValidateServiceAnnotations(t *testing.T) {
 			expectedError: "target group attributes annotation is only supported for NLB",
 		},
 
-		// IPFamily annotation set to dualstack on NLB (should succeed)
-		{
-			name: "NLB with dualstack annotation - success",
-			annotations: map[string]string{
-				ServiceAnnotationLoadBalancerType:          "nlb",
-				ServiceAnnotationLoadBalancerIPAddressType: "dualstack",
-			},
-			expectedError: "",
-		},
-
-		// IPFamily annotation set to dualstack on CLB (should fail)
-		{
-			name: "CLB with dualstack annotation - fail",
-			annotations: map[string]string{
-				ServiceAnnotationLoadBalancerIPAddressType: "dualstack",
-			},
-			expectedError: "ip address type annotation is only supported for NLB",
-		},
-
-		// Target group IP address type annotation set to ipv6 on NLB (should succeed)
-		{
-			name: "NLB with ipv6 target group annotation - success",
-			annotations: map[string]string{
-				ServiceAnnotationLoadBalancerType:                     "nlb",
-				ServiceAnnotationLoadBalancerTargetGroupIPAddressType: "ipv6",
-			},
-			expectedError: "",
-		},
-
-		// Target group IP address type annotation set to ipv4 on NLB (should succeed)
-		{
-			name: "NLB with ipv4 target group annotation - success",
-			annotations: map[string]string{
-				ServiceAnnotationLoadBalancerType:                     "nlb",
-				ServiceAnnotationLoadBalancerTargetGroupIPAddressType: "ipv4",
-			},
-			expectedError: "",
-		},
-
-		// Target group IP address type annotation set on CLB (should fail)
-		{
-			name: "CLB with ipv6 target group annotation - fail",
-			annotations: map[string]string{
-				ServiceAnnotationLoadBalancerTargetGroupIPAddressType: "ipv6",
-			},
-			expectedError: "target group ip address type annotation is only supported for NLB",
-		},
-
 		// No annotations (should succeed)
 		{
 			name:          "no annotations - success",

@@ -98,13 +98,7 @@ func isLBExternal(annotations map[string]string) bool {
 // getLBIPAddressType determines the load balancer IP address type from Service spec or annotations.
 // Priority order: annotations > spec fields > default (ipv4)
 func (c *Cloud) getLBIPAddressType(service *v1.Service) elbv2types.IpAddressType {
-	// Check annotation first for backward compatibility
-	if ipType, ok := service.Annotations[ServiceAnnotationLoadBalancerIPAddressType]; ok {
-		klog.V(4).Infof("Using load balancer IP address type from annotation: %s", ipType)
-		return elbv2types.IpAddressType(ipType)
-	}
-
-	// Fall back to spec.ipFamilies and spec.ipFamilyPolicy
+	// Determine from spec.IPFamilyPolicy and spec.IPFamilies
 	if service.Spec.IPFamilyPolicy != nil {
 		switch *service.Spec.IPFamilyPolicy {
 		case v1.IPFamilyPolicyPreferDualStack, v1.IPFamilyPolicyRequireDualStack:
@@ -135,16 +129,9 @@ func (c *Cloud) getLBIPAddressType(service *v1.Service) elbv2types.IpAddressType
 	return elbv2types.IpAddressTypeIpv4
 }
 
-// getTargetGroupIPAddressType determines the target group IP address type from Service spec or annotations.
-// Priority order: annotations > spec fields > default (ipv4)
+// getTargetGroupIPAddressType determines the target group IP address type from Service spec.
 func (c *Cloud) getTargetGroupIPAddressType(service *v1.Service) elbv2types.TargetGroupIpAddressTypeEnum {
-	// Check annotation first for backward compatibility
-	if ipType, ok := service.Annotations[ServiceAnnotationLoadBalancerTargetGroupIPAddressType]; ok {
-		klog.V(4).Infof("Using target group IP address type from annotation: %s", ipType)
-		return elbv2types.TargetGroupIpAddressTypeEnum(ipType)
-	}
-
-	// Determine from spec.ipFamilies - use the first family as primary
+	// Determine from spec.ipFamilies - use the primary (first) family
 	if len(service.Spec.IPFamilies) > 0 {
 		primaryFamily := service.Spec.IPFamilies[0]
 		if primaryFamily == v1.IPv6Protocol {

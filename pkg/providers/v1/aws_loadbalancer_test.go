@@ -2373,38 +2373,6 @@ func TestGetLBIPAddressType(t *testing.T) {
 		service  *v1.Service
 		expected elbv2types.IpAddressType
 	}{
-		// Annotation precedence tests
-		{
-			name: "annotation takes precedence over spec - dualstack annotation with SingleStack spec",
-			service: &v1.Service{
-				ObjectMeta: metav1.ObjectMeta{
-					Annotations: map[string]string{
-						ServiceAnnotationLoadBalancerIPAddressType: "dualstack",
-					},
-				},
-				Spec: v1.ServiceSpec{
-					IPFamilyPolicy: ptr.To(v1.IPFamilyPolicySingleStack),
-					IPFamilies:     []v1.IPFamily{v1.IPv4Protocol},
-				},
-			},
-			expected: elbv2types.IpAddressTypeDualstack,
-		},
-		{
-			name: "annotation takes precedence - ipv4 annotation with PreferDualStack spec",
-			service: &v1.Service{
-				ObjectMeta: metav1.ObjectMeta{
-					Annotations: map[string]string{
-						ServiceAnnotationLoadBalancerIPAddressType: "ipv4",
-					},
-				},
-				Spec: v1.ServiceSpec{
-					IPFamilyPolicy: ptr.To(v1.IPFamilyPolicyPreferDualStack),
-					IPFamilies:     []v1.IPFamily{v1.IPv4Protocol, v1.IPv6Protocol},
-				},
-			},
-			expected: elbv2types.IpAddressTypeIpv4,
-		},
-
 		// Dual-stack scenarios
 		{
 			name: "PreferDualStack with both IPv4 and IPv6 - returns dualstack",
@@ -2518,36 +2486,6 @@ func TestGetTargetGroupIPAddressType(t *testing.T) {
 		service  *v1.Service
 		expected elbv2types.TargetGroupIpAddressTypeEnum
 	}{
-		// Priority: Annotations take precedence
-		{
-			name: "annotation takes precedence - ipv6 annotation with IPv4 spec",
-			service: &v1.Service{
-				ObjectMeta: metav1.ObjectMeta{
-					Annotations: map[string]string{
-						ServiceAnnotationLoadBalancerTargetGroupIPAddressType: "ipv6",
-					},
-				},
-				Spec: v1.ServiceSpec{
-					IPFamilies: []v1.IPFamily{v1.IPv4Protocol},
-				},
-			},
-			expected: elbv2types.TargetGroupIpAddressTypeEnumIpv6,
-		},
-		{
-			name: "annotation takes precedence - ipv4 annotation with IPv6 spec",
-			service: &v1.Service{
-				ObjectMeta: metav1.ObjectMeta{
-					Annotations: map[string]string{
-						ServiceAnnotationLoadBalancerTargetGroupIPAddressType: "ipv4",
-					},
-				},
-				Spec: v1.ServiceSpec{
-					IPFamilies: []v1.IPFamily{v1.IPv6Protocol},
-				},
-			},
-			expected: elbv2types.TargetGroupIpAddressTypeEnumIpv4,
-		},
-
 		// Spec-based: IPv6 primary
 		{
 			name: "IPv6 as first family - returns ipv6",
