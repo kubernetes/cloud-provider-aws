@@ -20,12 +20,15 @@ import (
 	"context"
 	"fmt"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/apimachinery/pkg/util/sets"
+	"k8s.io/utils/ptr"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	ec2types "github.com/aws/aws-sdk-go-v2/service/ec2/types"
@@ -1015,8 +1018,9 @@ func TestCloud_diffTargetGroupTargets(t *testing.T) {
 
 func TestCloud_computeTargetGroupExpectedTargets(t *testing.T) {
 	type args struct {
-		instanceIDs []string
-		port        int32
+		instances     map[InstanceID]*ec2types.Instance
+		port          int32
+		ipAddressType elbv2types.TargetGroupIpAddressTypeEnum
 	}
 	tests := []struct {
 		name string
@@ -1026,16 +1030,20 @@ func TestCloud_computeTargetGroupExpectedTargets(t *testing.T) {
 		{
 			name: "no instance",
 			args: args{
-				instanceIDs: nil,
-				port:        8080,
+				instances:     nil,
+				port:          8080,
+				ipAddressType: elbv2types.TargetGroupIpAddressTypeEnumIpv4,
 			},
 			want: []*elbv2types.TargetDescription{},
 		},
 		{
-			name: "one instance",
+			name: "one instance - IPv4",
 			args: args{
-				instanceIDs: []string{"i-abcdef1"},
-				port:        8080,
+				instances: map[InstanceID]*ec2types.Instance{
+					"i-abcdef1": {},
+				},
+				port:          8080,
+				ipAddressType: elbv2types.TargetGroupIpAddressTypeEnumIpv4,
 			},
 			want: []*elbv2types.TargetDescription{
 				{
@@ -1045,10 +1053,15 @@ func TestCloud_computeTargetGroupExpectedTargets(t *testing.T) {
 			},
 		},
 		{
-			name: "multiple instances",
+			name: "multiple instances - IPv4",
 			args: args{
-				instanceIDs: []string{"i-abcdef1", "i-abcdef2", "i-abcdef3"},
-				port:        8080,
+				instances: map[InstanceID]*ec2types.Instance{
+					"i-abcdef1": {},
+					"i-abcdef2": {},
+					"i-abcdef3": {},
+				},
+				port:          8080,
+				ipAddressType: elbv2types.TargetGroupIpAddressTypeEnumIpv4,
 			},
 			want: []*elbv2types.TargetDescription{
 				{
@@ -1065,12 +1078,115 @@ func TestCloud_computeTargetGroupExpectedTargets(t *testing.T) {
 				},
 			},
 		},
+		{
+			name: "one instance - IPv6",
+			args: args{
+				instances: map[InstanceID]*ec2types.Instance{
+					"i-abcdef1": {
+						NetworkInterfaces: []ec2types.InstanceNetworkInterface{
+							{
+								Status: ec2types.NetworkInterfaceStatusInUse,
+								Ipv6Addresses: []ec2types.InstanceIpv6Address{
+									{
+										Ipv6Address: aws.String("2001:db8::1"),
+									},
+								},
+							},
+						},
+					},
+				},
+				port:          8080,
+				ipAddressType: elbv2types.TargetGroupIpAddressTypeEnumIpv6,
+			},
+			want: []*elbv2types.TargetDescription{
+				{
+					Id:   aws.String("i-abcdef1"),
+					Port: aws.Int32(8080),
+				},
+			},
+		},
+		{
+			name: "multiple instances - IPv6",
+			args: args{
+				instances: map[InstanceID]*ec2types.Instance{
+					"i-abcdef1": {
+						NetworkInterfaces: []ec2types.InstanceNetworkInterface{
+							{
+								Status: ec2types.NetworkInterfaceStatusInUse,
+								Ipv6Addresses: []ec2types.InstanceIpv6Address{
+									{
+										Ipv6Address: aws.String("2001:db8::1"),
+									},
+								},
+							},
+						},
+					},
+					"i-abcdef2": {
+						NetworkInterfaces: []ec2types.InstanceNetworkInterface{
+							{
+								Status: ec2types.NetworkInterfaceStatusInUse,
+								Ipv6Addresses: []ec2types.InstanceIpv6Address{
+									{
+										Ipv6Address: aws.String("2001:db8::2"),
+									},
+								},
+							},
+						},
+					},
+					"i-abcdef3": {
+						NetworkInterfaces: []ec2types.InstanceNetworkInterface{
+							{
+								Status: ec2types.NetworkInterfaceStatusInUse,
+								Ipv6Addresses: []ec2types.InstanceIpv6Address{
+									{
+										Ipv6Address: aws.String("2001:db8::3"),
+									},
+								},
+							},
+						},
+					},
+				},
+				port:          8080,
+				ipAddressType: elbv2types.TargetGroupIpAddressTypeEnumIpv6,
+			},
+			want: []*elbv2types.TargetDescription{
+				{
+					Id:   aws.String("i-abcdef1"),
+					Port: aws.Int32(8080),
+				},
+				{
+					Id:   aws.String("i-abcdef2"),
+					Port: aws.Int32(8080),
+				},
+				{
+					Id:   aws.String("i-abcdef3"),
+					Port: aws.Int32(8080),
+				},
+			},
+		},
+		{
+			name: "instance without IPv6 - IPv6 target group",
+			args: args{
+				instances: map[InstanceID]*ec2types.Instance{
+					"i-abcdef1": {
+						NetworkInterfaces: []ec2types.InstanceNetworkInterface{
+							{
+								Status: ec2types.NetworkInterfaceStatusInUse,
+							},
+						},
+					},
+				},
+				port:          8080,
+				ipAddressType: elbv2types.TargetGroupIpAddressTypeEnumIpv6,
+			},
+			want: []*elbv2types.TargetDescription{},
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			c := &Cloud{}
-			got := c.computeTargetGroupExpectedTargets(tt.args.instanceIDs, tt.args.port)
-			assert.Equal(t, tt.want, got)
+			got := c.computeTargetGroupExpectedTargets(tt.args.instances, tt.args.port, tt.args.ipAddressType)
+			assert.ElementsMatch(t, tt.want, got)
 		})
 	}
 }
@@ -1917,6 +2033,515 @@ func TestCloud_reconcileTargetGroupsAttributes(t *testing.T) {
 				assert.Equal(t, tt.expectedError, err.Error(), "Error message should contain expected text for test case: %s", tt.name)
 			} else {
 				assert.NoError(t, err, "Expected no error for test case: %s", tt.name)
+			}
+		})
+	}
+}
+
+func TestIsIPv6CIDR(t *testing.T) {
+	tests := []struct {
+		name     string
+		cidr     string
+		expected bool
+	}{
+		{
+			name:     "IPv4 CIDR - single IP",
+			cidr:     "192.168.1.1/32",
+			expected: false,
+		},
+		{
+			name:     "IPv4 CIDR - network",
+			cidr:     "10.0.0.0/8",
+			expected: false,
+		},
+		{
+			name:     "IPv4 CIDR - default route",
+			cidr:     "0.0.0.0/0",
+			expected: false,
+		},
+		{
+			name:     "IPv6 CIDR - single IP",
+			cidr:     "2001:db8::1/128",
+			expected: true,
+		},
+		{
+			name:     "IPv6 CIDR - network",
+			cidr:     "2001:db8::/32",
+			expected: true,
+		},
+		{
+			name:     "IPv6 CIDR - default route",
+			cidr:     "::/0",
+			expected: true,
+		},
+		{
+			name:     "IPv6 CIDR - link local",
+			cidr:     "fe80::/10",
+			expected: true,
+		},
+		{
+			name:     "IPv6 CIDR - unique local",
+			cidr:     "fc00::/7",
+			expected: true,
+		},
+		{
+			name:     "IPv6 CIDR - full address",
+			cidr:     "2001:0db8:85a3:0000:0000:8a2e:0370:7334/128",
+			expected: true,
+		},
+		{
+			name:     "IPv6 CIDR - compressed",
+			cidr:     "2001:db8::8a2e:370:7334/64",
+			expected: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := isIPv6CIDR(tt.cidr)
+			assert.Equal(t, tt.expected, result)
+		})
+	}
+}
+
+func TestUpdateInstanceSecurityGroupForNLBTraffic_IPv6(t *testing.T) {
+	ctx := context.Background()
+	awsServices := NewFakeAWSServices("test-cluster")
+	c, err := newAWSCloud(config.CloudConfig{}, awsServices)
+	if err != nil {
+		t.Fatalf("Failed to create cloud: %v", err)
+	}
+
+	// Create a test security group
+	sgID := "sg-test"
+	awsServices.ec2.(*FakeEC2Impl).SecurityGroups[sgID] = &ec2types.SecurityGroup{
+		GroupId:       aws.String(sgID),
+		GroupName:     aws.String("test-sg"),
+		Description:   aws.String("Test security group"),
+		VpcId:         aws.String("vpc-test"),
+		IpPermissions: []ec2types.IpPermission{},
+	}
+
+	tests := []struct {
+		name                string
+		ruleDesc            string
+		protocol            string
+		ports               []int32
+		cidrs               []string
+		expectedIPv4Rules   int
+		expectedIPv6Rules   int
+		validatePermissions func(t *testing.T, perms []ec2types.IpPermission)
+	}{
+		{
+			name:              "IPv4 only CIDRs",
+			ruleDesc:          "test-ipv4-rule",
+			protocol:          "tcp",
+			ports:             []int32{80, 443},
+			cidrs:             []string{"10.0.0.0/8", "192.168.0.0/16"},
+			expectedIPv4Rules: 4, // 2 ports * 2 CIDRs
+			expectedIPv6Rules: 0,
+			validatePermissions: func(t *testing.T, perms []ec2types.IpPermission) {
+				ipv4Count := 0
+				for _, perm := range perms {
+					if len(perm.IpRanges) > 0 {
+						ipv4Count += len(perm.IpRanges)
+						assert.Equal(t, "tcp", aws.ToString(perm.IpProtocol))
+						assert.Contains(t, []int32{80, 443}, aws.ToInt32(perm.FromPort))
+						assert.Contains(t, []string{"10.0.0.0/8", "192.168.0.0/16"}, aws.ToString(perm.IpRanges[0].CidrIp))
+					}
+				}
+				assert.Equal(t, 4, ipv4Count, "Expected 4 IPv4 rules")
+			},
+		},
+		{
+			name:              "IPv6 only CIDRs",
+			ruleDesc:          "test-ipv6-rule",
+			protocol:          "tcp",
+			ports:             []int32{80, 443},
+			cidrs:             []string{"2001:db8::/32", "::/0"},
+			expectedIPv4Rules: 0,
+			expectedIPv6Rules: 4, // 2 ports * 2 CIDRs
+			validatePermissions: func(t *testing.T, perms []ec2types.IpPermission) {
+				ipv6Count := 0
+				for _, perm := range perms {
+					if len(perm.Ipv6Ranges) > 0 {
+						ipv6Count += len(perm.Ipv6Ranges)
+						assert.Equal(t, "tcp", aws.ToString(perm.IpProtocol))
+						assert.Contains(t, []int32{80, 443}, aws.ToInt32(perm.FromPort))
+						assert.Contains(t, []string{"2001:db8::/32", "::/0"}, aws.ToString(perm.Ipv6Ranges[0].CidrIpv6))
+					}
+				}
+				assert.Equal(t, 4, ipv6Count, "Expected 4 IPv6 rules")
+			},
+		},
+		{
+			name:              "Mixed IPv4 and IPv6 CIDRs (dual-stack)",
+			ruleDesc:          "test-dual-stack-rule",
+			protocol:          "tcp",
+			ports:             []int32{80, 443},
+			cidrs:             []string{"0.0.0.0/0", "::/0", "10.0.1.0/24", "2001:db8:1::/64"},
+			expectedIPv4Rules: 4, // 2 ports * 2 IPv4 CIDRs
+			expectedIPv6Rules: 4, // 2 ports * 2 IPv6 CIDRs
+			validatePermissions: func(t *testing.T, perms []ec2types.IpPermission) {
+				ipv4Count := 0
+				ipv6Count := 0
+				for _, perm := range perms {
+					if len(perm.IpRanges) > 0 {
+						ipv4Count += len(perm.IpRanges)
+						assert.Equal(t, "tcp", aws.ToString(perm.IpProtocol))
+						assert.Contains(t, []int32{80, 443}, aws.ToInt32(perm.FromPort))
+						assert.Contains(t, []string{"0.0.0.0/0", "10.0.1.0/24"}, aws.ToString(perm.IpRanges[0].CidrIp))
+					}
+					if len(perm.Ipv6Ranges) > 0 {
+						ipv6Count += len(perm.Ipv6Ranges)
+						assert.Equal(t, "tcp", aws.ToString(perm.IpProtocol))
+						assert.Contains(t, []int32{80, 443}, aws.ToInt32(perm.FromPort))
+						assert.Contains(t, []string{"::/0", "2001:db8:1::/64"}, aws.ToString(perm.Ipv6Ranges[0].CidrIpv6))
+					}
+				}
+				assert.Equal(t, 4, ipv4Count, "Expected 4 IPv4 rules")
+				assert.Equal(t, 4, ipv6Count, "Expected 4 IPv6 rules")
+			},
+		},
+		{
+			name:              "UDP protocol with IPv6",
+			ruleDesc:          "test-udp-ipv6-rule",
+			protocol:          "udp",
+			ports:             []int32{53},
+			cidrs:             []string{"2001:db8::/32"},
+			expectedIPv4Rules: 0,
+			expectedIPv6Rules: 1,
+			validatePermissions: func(t *testing.T, perms []ec2types.IpPermission) {
+				ipv6Count := 0
+				for _, perm := range perms {
+					if len(perm.Ipv6Ranges) > 0 {
+						ipv6Count += len(perm.Ipv6Ranges)
+						assert.Equal(t, "udp", aws.ToString(perm.IpProtocol))
+						assert.Equal(t, int32(53), aws.ToInt32(perm.FromPort))
+						assert.Equal(t, "2001:db8::/32", aws.ToString(perm.Ipv6Ranges[0].CidrIpv6))
+					}
+				}
+				assert.Equal(t, 1, ipv6Count, "Expected 1 IPv6 UDP rule")
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Reset security group permissions before each test
+			awsServices.ec2.(*FakeEC2Impl).SecurityGroups[sgID].IpPermissions = []ec2types.IpPermission{}
+
+			// Convert ports slice to sets.Set
+			portSet := sets.Set[int32]{}
+			for _, port := range tt.ports {
+				portSet.Insert(port)
+			}
+
+			// Call the function under test
+			sgPerms := NewIPPermissionSet()
+			err := c.updateInstanceSecurityGroupForNLBTraffic(ctx, sgID, sgPerms, tt.ruleDesc, tt.protocol, portSet, tt.cidrs)
+			if err != nil {
+				t.Fatalf("updateInstanceSecurityGroupForNLBTraffic failed: %v", err)
+			}
+
+			// Get the updated security group
+			sg := awsServices.ec2.(*FakeEC2Impl).SecurityGroups[sgID]
+			if sg == nil {
+				t.Fatal("Security group not found after update")
+			}
+
+			// Count IPv4 and IPv6 rules
+			ipv4RuleCount := 0
+			ipv6RuleCount := 0
+			for _, perm := range sg.IpPermissions {
+				ipv4RuleCount += len(perm.IpRanges)
+				ipv6RuleCount += len(perm.Ipv6Ranges)
+			}
+
+			// Verify counts
+			assert.Equal(t, tt.expectedIPv4Rules, ipv4RuleCount, "IPv4 rule count mismatch")
+			assert.Equal(t, tt.expectedIPv6Rules, ipv6RuleCount, "IPv6 rule count mismatch")
+
+			// Run custom validation
+			if tt.validatePermissions != nil {
+				tt.validatePermissions(t, sg.IpPermissions)
+			}
+		})
+	}
+}
+
+func TestUpdateInstanceSecurityGroupForNLBTraffic_DualStack_Integration(t *testing.T) {
+	ctx := context.Background()
+	awsServices := NewFakeAWSServices("test-cluster")
+	c, err := newAWSCloud(config.CloudConfig{}, awsServices)
+	if err != nil {
+		t.Fatalf("Failed to create cloud: %v", err)
+	}
+
+	// Create a test security group
+	sgID := "sg-dualstack-test"
+	awsServices.ec2.(*FakeEC2Impl).SecurityGroups[sgID] = &ec2types.SecurityGroup{
+		GroupId:       aws.String(sgID),
+		GroupName:     aws.String("dualstack-test-sg"),
+		Description:   aws.String("Dual-stack test security group"),
+		VpcId:         aws.String("vpc-test"),
+		IpPermissions: []ec2types.IpPermission{},
+	}
+
+	// Simulate a dual-stack NLB scenario with both client traffic and health checks
+	clientPorts := sets.Set[int32]{}
+	clientPorts.Insert(80)
+	clientPorts.Insert(443)
+
+	healthCheckPorts := sets.Set[int32]{}
+	healthCheckPorts.Insert(80)
+	healthCheckPorts.Insert(443)
+
+	// Client traffic CIDRs (dual-stack: IPv4 and IPv6 default routes)
+	clientCIDRs := []string{"0.0.0.0/0", "::/0"}
+
+	// Health check CIDRs (subnet CIDRs in dual-stack)
+	subnetCIDRs := []string{"10.0.1.0/24", "10.0.2.0/24", "2001:db8:1::/64", "2001:db8:2::/64"}
+
+	sgPerms := NewIPPermissionSet()
+
+	// Add client traffic rules
+	err = c.updateInstanceSecurityGroupForNLBTraffic(ctx, sgID, sgPerms, "client-traffic-nlb=test-lb", "tcp", clientPorts, clientCIDRs)
+	if err != nil {
+		t.Fatalf("Failed to add client traffic rules: %v", err)
+	}
+
+	// Add health check rules
+	err = c.updateInstanceSecurityGroupForNLBTraffic(ctx, sgID, sgPerms, "health-check-nlb=test-lb", "tcp", healthCheckPorts, subnetCIDRs)
+	if err != nil {
+		t.Fatalf("Failed to add health check rules: %v", err)
+	}
+
+	// Get the updated security group
+	sg := awsServices.ec2.(*FakeEC2Impl).SecurityGroups[sgID]
+	if sg == nil {
+		t.Fatal("Security group not found after update")
+	}
+
+	// Verify the rules
+	clientIPv4Rules := 0
+	clientIPv6Rules := 0
+	healthCheckIPv4Rules := 0
+	healthCheckIPv6Rules := 0
+
+	for _, perm := range sg.IpPermissions {
+		for _, ipRange := range perm.IpRanges {
+			desc := aws.ToString(ipRange.Description)
+			if strings.Contains(desc, "client-traffic-nlb") {
+				clientIPv4Rules++
+				assert.Equal(t, "0.0.0.0/0", aws.ToString(ipRange.CidrIp))
+			} else if strings.Contains(desc, "health-check-nlb") {
+				healthCheckIPv4Rules++
+				assert.Contains(t, []string{"10.0.1.0/24", "10.0.2.0/24"}, aws.ToString(ipRange.CidrIp))
+			}
+		}
+		for _, ipv6Range := range perm.Ipv6Ranges {
+			desc := aws.ToString(ipv6Range.Description)
+			if strings.Contains(desc, "client-traffic-nlb") {
+				clientIPv6Rules++
+				assert.Equal(t, "::/0", aws.ToString(ipv6Range.CidrIpv6))
+			} else if strings.Contains(desc, "health-check-nlb") {
+				healthCheckIPv6Rules++
+				assert.Contains(t, []string{"2001:db8:1::/64", "2001:db8:2::/64"}, aws.ToString(ipv6Range.CidrIpv6))
+			}
+		}
+	}
+
+	// Verify counts for client traffic rules (2 ports * 1 IPv4 CIDR = 2, 2 ports * 1 IPv6 CIDR = 2)
+	assert.Equal(t, 2, clientIPv4Rules, "Expected 2 client IPv4 rules")
+	assert.Equal(t, 2, clientIPv6Rules, "Expected 2 client IPv6 rules")
+
+	// Verify counts for health check rules (2 ports * 2 IPv4 CIDRs = 4, 2 ports * 2 IPv6 CIDRs = 4)
+	assert.Equal(t, 4, healthCheckIPv4Rules, "Expected 4 health check IPv4 rules")
+	assert.Equal(t, 4, healthCheckIPv6Rules, "Expected 4 health check IPv6 rules")
+
+	t.Logf("Successfully created dual-stack security group rules:")
+	t.Logf("  Client traffic: %d IPv4 rules, %d IPv6 rules", clientIPv4Rules, clientIPv6Rules)
+	t.Logf("  Health checks: %d IPv4 rules, %d IPv6 rules", healthCheckIPv4Rules, healthCheckIPv6Rules)
+	t.Logf("  Total: %d rules", len(sg.IpPermissions))
+}
+
+// TestGetLBIPAddressType validates the getLBIPAddressType function
+func TestGetLBIPAddressType(t *testing.T) {
+	tests := []struct {
+		name     string
+		service  *v1.Service
+		expected elbv2types.IpAddressType
+	}{
+		// Dual-stack scenarios
+		{
+			name: "PreferDualStack with both IPv4 and IPv6 - returns dualstack",
+			service: &v1.Service{
+				Spec: v1.ServiceSpec{
+					IPFamilyPolicy: ptr.To(v1.IPFamilyPolicyPreferDualStack),
+					IPFamilies:     []v1.IPFamily{v1.IPv4Protocol, v1.IPv6Protocol},
+				},
+			},
+			expected: elbv2types.IpAddressTypeDualstack,
+		},
+		{
+			name: "PreferDualStack with IPv6 first - returns dualstack",
+			service: &v1.Service{
+				Spec: v1.ServiceSpec{
+					IPFamilyPolicy: ptr.To(v1.IPFamilyPolicyPreferDualStack),
+					IPFamilies:     []v1.IPFamily{v1.IPv6Protocol, v1.IPv4Protocol},
+				},
+			},
+			expected: elbv2types.IpAddressTypeDualstack,
+		},
+		{
+			name: "PreferDualStack with incomplete families - falls back to ipv4",
+			service: &v1.Service{
+				Spec: v1.ServiceSpec{
+					IPFamilyPolicy: ptr.To(v1.IPFamilyPolicyPreferDualStack),
+					IPFamilies:     []v1.IPFamily{v1.IPv4Protocol},
+				},
+			},
+			expected: elbv2types.IpAddressTypeIpv4,
+		},
+
+		{
+			name: "RequireDualStack with both families - returns dualstack",
+			service: &v1.Service{
+				Spec: v1.ServiceSpec{
+					IPFamilyPolicy: ptr.To(v1.IPFamilyPolicyRequireDualStack),
+					IPFamilies:     []v1.IPFamily{v1.IPv4Protocol, v1.IPv6Protocol},
+				},
+			},
+			expected: elbv2types.IpAddressTypeDualstack,
+		},
+		{
+			name: "RequireDualStack with IPv6 first - returns dualstack",
+			service: &v1.Service{
+				Spec: v1.ServiceSpec{
+					IPFamilyPolicy: ptr.To(v1.IPFamilyPolicyRequireDualStack),
+					IPFamilies:     []v1.IPFamily{v1.IPv6Protocol, v1.IPv4Protocol},
+				},
+			},
+			expected: elbv2types.IpAddressTypeDualstack,
+		},
+		{
+			name: "RequireDualStack with only IPv4 - falls back to ipv4 (validation should catch this)",
+			service: &v1.Service{
+				Spec: v1.ServiceSpec{
+					IPFamilyPolicy: ptr.To(v1.IPFamilyPolicyRequireDualStack),
+					IPFamilies:     []v1.IPFamily{v1.IPv4Protocol},
+				},
+			},
+			expected: elbv2types.IpAddressTypeIpv4,
+		},
+
+		// Single-stack scenarios
+		{
+			name: "SingleStack with IPv4 - returns ipv4",
+			service: &v1.Service{
+				Spec: v1.ServiceSpec{
+					IPFamilyPolicy: ptr.To(v1.IPFamilyPolicySingleStack),
+					IPFamilies:     []v1.IPFamily{v1.IPv4Protocol},
+				},
+			},
+			expected: elbv2types.IpAddressTypeIpv4,
+		},
+		{
+			name: "SingleStack with IPv6 - returns ipv4 (AWS limitation)",
+			service: &v1.Service{
+				Spec: v1.ServiceSpec{
+					IPFamilyPolicy: ptr.To(v1.IPFamilyPolicySingleStack),
+					IPFamilies:     []v1.IPFamily{v1.IPv6Protocol},
+				},
+			},
+			expected: elbv2types.IpAddressTypeIpv4,
+		},
+
+		// Default/fallback scenarios
+		{
+			name: "no ipFamilyPolicy or ipFamilies - defaults to ipv4",
+			service: &v1.Service{
+				Spec: v1.ServiceSpec{},
+			},
+			expected: elbv2types.IpAddressTypeIpv4,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			c := &Cloud{}
+			result := c.getLBIPAddressType(tt.service)
+			if result != tt.expected {
+				t.Errorf("getLBIPAddressType() = %v, want %v", result, tt.expected)
+			}
+		})
+	}
+}
+
+// TestGetTargetGroupIPAddressType validates the getTargetGroupIPAddressType function
+func TestGetTargetGroupIPAddressType(t *testing.T) {
+	tests := []struct {
+		name     string
+		service  *v1.Service
+		expected elbv2types.TargetGroupIpAddressTypeEnum
+	}{
+		// Spec-based: IPv6 primary
+		{
+			name: "IPv6 as first family - returns ipv6",
+			service: &v1.Service{
+				Spec: v1.ServiceSpec{
+					IPFamilies: []v1.IPFamily{v1.IPv6Protocol, v1.IPv4Protocol},
+				},
+			},
+			expected: elbv2types.TargetGroupIpAddressTypeEnumIpv6,
+		},
+		{
+			name: "IPv6 only - returns ipv6",
+			service: &v1.Service{
+				Spec: v1.ServiceSpec{
+					IPFamilies: []v1.IPFamily{v1.IPv6Protocol},
+				},
+			},
+			expected: elbv2types.TargetGroupIpAddressTypeEnumIpv6,
+		},
+
+		// Spec-based: IPv4 primary
+		{
+			name: "IPv4 as first family - returns ipv4",
+			service: &v1.Service{
+				Spec: v1.ServiceSpec{
+					IPFamilies: []v1.IPFamily{v1.IPv4Protocol, v1.IPv6Protocol},
+				},
+			},
+			expected: elbv2types.TargetGroupIpAddressTypeEnumIpv4,
+		},
+		{
+			name: "IPv4 only - returns ipv4",
+			service: &v1.Service{
+				Spec: v1.ServiceSpec{
+					IPFamilies: []v1.IPFamily{v1.IPv4Protocol},
+				},
+			},
+			expected: elbv2types.TargetGroupIpAddressTypeEnumIpv4,
+		},
+
+		// Default/fallback scenarios
+		{
+			name: "no ipFamilies field - defaults to ipv4",
+			service: &v1.Service{
+				Spec: v1.ServiceSpec{},
+			},
+			expected: elbv2types.TargetGroupIpAddressTypeEnumIpv4,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			c := &Cloud{}
+			result := c.getTargetGroupIPAddressType(tt.service)
+			if result != tt.expected {
+				t.Errorf("getTargetGroupIPAddressType() = %v, want %v", result, tt.expected)
 			}
 		})
 	}

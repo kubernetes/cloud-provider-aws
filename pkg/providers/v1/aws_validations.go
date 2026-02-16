@@ -45,6 +45,11 @@ func ensureLoadBalancerValidation(v *awsValidationInput) error {
 		return err
 	}
 
+	// Validate ipFamilyPolicy and ipFamilies
+	if err := validateIPFamilyPolicy(v); err != nil {
+		return err
+	}
+
 	// TODO: migrate other validations from EnsureLoadBalancer to this function.
 	return nil
 }
@@ -98,6 +103,53 @@ func validateServiceAnnotations(v *awsValidationInput) error {
 			return err
 		}
 	}
+
+	return nil
+}
+
+// validateIPFamilyPolicy validates the ipFamilyPolicy and ipFamilies fields in the Service spec.
+func validateIPFamilyPolicy(v *awsValidationInput) error {
+	isNLB := isNLB(v.annotations)
+
+	// Validate ipFamilyPolicy and ipFamilies
+	if v.apiService.Spec.IPFamilyPolicy != nil {
+		switch *v.apiService.Spec.IPFamilyPolicy {
+		case v1.IPFamilyPolicyRequireDualStack:
+			// RequireDualStack is only supported for NLB
+			if !isNLB {
+				return fmt.Errorf("ipFamilyPolicy RequireDualStack is only supported for NLB (set annotation service.beta.kubernetes.io/aws-load-balancer-type: nlb)")
+			}
+
+			// Ensure both IPv4 and IPv6 are specified
+			hasIPv4, hasIPv6 := false, false
+			for _, family := range v.apiService.Spec.IPFamilies {
+				switch family {
+				case v1.IPv4Protocol:
+					hasIPv4 = true
+				case v1.IPv6Protocol:
+					hasIPv6 = true
+				}
+				// If we somehow get more than 2 entries, we don't need to iterate over them.
+				if hasIPv4 && hasIPv6 {
+					break
+				}
+			}
+			if !hasIPv4 || !hasIPv6 {
+				return fmt.Errorf("ipFamilyPolicy RequireDualStack requires both IPv4 and IPv6 in spec.ipFamilies")
+			}
+
+		case v1.IPFamilyPolicySingleStack:
+			// SingleStack with IPv6-only is not supported (AWS limitation)
+			if len(v.apiService.Spec.IPFamilies) == 1 && v.apiService.Spec.IPFamilies[0] == v1.IPv6Protocol {
+				return fmt.Errorf("IPv6-only load balancers are not supported by AWS (use ipFamilyPolicy: PreferDualStack with ipFamilies: [IPv6, IPv4] instead)")
+			}
+
+		case v1.IPFamilyPolicyPreferDualStack:
+			// PreferDualStack is supported for both CLB (will only use IPv4) and NLB
+			// No additional validation needed
+		}
+	}
+
 	return nil
 }
 

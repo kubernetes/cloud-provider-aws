@@ -234,6 +234,16 @@ const ServiceAnnotationLoadBalancerEIPAllocations = "service.beta.kubernetes.io/
 // static IP addresses for the NLB. Only supported on elbv2 (NLB)
 const ServiceAnnotationLoadBalancerPrivateIPv4Addresses = "service.beta.kubernetes.io/aws-load-balancer-private-ipv4-addresses"
 
+// ServiceAnnotationLoadBalancerIPAddressType is the annotation used on the service
+// to specify the IP address type for the load balancer. Supported values are "ipv4" and "dualstack".
+// Defaults to "ipv4". Only supported on NLB.
+const ServiceAnnotationLoadBalancerIPAddressType = "service.beta.kubernetes.io/aws-load-balancer-ip-address-type"
+
+// ServiceAnnotationLoadBalancerTargetGroupIPAddressType is the annotation used on the service
+// to specify the IP address type for the target groups. Supported values are "ipv4" and "ipv6".
+// Defaults to "ipv4". Only supported on NLB.
+const ServiceAnnotationLoadBalancerTargetGroupIPAddressType = "service.beta.kubernetes.io/aws-load-balancer-target-group-ip-address-type"
+
 // ServiceAnnotationLoadBalancerTargetNodeLabels is the annotation used on the service
 // to specify a comma-separated list of key-value pairs which will be used to select
 // the target nodes for the load balancer
@@ -1296,6 +1306,20 @@ func ipPermissionExists(newPermission, existing *ec2types.IpPermission, compareG
 		}
 	}
 
+	// Check IPv6 ranges
+	for j := range newPermission.Ipv6Ranges {
+		found := false
+		for k := range existing.Ipv6Ranges {
+			if isEqualStringPointer(newPermission.Ipv6Ranges[j].CidrIpv6, existing.Ipv6Ranges[k].CidrIpv6) {
+				found = true
+				break
+			}
+		}
+		if !found {
+			return false
+		}
+	}
+
 	for _, leftPair := range newPermission.UserIdGroupPairs {
 		found := false
 		for _, rightPair := range existing.UserIdGroupPairs {
@@ -2116,7 +2140,16 @@ func (c *Cloud) getSubnetCidrs(ctx context.Context, subnetIDs []string) ([]strin
 
 	cidrs := make([]string, 0, len(subnets))
 	for _, subnet := range subnets {
+		// Add IPv4 CIDR
 		cidrs = append(cidrs, aws.ToString(subnet.CidrBlock))
+
+		// Add IPv6 CIDRs if present
+		for _, ipv6Association := range subnet.Ipv6CidrBlockAssociationSet {
+			if ipv6Association.Ipv6CidrBlockState != nil &&
+				ipv6Association.Ipv6CidrBlockState.State == ec2types.SubnetCidrBlockStateCodeAssociated {
+				cidrs = append(cidrs, aws.ToString(ipv6Association.Ipv6CidrBlock))
+			}
+		}
 	}
 	return cidrs, nil
 }
@@ -2430,11 +2463,6 @@ func (c *Cloud) EnsureLoadBalancer(ctx context.Context, clusterName string, apiS
 		loadBalancerName := c.GetLoadBalancerName(ctx, clusterName, apiService)
 		serviceName := types.NamespacedName{Namespace: apiService.Namespace, Name: apiService.Name}
 
-		instanceIDs := []string{}
-		for id := range instances {
-			instanceIDs = append(instanceIDs, string(id))
-		}
-
 		securityGroups, err := c.ensureNLBSecurityGroup(ctx,
 			loadBalancerName,
 			clusterName,
@@ -2447,11 +2475,12 @@ func (c *Cloud) EnsureLoadBalancer(ctx context.Context, clusterName string, apiS
 			serviceName,
 			loadBalancerName,
 			v2Mappings,
-			instanceIDs,
+			instances,
 			discoveredSubnetIDs,
 			internalELB,
 			annotations,
 			securityGroups,
+			apiService,
 		)
 		if err != nil {
 			return nil, err
@@ -2483,6 +2512,12 @@ func (c *Cloud) EnsureLoadBalancer(ctx context.Context, clusterName string, apiS
 		}
 		if len(sourceRangeCidrs) == 0 {
 			sourceRangeCidrs = append(sourceRangeCidrs, "0.0.0.0/0")
+
+			// For dual-stack or IPv6 load balancers, also add IPv6 default route
+			lbIPAddressType := c.getLBIPAddressType(apiService)
+			if lbIPAddressType == elbv2types.IpAddressTypeDualstack {
+				sourceRangeCidrs = append(sourceRangeCidrs, "::/0")
+			}
 		}
 
 		err = c.updateInstanceSecurityGroupsForNLB(ctx, loadBalancerName, instances, subnetCidrs, sourceRangeCidrs, v2Mappings)
