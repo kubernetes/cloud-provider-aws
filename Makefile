@@ -170,6 +170,7 @@ test-e2e-latest-k8s: switch-to-latest-k8s e2e.test ko-build-local install-e2e-to
 	BUILD_IMAGE=$(IMAGE) \
 	BUILD_VERSION=$(VERSION) \
 	INSTALL_PATH=$(INSTALL_PATH) \
+	KOPS_DISCOVERY_STORE=s3://cloud-provider-aws-shared-e2e \
 	GINKGO_FOCUS="\[cloud-provider-aws-e2e\]" \
 	./hack/e2e/run.sh
 
@@ -180,6 +181,7 @@ test-e2e: e2e.test docker-build-amd64 install-e2e-tools
 	BUILD_IMAGE=$(IMAGE) \
 	BUILD_VERSION=$(VERSION) \
 	INSTALL_PATH=$(INSTALL_PATH) \
+	KOPS_DISCOVERY_STORE=s3://cloud-provider-aws-shared-e2e \
 	GINKGO_FOCUS="\[cloud-provider-aws-e2e\]" \
 	./hack/e2e/run.sh
 
