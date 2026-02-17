@@ -24,4 +24,6 @@ const (
 	// but will be initially applied to nodes. The suffix should be an incremented
 	// integer starting at 1.
 	LabelNetworkNodePrefix = "topology.k8s.aws/network-node-layer-"
+
+	LabelAutoScalingGroupName = "node.k8s.aws/auto-scaling-group-name"
 )

@@ -1001,6 +1001,18 @@ func (c *Cloud) getInstanceType(instance *ec2types.Instance) string {
 	return string(instance.InstanceType)
 }
 
+func (c *Cloud) getInstanceTag(instance *ec2types.Instance, key string) *string {
+	for _, tag := range instance.Tags {
+		if strings.EqualFold(*tag.Key, key) { // case-insensitive match
+			if tag.Value == nil || *tag.Value == "" {
+				return nil
+			}
+			return tag.Value
+		}
+	}
+	return nil // return empty string if tag not found
+}
+
 // InstanceType returns the type of the node with the specified nodeName.
 func (c *Cloud) InstanceType(ctx context.Context, nodeName types.NodeName) (string, error) {
 	if c.selfAWSInstance.nodeName == nodeName {
