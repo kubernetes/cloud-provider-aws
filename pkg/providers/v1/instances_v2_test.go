@@ -167,7 +167,7 @@ func TestInstanceShutdown(t *testing.T) {
 
 func TestInstanceMetadata(t *testing.T) {
 	t.Run("Should return populated InstanceMetadata", func(t *testing.T) {
-		instance := makeInstance("i-00000000000000000", "192.168.0.1", "1.2.3.4", "instance-same.ec2.internal", "instance-same.ec2.external", nil, true)
+		instance := makeInstance("i-00000000000000000", "192.168.0.1", "1.2.3.4", "instance-same.ec2.internal", "instance-same.ec2.external", nil, true, "ami-0000")
 		c, _ := mockInstancesResp(&instance, []*ec2types.Instance{&instance})
 		var mockedTopologyManager MockedInstanceTopologyManager
 		c.instanceTopologyManager = &mockedTopologyManager
@@ -207,11 +207,12 @@ func TestInstanceMetadata(t *testing.T) {
 			LabelNetworkNodePrefix + "1": "nn-123456789",
 			LabelNetworkNodePrefix + "2": "nn-234567890",
 			LabelNetworkNodePrefix + "3": "nn-345678901",
+			LabelImageID:                 "ami-0000",
 		}, result.AdditionalLabels)
 	})
 
 	t.Run("Should skip additional labels if already set", func(t *testing.T) {
-		instance := makeInstance("i-00000000000000000", "192.168.0.1", "1.2.3.4", "instance-same.ec2.internal", "instance-same.ec2.external", nil, true)
+		instance := makeInstance("i-00000000000000000", "192.168.0.1", "1.2.3.4", "instance-same.ec2.internal", "instance-same.ec2.external", nil, true, "ami-0000")
 		c, _ := mockInstancesResp(&instance, []*ec2types.Instance{&instance})
 		var mockedTopologyManager MockedInstanceTopologyManager
 		c.instanceTopologyManager = &mockedTopologyManager
@@ -226,6 +227,7 @@ func TestInstanceMetadata(t *testing.T) {
 			LabelNetworkNodePrefix + "1": "nn-123456789",
 			LabelNetworkNodePrefix + "2": "nn-234567890",
 			LabelNetworkNodePrefix + "3": "nn-345678901",
+			LabelImageID:                 "ami-0000",
 		}
 
 		result, err := c.InstanceMetadata(context.TODO(), node)
@@ -239,7 +241,7 @@ func TestInstanceMetadata(t *testing.T) {
 	})
 
 	t.Run("Should swallow errors if getting node topology fails if instance type not expected to be supported", func(t *testing.T) {
-		instance := makeInstance("i-00000000000000000", "192.168.0.1", "1.2.3.4", "instance-same.ec2.internal", "instance-same.ec2.external", nil, true)
+		instance := makeInstance("i-00000000000000000", "192.168.0.1", "1.2.3.4", "instance-same.ec2.internal", "instance-same.ec2.external", nil, true, "ami-0000")
 		c, _ := mockInstancesResp(&instance, []*ec2types.Instance{&instance})
 		var mockedTopologyManager MockedInstanceTopologyManager
 		c.instanceTopologyManager = &mockedTopologyManager
@@ -259,12 +261,13 @@ func TestInstanceMetadata(t *testing.T) {
 
 		mockedTopologyManager.AssertNumberOfCalls(t, "GetNodeTopology", 1)
 		assert.Equal(t, map[string]string{
-			LabelZoneID: "az1",
+			LabelZoneID:  "az1",
+			LabelImageID: "ami-0000",
 		}, result.AdditionalLabels)
 	})
 
 	t.Run("Should not swallow errors if getting node topology fails if instance type is expected to be supported", func(t *testing.T) {
-		instance := makeInstance("i-00000000000000000", "192.168.0.1", "1.2.3.4", "instance-same.ec2.internal", "instance-same.ec2.external", nil, true)
+		instance := makeInstance("i-00000000000000000", "192.168.0.1", "1.2.3.4", "instance-same.ec2.internal", "instance-same.ec2.external", nil, true, "ami-0000")
 		c, _ := mockInstancesResp(&instance, []*ec2types.Instance{&instance})
 		var mockedTopologyManager MockedInstanceTopologyManager
 		c.instanceTopologyManager = &mockedTopologyManager
@@ -286,7 +289,7 @@ func TestInstanceMetadata(t *testing.T) {
 	})
 
 	t.Run("Should limit ec2:DescribeInstances calls to a single request per instance", func(t *testing.T) {
-		instance := makeInstance("i-00000000000001234", "192.168.0.1", "1.2.3.4", "instance-same.ec2.internal", "instance-same.ec2.external", nil, true)
+		instance := makeInstance("i-00000000000001234", "192.168.0.1", "1.2.3.4", "instance-same.ec2.internal", "instance-same.ec2.external", nil, true, "ami-0000")
 		c, awsServices := mockInstancesResp(&instance, []*ec2types.Instance{&instance})
 
 		// Add mock for DescribeInstanceTopology on the EC2 mock
