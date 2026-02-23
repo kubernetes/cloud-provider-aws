@@ -557,6 +557,22 @@ func (e2e *e2eTestConfig) buildDeployment(affinity bool) func(deployment *appsv1
 	}
 }
 
+// isNodeSchedulable checks if a node is schedulable by checking if it has any taints that prevent scheduling pods.
+func (e2e *e2eTestConfig) isNodeSchedulable(node *v1.Node) bool {
+	if node == nil {
+		return false
+	}
+	if len(node.Spec.Taints) == 0 {
+		return true
+	}
+	for _, taint := range node.Spec.Taints {
+		if node.Spec.Unschedulable || taint.Effect == v1.TaintEffectNoSchedule || taint.Effect == v1.TaintEffectNoExecute {
+			return false
+		}
+	}
+	return true
+}
+
 // discoverClusterWorkerNode identifies and selects worker nodes in the cluster based on predefined node label selectors.
 // It returns a ClusterNodeDiscovery struct with the discovered information.
 func (e2e *e2eTestConfig) discoverClusterWorkerNode() {
@@ -568,7 +584,12 @@ func (e2e *e2eTestConfig) discoverClusterWorkerNode() {
 		})
 		framework.ExpectNoError(err, "failed to list worker nodes")
 		if len(nodeList.Items) > 0 {
-			for _, node := range nodeList.Items {
+			for i := range nodeList.Items {
+				node := &nodeList.Items[i]
+				if !e2e.isNodeSchedulable(node) {
+					framework.Logf("skipping node %s because it has taints: %v", node.Name, node.Spec.Taints)
+					continue
+				}
 				workerNodeList = append(workerNodeList, node.Name)
 			}
 			// Save the first worker node in the list to be used in cases.
