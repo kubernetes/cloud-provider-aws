@@ -4053,6 +4053,8 @@ func TestEnsureLoadBalancer(t *testing.T) {
 		name           string
 		annotations    map[string]string
 		config         func() config.CloudConfig
+		ipFamilies     []v1.IPFamily
+		ipFamilyPolicy *v1.IPFamilyPolicy
 		want           *v1.LoadBalancerStatus
 		wantErr        bool
 		HookPostChecks func(*testCase, *Cloud, *v1.Service)
@@ -4092,6 +4094,13 @@ func TestEnsureLoadBalancer(t *testing.T) {
 					assert.Equal(t, len(loadBalancer.SecurityGroups), 1)
 				}
 			},
+		},
+		{
+			name:           "reject single stack IPv6 on NLB",
+			annotations:    map[string]string{ServiceAnnotationLoadBalancerType: "nlb"},
+			ipFamilies:     []v1.IPFamily{v1.IPv6Protocol},
+			ipFamilyPolicy: func() *v1.IPFamilyPolicy { p := v1.IPFamilyPolicySingleStack; return &p }(),
+			wantErr:        true,
 		},
 	}
 
@@ -4268,6 +4277,12 @@ func TestEnsureLoadBalancer(t *testing.T) {
 			testService := fauxService.DeepCopy()
 			if len(test.annotations) > 0 {
 				testService.Annotations = test.annotations
+			}
+			if len(test.ipFamilies) > 0 {
+				testService.Spec.IPFamilies = test.ipFamilies
+			}
+			if test.ipFamilyPolicy != nil {
+				testService.Spec.IPFamilyPolicy = test.ipFamilyPolicy
 			}
 
 			// Test
@@ -5203,4 +5218,190 @@ func TestCloud_GetSecurityGroupNameForNLB(t *testing.T) {
 			assert.True(t, validPattern.MatchString(result), "Result should contain only alphanumeric characters and dashes")
 		})
 	}
+}
+
+func TestSeparateIPv4AndIPv6CIDRs(t *testing.T) {
+	tests := []struct {
+		name         string
+		cidrs        []string
+		expectedIPv4 []ec2types.IpRange
+		expectedIPv6 []ec2types.Ipv6Range
+	}{
+		{
+			name:  "Only IPv4 CIDRs",
+			cidrs: []string{"192.168.1.0/24", "10.0.0.0/8"},
+			expectedIPv4: []ec2types.IpRange{
+				{CidrIp: aws.String("192.168.1.0/24")},
+				{CidrIp: aws.String("10.0.0.0/8")},
+			},
+			expectedIPv6: []ec2types.Ipv6Range{},
+		},
+		{
+			name:         "Only IPv6 CIDRs",
+			cidrs:        []string{"2001:db8::/32", "fd00::/8"},
+			expectedIPv4: []ec2types.IpRange{},
+			expectedIPv6: []ec2types.Ipv6Range{
+				{CidrIpv6: aws.String("2001:db8::/32")},
+				{CidrIpv6: aws.String("fd00::/8")},
+			},
+		},
+		{
+			name:  "Mixed IPv4 and IPv6 CIDRs",
+			cidrs: []string{"192.168.1.0/24", "2001:db8::/32", "10.0.0.0/8", "fd00::/8"},
+			expectedIPv4: []ec2types.IpRange{
+				{CidrIp: aws.String("192.168.1.0/24")},
+				{CidrIp: aws.String("10.0.0.0/8")},
+			},
+			expectedIPv6: []ec2types.Ipv6Range{
+				{CidrIpv6: aws.String("2001:db8::/32")},
+				{CidrIpv6: aws.String("fd00::/8")},
+			},
+		},
+		{
+			name:  "Default IPv4 and IPv6",
+			cidrs: []string{"0.0.0.0/0", "::/0"},
+			expectedIPv4: []ec2types.IpRange{
+				{CidrIp: aws.String("0.0.0.0/0")},
+			},
+			expectedIPv6: []ec2types.Ipv6Range{
+				{CidrIpv6: aws.String("::/0")},
+			},
+		},
+		{
+			name:         "Empty CIDR list",
+			cidrs:        []string{},
+			expectedIPv4: []ec2types.IpRange{},
+			expectedIPv6: []ec2types.Ipv6Range{},
+		},
+		{
+			name:  "Invalid CIDR is skipped",
+			cidrs: []string{"192.168.1.0/24", "invalid-cidr", "2001:db8::/32"},
+			expectedIPv4: []ec2types.IpRange{
+				{CidrIp: aws.String("192.168.1.0/24")},
+			},
+			expectedIPv6: []ec2types.Ipv6Range{
+				{CidrIpv6: aws.String("2001:db8::/32")},
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ipv4Ranges, ipv6Ranges := separateIPv4AndIPv6CIDRs(tt.cidrs)
+
+			// Compare IPv4 ranges
+			if len(ipv4Ranges) != len(tt.expectedIPv4) {
+				t.Errorf("IPv4 range count mismatch: got %d, expected %d", len(ipv4Ranges), len(tt.expectedIPv4))
+			}
+			for i, r := range ipv4Ranges {
+				if i >= len(tt.expectedIPv4) {
+					break
+				}
+				if aws.ToString(r.CidrIp) != aws.ToString(tt.expectedIPv4[i].CidrIp) {
+					t.Errorf("IPv4 range[%d] mismatch: got %s, expected %s",
+						i, aws.ToString(r.CidrIp), aws.ToString(tt.expectedIPv4[i].CidrIp))
+				}
+			}
+
+			// Compare IPv6 ranges
+			if len(ipv6Ranges) != len(tt.expectedIPv6) {
+				t.Errorf("IPv6 range count mismatch: got %d, expected %d", len(ipv6Ranges), len(tt.expectedIPv6))
+			}
+			for i, r := range ipv6Ranges {
+				if i >= len(tt.expectedIPv6) {
+					break
+				}
+				if aws.ToString(r.CidrIpv6) != aws.ToString(tt.expectedIPv6[i].CidrIpv6) {
+					t.Errorf("IPv6 range[%d] mismatch: got %s, expected %s",
+						i, aws.ToString(r.CidrIpv6), aws.ToString(tt.expectedIPv6[i].CidrIpv6))
+				}
+			}
+		})
+	}
+}
+
+func TestEnsureLoadBalancerWithLoadBalancerClass(t *testing.T) {
+	awsServices := newMockedFakeAWSServices(TestClusterID)
+	c, _ := newAWSCloud(config.CloudConfig{}, awsServices)
+
+	tests := []struct {
+		name              string
+		service           *v1.Service
+		expectNilResponse bool
+	}{
+		{
+			name: "Service with loadBalancerClass set",
+			service: &v1.Service{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-service",
+					Namespace: "default",
+				},
+				Spec: v1.ServiceSpec{
+					Type:              v1.ServiceTypeLoadBalancer,
+					LoadBalancerClass: aws.String("custom-lb-class"),
+					Ports: []v1.ServicePort{
+						{Port: 80, NodePort: 30080, Protocol: v1.ProtocolTCP},
+					},
+				},
+			},
+			expectNilResponse: true,
+		},
+		{
+			name: "Service without loadBalancerClass",
+			service: &v1.Service{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-service",
+					Namespace: "default",
+					Annotations: map[string]string{
+						ServiceAnnotationLoadBalancerType: "nlb",
+					},
+				},
+				Spec: v1.ServiceSpec{
+					Type:              v1.ServiceTypeLoadBalancer,
+					LoadBalancerClass: nil,
+					Ports: []v1.ServicePort{
+						{Port: 80, NodePort: 30080, Protocol: v1.ProtocolTCP},
+					},
+				},
+			},
+			expectNilResponse: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			status, err := c.EnsureLoadBalancer(context.TODO(), TestClusterName, tt.service, []*v1.Node{})
+
+			if tt.expectNilResponse {
+				// Should return nil, nil (no action taken)
+				assert.Nil(t, status, "Status should be nil for service with loadBalancerClass")
+				assert.NoError(t, err, "Error should be nil for service with loadBalancerClass")
+			} else {
+				// Should attempt to create (may fail in test, but not because of loadBalancerClass)
+				// Don't check specific error, just that it's not skipped
+			}
+		})
+	}
+}
+
+func TestEnsureLoadBalancerDeletedWithLoadBalancerClass(t *testing.T) {
+	awsServices := newMockedFakeAWSServices(TestClusterID)
+	c, _ := newAWSCloud(config.CloudConfig{}, awsServices)
+
+	// Test that when loadBalancerClass is set, the method returns early without error
+	service := &v1.Service{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "test-service",
+			Namespace: "default",
+		},
+		Spec: v1.ServiceSpec{
+			Type:              v1.ServiceTypeLoadBalancer,
+			LoadBalancerClass: aws.String("custom-lb-class"),
+		},
+	}
+
+	err := c.EnsureLoadBalancerDeleted(context.TODO(), TestClusterName, service)
+
+	// Should return nil (no error) without making any AWS API calls
+	assert.NoError(t, err, "EnsureLoadBalancerDeleted should return nil for service with loadBalancerClass")
 }

@@ -1921,3 +1921,135 @@ func TestCloud_reconcileTargetGroupsAttributes(t *testing.T) {
 		})
 	}
 }
+
+func TestGetTargetGroupIPAddressTypeFromService(t *testing.T) {
+	tests := []struct {
+		name     string
+		service  *v1.Service
+		expected elbv2types.TargetGroupIpAddressTypeEnum
+	}{
+		{
+			name: "IPv6 as first IP family",
+			service: &v1.Service{
+				Spec: v1.ServiceSpec{
+					IPFamilies: []v1.IPFamily{v1.IPv6Protocol, v1.IPv4Protocol},
+				},
+			},
+			expected: elbv2types.TargetGroupIpAddressTypeEnumIpv6,
+		},
+		{
+			name: "IPv6 as only IP family",
+			service: &v1.Service{
+				Spec: v1.ServiceSpec{
+					IPFamilies: []v1.IPFamily{v1.IPv6Protocol},
+				},
+			},
+			expected: elbv2types.TargetGroupIpAddressTypeEnumIpv6,
+		},
+		{
+			name: "IPv4 as first IP family",
+			service: &v1.Service{
+				Spec: v1.ServiceSpec{
+					IPFamilies: []v1.IPFamily{v1.IPv4Protocol, v1.IPv6Protocol},
+				},
+			},
+			expected: elbv2types.TargetGroupIpAddressTypeEnumIpv4,
+		},
+		{
+			name: "IPv4 as only IP family",
+			service: &v1.Service{
+				Spec: v1.ServiceSpec{
+					IPFamilies: []v1.IPFamily{v1.IPv4Protocol},
+				},
+			},
+			expected: elbv2types.TargetGroupIpAddressTypeEnumIpv4,
+		},
+		{
+			name: "No IP families specified (defaults to IPv4)",
+			service: &v1.Service{
+				Spec: v1.ServiceSpec{
+					IPFamilies: []v1.IPFamily{},
+				},
+			},
+			expected: elbv2types.TargetGroupIpAddressTypeEnumIpv4,
+		},
+		{
+			name:     "Nil service (defaults to IPv4)",
+			service:  nil,
+			expected: elbv2types.TargetGroupIpAddressTypeEnumIpv4,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := getTargetGroupIPAddressTypeFromService(tt.service)
+			assert.Equal(t, tt.expected, result, "IP address type should match expected for test case: %s", tt.name)
+		})
+	}
+}
+
+func TestServiceRequestsIPv6(t *testing.T) {
+	tests := []struct {
+		name     string
+		service  *v1.Service
+		expected bool
+	}{
+		{
+			name: "IPv6 only",
+			service: &v1.Service{
+				Spec: v1.ServiceSpec{
+					IPFamilies: []v1.IPFamily{v1.IPv6Protocol},
+				},
+			},
+			expected: true,
+		},
+		{
+			name: "Dual-stack IPv4 first",
+			service: &v1.Service{
+				Spec: v1.ServiceSpec{
+					IPFamilies: []v1.IPFamily{v1.IPv4Protocol, v1.IPv6Protocol},
+				},
+			},
+			expected: true,
+		},
+		{
+			name: "Dual-stack IPv6 first",
+			service: &v1.Service{
+				Spec: v1.ServiceSpec{
+					IPFamilies: []v1.IPFamily{v1.IPv6Protocol, v1.IPv4Protocol},
+				},
+			},
+			expected: true,
+		},
+		{
+			name: "IPv4 only",
+			service: &v1.Service{
+				Spec: v1.ServiceSpec{
+					IPFamilies: []v1.IPFamily{v1.IPv4Protocol},
+				},
+			},
+			expected: false,
+		},
+		{
+			name: "No IP families",
+			service: &v1.Service{
+				Spec: v1.ServiceSpec{
+					IPFamilies: []v1.IPFamily{},
+				},
+			},
+			expected: false,
+		},
+		{
+			name:     "Nil service",
+			service:  nil,
+			expected: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := serviceRequestsIPv6(tt.service)
+			assert.Equal(t, tt.expected, result, "IPv6 support detection should match expected for test case: %s", tt.name)
+		})
+	}
+}

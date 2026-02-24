@@ -24,6 +24,7 @@ import (
 	"fmt"
 	"reflect"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -94,6 +95,29 @@ func isLBExternal(annotations map[string]string) bool {
 	return false
 }
 
+// getTargetGroupIPAddressTypeFromService determines the IP address type for the target group
+// based on the Service's spec.ipFamilies field. According to Kubernetes dual-stack documentation:
+// - If ipFamilies[0] is IPv6, the target group should use IPv6
+// - If ipFamilies is not set or ipFamilies[0] is IPv4, the target group should use IPv4 (default)
+func getTargetGroupIPAddressTypeFromService(service *v1.Service) elbv2types.TargetGroupIpAddressTypeEnum {
+	if service != nil && len(service.Spec.IPFamilies) > 0 {
+		if service.Spec.IPFamilies[0] == v1.IPv6Protocol {
+			return elbv2types.TargetGroupIpAddressTypeEnumIpv6
+		}
+	}
+	// Default to IPv4
+	return elbv2types.TargetGroupIpAddressTypeEnumIpv4
+}
+
+// serviceRequestsIPv6 checks if the Service has IPv6 configured in its ipFamilies
+func serviceRequestsIPv6(service *v1.Service) bool {
+	if service == nil || len(service.Spec.IPFamilies) == 0 {
+		return false
+	}
+
+	return slices.Contains(service.Spec.IPFamilies, v1.IPv6Protocol)
+}
+
 type healthCheckConfig struct {
 	Port               string
 	Path               string
@@ -145,7 +169,7 @@ func getKeyValuePropertiesFromAnnotation(annotations map[string]string, annotati
 }
 
 // ensureLoadBalancerv2 ensures a v2 load balancer is created
-func (c *Cloud) ensureLoadBalancerv2(ctx context.Context, namespacedName types.NamespacedName, loadBalancerName string, mappings []nlbPortMapping, instanceIDs, discoveredSubnetIDs []string, internalELB bool, annotations map[string]string, securityGroups []string) (*elbv2types.LoadBalancer, error) {
+func (c *Cloud) ensureLoadBalancerv2(ctx context.Context, namespacedName types.NamespacedName, loadBalancerName string, mappings []nlbPortMapping, instanceIDs, discoveredSubnetIDs []string, internalELB bool, annotations map[string]string, securityGroups []string, service *v1.Service) (*elbv2types.LoadBalancer, error) {
 	loadBalancer, err := c.describeLoadBalancerv2(ctx, loadBalancerName)
 	if err != nil {
 		return nil, err
@@ -158,6 +182,16 @@ func (c *Cloud) ensureLoadBalancerv2(ctx context.Context, namespacedName types.N
 	// Add default tags
 	tags[TagNameKubernetesService] = namespacedName.String()
 	tags = c.tagging.buildTags(ResourceLifecycleOwned, tags)
+
+	// Determine target group IP address type based on Service spec.ipFamilies
+	targetGroupIPAddressType := getTargetGroupIPAddressTypeFromService(service)
+
+	// Validate that single stack IPv6 is not being used (not supported on NLB)
+	if service.Spec.IPFamilyPolicy != nil && *service.Spec.IPFamilyPolicy == v1.IPFamilyPolicySingleStack {
+		if serviceRequestsIPv6(service) {
+			return nil, fmt.Errorf("single stack IPv6 is not supported for network load balancers")
+		}
+	}
 
 	if loadBalancer == nil {
 		// Create the LB
@@ -208,7 +242,7 @@ func (c *Cloud) ensureLoadBalancerv2(ctx context.Context, namespacedName types.N
 		for i := range mappings {
 			// It is easier to keep track of updates by having possibly
 			// duplicate target groups where the backend port is the same
-			_, err := c.createListenerV2(ctx, createResponse.LoadBalancers[0].LoadBalancerArn, mappings[i], namespacedName, instanceIDs, *createResponse.LoadBalancers[0].VpcId, tags)
+			_, err := c.createListenerV2(ctx, createResponse.LoadBalancers[0].LoadBalancerArn, mappings[i], namespacedName, instanceIDs, *createResponse.LoadBalancers[0].VpcId, tags, targetGroupIPAddressType)
 			if err != nil {
 				return nil, fmt.Errorf("error creating listener: %q", err)
 			}
@@ -286,8 +320,9 @@ func (c *Cloud) ensureLoadBalancerv2(ctx context.Context, namespacedName types.N
 						}
 					}
 
-					// recreate targetGroup if trafficPort, protocol or HealthCheckProtocol changed
+					// recreate targetGroup if trafficPort, protocol, HealthCheckProtocol, or IpAddressType changed
 					healthCheckModified := false
+					ipAddressTypeChanged := false
 					targetGroupRecreated := false
 					targetGroup, ok := nodePortTargetGroup[nodePort]
 
@@ -296,7 +331,14 @@ func (c *Cloud) ensureLoadBalancerv2(ctx context.Context, namespacedName types.N
 						healthCheckModified = true
 					}
 
-					if !ok || targetGroup.Protocol != mapping.TrafficProtocol || healthCheckModified {
+					// Check if IP address type has changed (requires target group recreation)
+					if targetGroup != nil && targetGroup.IpAddressType != targetGroupIPAddressType {
+						klog.Infof("Target group IP address type changed from %s to %s for %v, will recreate target group",
+							targetGroup.IpAddressType, targetGroupIPAddressType, namespacedName)
+						ipAddressTypeChanged = true
+					}
+
+					if !ok || targetGroup.Protocol != mapping.TrafficProtocol || healthCheckModified || ipAddressTypeChanged {
 						// create new target group
 						targetGroup, err = c.ensureTargetGroup(ctx,
 							nil,
@@ -305,6 +347,7 @@ func (c *Cloud) ensureLoadBalancerv2(ctx context.Context, namespacedName types.N
 							instanceIDs,
 							*loadBalancer.VpcId,
 							tags,
+							targetGroupIPAddressType,
 						)
 						if err != nil {
 							return nil, err
@@ -354,6 +397,7 @@ func (c *Cloud) ensureLoadBalancerv2(ctx context.Context, namespacedName types.N
 							instanceIDs,
 							*loadBalancer.VpcId,
 							tags,
+							targetGroupIPAddressType,
 						)
 						if err != nil {
 							return nil, err
@@ -364,7 +408,7 @@ func (c *Cloud) ensureLoadBalancerv2(ctx context.Context, namespacedName types.N
 				}
 
 				// Additions
-				_, err := c.createListenerV2(ctx, loadBalancer.LoadBalancerArn, mapping, namespacedName, instanceIDs, *loadBalancer.VpcId, tags)
+				_, err := c.createListenerV2(ctx, loadBalancer.LoadBalancerArn, mapping, namespacedName, instanceIDs, *loadBalancer.VpcId, tags, targetGroupIPAddressType)
 				if err != nil {
 					return nil, err
 				}
@@ -685,7 +729,7 @@ func (c *Cloud) buildTargetGroupName(serviceName types.NamespacedName, servicePo
 	return fmt.Sprintf("k8s-%.8s-%.8s-%.10s", sanitizedNamespace, sanitizedServiceName, tgUUID)
 }
 
-func (c *Cloud) createListenerV2(ctx context.Context, loadBalancerArn *string, mapping nlbPortMapping, namespacedName types.NamespacedName, instanceIDs []string, vpcID string, tags map[string]string) (listener *elbv2types.Listener, err error) {
+func (c *Cloud) createListenerV2(ctx context.Context, loadBalancerArn *string, mapping nlbPortMapping, namespacedName types.NamespacedName, instanceIDs []string, vpcID string, tags map[string]string, ipAddressType elbv2types.TargetGroupIpAddressTypeEnum) (listener *elbv2types.Listener, err error) {
 	target, err := c.ensureTargetGroup(ctx,
 		nil,
 		namespacedName,
@@ -693,6 +737,7 @@ func (c *Cloud) createListenerV2(ctx context.Context, loadBalancerArn *string, m
 		instanceIDs,
 		vpcID,
 		tags,
+		ipAddressType,
 	)
 	if err != nil {
 		return nil, err
@@ -749,19 +794,20 @@ func (c *Cloud) deleteListenerV2(ctx context.Context, listener *elbv2types.Liste
 }
 
 // ensureTargetGroup creates a target group with a set of instances.
-func (c *Cloud) ensureTargetGroup(ctx context.Context, targetGroup *elbv2types.TargetGroup, serviceName types.NamespacedName, mapping nlbPortMapping, instances []string, vpcID string, tags map[string]string) (*elbv2types.TargetGroup, error) {
+func (c *Cloud) ensureTargetGroup(ctx context.Context, targetGroup *elbv2types.TargetGroup, serviceName types.NamespacedName, mapping nlbPortMapping, instances []string, vpcID string, tags map[string]string, ipAddressType elbv2types.TargetGroupIpAddressTypeEnum) (*elbv2types.TargetGroup, error) {
 	dirty := false
 	expectedTargets := c.computeTargetGroupExpectedTargets(instances, mapping.TrafficPort)
 	if targetGroup == nil {
 		targetType := elbv2types.TargetTypeEnumInstance
 		name := c.buildTargetGroupName(serviceName, mapping.FrontendPort, mapping.TrafficPort, mapping.TrafficProtocol, targetType, mapping)
-		klog.Infof("Creating load balancer target group for %v with name: %s", serviceName, name)
+		klog.Infof("Creating load balancer target group for %v with name: %s (IP address type: %s)", serviceName, name, ipAddressType)
 		input := &elbv2.CreateTargetGroupInput{
 			VpcId:                      aws.String(vpcID),
 			Name:                       aws.String(name),
 			Port:                       aws.Int32(mapping.TrafficPort),
 			Protocol:                   mapping.TrafficProtocol,
 			TargetType:                 targetType,
+			IpAddressType:              ipAddressType,
 			HealthCheckIntervalSeconds: aws.Int32(mapping.HealthCheckConfig.Interval),
 			HealthCheckPort:            aws.String(mapping.HealthCheckConfig.Port),
 			HealthCheckProtocol:        mapping.HealthCheckConfig.Protocol,
