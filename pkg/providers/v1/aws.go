@@ -2001,10 +2001,11 @@ func (c *Cloud) buildELBSecurityGroupList(ctx context.Context, serviceName types
 //   - sgID: The ID of the security group to configure.
 //   - rules: An existing permission set of rules to be added to the security group.
 //   - ec2SourceRanges: A slice of *ec2.IpRange objects specifying the source IP ranges for the rules.
+//   - ec2Ipv6SourceRanges: A slice of *ec2.Ipv6Range objects specifying the source IPv6 ranges for the rules.
 //
 // Returns:
 //   - error: An error if any issue occurs while creating or applying the security group rules.
-func (c *Cloud) createSecurityGroupRules(ctx context.Context, sgID string, rules IPPermissionSet, ec2SourceRanges []ec2types.IpRange) error {
+func (c *Cloud) createSecurityGroupRules(ctx context.Context, sgID string, rules IPPermissionSet, ec2SourceRanges []ec2types.IpRange, ec2Ipv6SourceRanges []ec2types.Ipv6Range) error {
 	if len(sgID) == 0 {
 		return fmt.Errorf("security group ID cannot be empty")
 	}
@@ -2014,6 +2015,7 @@ func (c *Cloud) createSecurityGroupRules(ctx context.Context, sgID string, rules
 		FromPort:   aws.Int32(3),
 		ToPort:     aws.Int32(4),
 		IpRanges:   ec2SourceRanges,
+		Ipv6Ranges: ec2Ipv6SourceRanges,
 	}
 	rules.Insert(permission)
 
@@ -2343,7 +2345,7 @@ func (c *Cloud) ensureNLBSecurityGroupRules(ctx context.Context, securityGroups 
 
 		ingressRules.Insert(permission)
 	}
-	if err := c.createSecurityGroupRules(ctx, securityGroupID, ingressRules, ec2SourceRanges); err != nil {
+	if err := c.createSecurityGroupRules(ctx, securityGroupID, ingressRules, ec2SourceRanges, ec2Ipv6SourceRanges); err != nil {
 		return fmt.Errorf("error while updating rules to security group %q: %w", securityGroupID, err)
 	}
 	return nil
@@ -2696,7 +2698,7 @@ func (c *Cloud) EnsureLoadBalancer(ctx context.Context, clusterName string, apiS
 			permissions.Insert(permission)
 		}
 
-		if err = c.createSecurityGroupRules(ctx, securityGroupIDs[0], permissions, ec2SourceRanges); err != nil {
+		if err = c.createSecurityGroupRules(ctx, securityGroupIDs[0], permissions, ec2SourceRanges, ec2Ipv6SourceRanges); err != nil {
 			return nil, err
 		}
 	}

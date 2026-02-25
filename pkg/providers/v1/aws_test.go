@@ -4308,11 +4308,12 @@ func TestCreateSecurityGroupRules(t *testing.T) {
 	c.vpcID = "vpc-mac0"
 
 	testCases := []struct {
-		name            string
-		sgID            string
-		rules           IPPermissionSet
-		ec2SourceRanges []ec2types.IpRange
-		expectError     bool
+		name                string
+		sgID                string
+		rules               IPPermissionSet
+		ec2SourceRanges     []ec2types.IpRange
+		ec2Ipv6SourceRanges []ec2types.Ipv6Range
+		expectError         bool
 	}{
 		{
 			name: "successful security group rule creation",
@@ -4327,6 +4328,28 @@ func TestCreateSecurityGroupRules(t *testing.T) {
 			ec2SourceRanges: []ec2types.IpRange{
 				{
 					CidrIp: aws.String("0.0.0.0/0"),
+				},
+			},
+			expectError: false,
+		},
+		{
+			name: "successful security group dual stack rule creation",
+			sgID: "sg-123456",
+			rules: IPPermissionSet{
+				"tcp-80-80": ec2types.IpPermission{
+					IpProtocol: aws.String("tcp"),
+					FromPort:   aws.Int32(80),
+					ToPort:     aws.Int32(80),
+				},
+			},
+			ec2SourceRanges: []ec2types.IpRange{
+				{
+					CidrIp: aws.String("0.0.0.0/0"),
+				},
+			},
+			ec2Ipv6SourceRanges: []ec2types.Ipv6Range{
+				{
+					CidrIpv6: aws.String("::/128"),
 				},
 			},
 			expectError: false,
@@ -4357,6 +4380,27 @@ func TestCreateSecurityGroupRules(t *testing.T) {
 					CidrIp: aws.String("0.0.0.0/0"),
 				},
 			},
+			ec2Ipv6SourceRanges: []ec2types.Ipv6Range{
+				{
+					CidrIpv6: aws.String("::/128"),
+				},
+			},
+			expectError: false,
+		},
+		{
+			name:  "empty dual stack rule set",
+			sgID:  "sg-123456",
+			rules: IPPermissionSet{},
+			ec2SourceRanges: []ec2types.IpRange{
+				{
+					CidrIp: aws.String("0.0.0.0/0"),
+				},
+			},
+			ec2Ipv6SourceRanges: []ec2types.Ipv6Range{
+				{
+					CidrIpv6: aws.String("::/128"),
+				},
+			},
 			expectError: false,
 		},
 		{
@@ -4366,6 +4410,22 @@ func TestCreateSecurityGroupRules(t *testing.T) {
 			ec2SourceRanges: []ec2types.IpRange{
 				{
 					CidrIp: aws.String("10.0.0.0/16"),
+				},
+			},
+			expectError: false,
+		},
+		{
+			name:  "internal dual stack sources",
+			sgID:  "sg-123456",
+			rules: IPPermissionSet{},
+			ec2SourceRanges: []ec2types.IpRange{
+				{
+					CidrIp: aws.String("10.0.0.0/16"),
+				},
+			},
+			ec2Ipv6SourceRanges: []ec2types.Ipv6Range{
+				{
+					CidrIpv6: aws.String("fc00::/8"),
 				},
 			},
 			expectError: false,
@@ -4386,7 +4446,7 @@ func TestCreateSecurityGroupRules(t *testing.T) {
 			).Maybe()
 
 			// Execute test
-			err := c.createSecurityGroupRules(context.TODO(), tc.sgID, tc.rules, tc.ec2SourceRanges)
+			err := c.createSecurityGroupRules(context.TODO(), tc.sgID, tc.rules, tc.ec2SourceRanges, tc.ec2Ipv6SourceRanges)
 
 			// Verify results
 			if tc.expectError {
