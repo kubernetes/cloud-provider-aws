@@ -3275,11 +3275,6 @@ func (c *Cloud) buildSecurityGroupsToDelete(ctx context.Context, service *v1.Ser
 
 // EnsureLoadBalancerDeleted implements LoadBalancer.EnsureLoadBalancerDeleted.
 func (c *Cloud) EnsureLoadBalancerDeleted(ctx context.Context, clusterName string, service *v1.Service) error {
-	// If spec.loadBalancerClass is set, another controller is responsible for this Service
-	if service.Spec.LoadBalancerClass != nil {
-		return nil
-	}
-
 	if isLBExternal(service.Annotations) {
 		return nil
 	}
