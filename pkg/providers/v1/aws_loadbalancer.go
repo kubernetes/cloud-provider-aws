@@ -109,6 +109,17 @@ func getTargetGroupIPAddressTypeFromService(service *v1.Service) elbv2types.Targ
 	return elbv2types.TargetGroupIpAddressTypeEnumIpv4
 }
 
+// getLoadBalancerIPAddressTypeFromService determines the IP address type of the load balancer.
+// This will either be IPv4 (the default), or dual stack.
+// If nil is passed, IPv4 will be returned.
+func getLoadBalancerIPAddressTypeFromService(service *v1.Service) elbv2types.IpAddressType {
+	if serviceRequestsIPv6(service) {
+		return elbv2types.IpAddressTypeDualstack
+	}
+	// Default to single stack, IPv4
+	return elbv2types.IpAddressTypeIpv4
+}
+
 // serviceRequestsIPv6 checks if the Service has IPv6 configured in its ipFamilies
 func serviceRequestsIPv6(service *v1.Service) bool {
 	if service == nil || len(service.Spec.IPFamilies) == 0 {
@@ -186,18 +197,19 @@ func (c *Cloud) ensureLoadBalancerv2(ctx context.Context, namespacedName types.N
 	// Determine target group IP address type based on Service spec.ipFamilies
 	targetGroupIPAddressType := getTargetGroupIPAddressTypeFromService(service)
 
+	ipv6Requested := serviceRequestsIPv6(service)
+
 	// Validate that single stack IPv6 is not being used (not supported on NLB)
-	if service.Spec.IPFamilyPolicy != nil && *service.Spec.IPFamilyPolicy == v1.IPFamilyPolicySingleStack {
-		if serviceRequestsIPv6(service) {
-			return nil, fmt.Errorf("single stack IPv6 is not supported for network load balancers")
-		}
+	if service.Spec.IPFamilyPolicy != nil && *service.Spec.IPFamilyPolicy == v1.IPFamilyPolicySingleStack && ipv6Requested {
+		return nil, fmt.Errorf("single stack IPv6 is not supported for network load balancers")
 	}
 
 	if loadBalancer == nil {
 		// Create the LB
 		createRequest := &elbv2.CreateLoadBalancerInput{
-			Type: elbv2types.LoadBalancerTypeEnumNetwork,
-			Name: aws.String(loadBalancerName),
+			Type:          elbv2types.LoadBalancerTypeEnumNetwork,
+			Name:          aws.String(loadBalancerName),
+			IpAddressType: getLoadBalancerIPAddressTypeFromService(service),
 		}
 		if internalELB {
 			createRequest.Scheme = elbv2types.LoadBalancerSchemeEnumInternal

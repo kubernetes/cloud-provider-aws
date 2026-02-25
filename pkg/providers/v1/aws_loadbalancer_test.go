@@ -2053,3 +2053,69 @@ func TestServiceRequestsIPv6(t *testing.T) {
 		})
 	}
 }
+
+func TestGetLoadBalancerIpAddressType(t *testing.T) {
+	tests := []struct {
+		name     string
+		service  *v1.Service
+		expected elbv2types.IpAddressType
+	}{
+		{
+			name: "No IP families defined",
+			service: &v1.Service{
+				Spec: v1.ServiceSpec{
+					IPFamilies: []v1.IPFamily{},
+				},
+			},
+			expected: elbv2types.IpAddressTypeIpv4,
+		},
+		{
+			name: "Only IPv4 defined",
+			service: &v1.Service{
+				Spec: v1.ServiceSpec{
+					IPFamilies: []v1.IPFamily{v1.IPv4Protocol},
+				},
+			},
+			expected: elbv2types.IpAddressTypeIpv4,
+		},
+		{
+			name: "Only IPv6 defined",
+			service: &v1.Service{
+				Spec: v1.ServiceSpec{
+					IPFamilies: []v1.IPFamily{v1.IPv6Protocol},
+				},
+			},
+			expected: elbv2types.IpAddressTypeDualstack,
+		},
+		{
+			name: "IPv6 and IPv4",
+			service: &v1.Service{
+				Spec: v1.ServiceSpec{
+					IPFamilies: []v1.IPFamily{v1.IPv6Protocol, v1.IPv4Protocol},
+				},
+			},
+			expected: elbv2types.IpAddressTypeDualstack,
+		},
+		{
+			name: "IPv4 and IPv6",
+			service: &v1.Service{
+				Spec: v1.ServiceSpec{
+					IPFamilies: []v1.IPFamily{v1.IPv4Protocol, v1.IPv6Protocol},
+				},
+			},
+			expected: elbv2types.IpAddressTypeDualstack,
+		},
+		{
+			name:     "No service",
+			service:  nil,
+			expected: elbv2types.IpAddressTypeIpv4,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := getLoadBalancerIPAddressTypeFromService(tt.service)
+			assert.Equal(t, tt.expected, result, "IP address type did not expected for test case: %s", tt.name)
+		})
+	}
+}
