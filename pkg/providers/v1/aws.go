@@ -2118,7 +2118,16 @@ func (c *Cloud) getSubnetCidrs(ctx context.Context, subnetIDs []string) ([]strin
 
 	cidrs := make([]string, 0, len(subnets))
 	for _, subnet := range subnets {
+		// Add IPv4 CIDR
 		cidrs = append(cidrs, aws.ToString(subnet.CidrBlock))
+
+		// Add IPv6 CIDRs if present
+		for _, ipv6Association := range subnet.Ipv6CidrBlockAssociationSet {
+			if ipv6Association.Ipv6CidrBlockState != nil &&
+				ipv6Association.Ipv6CidrBlockState.State == ec2types.SubnetCidrBlockStateCodeAssociated {
+				cidrs = append(cidrs, aws.ToString(ipv6Association.Ipv6CidrBlock))
+			}
+		}
 	}
 	return cidrs, nil
 }
@@ -2539,6 +2548,10 @@ func (c *Cloud) EnsureLoadBalancer(ctx context.Context, clusterName string, apiS
 		}
 		if len(sourceRangeCidrs) == 0 {
 			sourceRangeCidrs = append(sourceRangeCidrs, "0.0.0.0/0")
+			// Add IPv6 default range if service supports IPv6
+			if serviceRequestsIPv6(apiService) {
+				sourceRangeCidrs = append(sourceRangeCidrs, "::/0")
+			}
 		}
 
 		err = c.updateInstanceSecurityGroupsForNLB(ctx, loadBalancerName, instances, subnetCidrs, sourceRangeCidrs, v2Mappings)
