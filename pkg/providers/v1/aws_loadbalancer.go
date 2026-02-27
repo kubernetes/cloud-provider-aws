@@ -97,8 +97,8 @@ func isLBExternal(annotations map[string]string) bool {
 
 // getTargetGroupIPAddressTypeFromService determines the IP address type for the target group
 // based on the Service's spec.ipFamilies field. According to Kubernetes dual-stack documentation:
-// - If ipFamilies[0] is IPv6, the target group should use IPv6
-// - If ipFamilies is not set or ipFamilies[0] is IPv4, the target group should use IPv4 (default)
+// The target group will match the family of the first entry in spec.ipFamilies, which is defaulted by
+// the Kube API server.
 func getTargetGroupIPAddressTypeFromService(service *v1.Service) elbv2types.TargetGroupIpAddressTypeEnum {
 	if service != nil && len(service.Spec.IPFamilies) > 0 {
 		if service.Spec.IPFamilies[0] == v1.IPv6Protocol {
@@ -200,8 +200,8 @@ func (c *Cloud) ensureLoadBalancerv2(ctx context.Context, namespacedName types.N
 	ipv6Requested := serviceRequestsIPv6(service)
 
 	// Validate that single stack IPv6 is not being used (not supported on NLB)
-	if service.Spec.IPFamilyPolicy != nil && *service.Spec.IPFamilyPolicy == v1.IPFamilyPolicySingleStack && ipv6Requested {
-		return nil, fmt.Errorf("single stack IPv6 is not supported for network load balancers")
+	if err := validateIPFamilyInfo(service, ipv6Requested); err != nil {
+		return nil, err
 	}
 
 	if loadBalancer == nil {

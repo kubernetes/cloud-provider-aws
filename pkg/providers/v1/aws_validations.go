@@ -150,3 +150,43 @@ func validateServiceAnnotationTargetGroupAttributes(v *awsValidationInput) error
 
 	return nil
 }
+
+// validateIPFamilyInfo validates that a Service's IP Families and IP Family Policies are supported.
+// Special cases:
+// - Cannot have an IPv6, single stack service (AWS limitation)
+// - RequireDualStack policy *must* have 2 entries in IP Family Policies
+//
+// input:
+// service: the target v1.Service
+//
+// returns:
+// - error: validation errors.
+func validateIPFamilyInfo(service *v1.Service, ipv6Requested bool) error {
+	// Sanity checks in case they're missed earlier up the call stack.
+	if service == nil {
+		return fmt.Errorf("service required")
+	}
+
+	// Kube server will ensure that Spec.IPFamilyPolicy and Spec.IPFamilies are populated
+	// See kubernetes/pkg/registry/core/service/storage/{alloc,storage}.go
+	if len(service.Spec.IPFamilies) >= 3 {
+		return fmt.Errorf("ipFamilies requires 1 or 2 entries. got %d", len(service.Spec.IPFamilies))
+	}
+
+	// Single stack IPv6 not supported by AWS
+	if *service.Spec.IPFamilyPolicy == v1.IPFamilyPolicySingleStack && ipv6Requested {
+		return fmt.Errorf("single stack IPv6 is not supported for network load balancers")
+	}
+
+	// RequireDualStack must have 2 entries
+	if *service.Spec.IPFamilyPolicy == v1.IPFamilyPolicyRequireDualStack && len(service.Spec.IPFamilies) != 2 {
+		return fmt.Errorf("policy %s requires 2 entries in the ipFamilies field. got %d", v1.IPFamilyPolicyRequireDualStack, len(service.Spec.IPFamilies))
+	}
+
+	// PreferDualStack supports 1 or 2 entries.
+	if *service.Spec.IPFamilyPolicy == v1.IPFamilyPolicyPreferDualStack && (len(service.Spec.IPFamilies) >= 3) {
+		return fmt.Errorf("policy %s requires 1 or 2 entries. got %d", v1.IPFamilyPolicyPreferDualStack, len(service.Spec.IPFamilies))
+	}
+
+	return nil
+}
