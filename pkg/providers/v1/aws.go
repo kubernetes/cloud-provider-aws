@@ -2322,17 +2322,19 @@ func separateIPv4AndIPv6CIDRs(cidrs []string) ([]ec2types.IpRange, []ec2types.Ip
 // Parameters:
 //   - ctx: The context for the request.
 //   - securityGroups: The security group IDs to configure rules for (only first SG is used).
-//   - ec2SourceRanges: The IPv4 CIDR ranges allowed to access the load balancer.
-//   - ec2Ipv6SourceRanges: The IPv6 CIDR ranges allowed to access the load balancer.
+//   - sourceCIDRs: The CIDR ranges (IPv4 and/or IPv6) allowed to access the load balancer.
 //   - v2Mappings: The NLB port mappings defining frontend ports and protocols.
 //
 // Returns:
 //   - error: An error if any issue occurs while ensuring the NLB security group rules.
-func (c *Cloud) ensureNLBSecurityGroupRules(ctx context.Context, securityGroups []string, ec2SourceRanges []ec2types.IpRange, ec2Ipv6SourceRanges []ec2types.Ipv6Range, v2Mappings []nlbPortMapping) error {
+func (c *Cloud) ensureNLBSecurityGroupRules(ctx context.Context, securityGroups []string, sourceCIDRs []string, v2Mappings []nlbPortMapping) error {
 	if len(securityGroups) == 0 {
 		return nil
 	}
 	securityGroupID := securityGroups[0]
+
+	// Separate source CIDRs into IPv4 and IPv6 ranges
+	ec2SourceRanges, ec2Ipv6SourceRanges := separateIPv4AndIPv6CIDRs(sourceCIDRs)
 
 	ingressRules := NewIPPermissionSet()
 	for _, mapping := range v2Mappings {
@@ -2414,8 +2416,6 @@ func (c *Cloud) EnsureLoadBalancer(ctx context.Context, clusterName string, apiS
 			sourceCIDRs = append(sourceCIDRs, "::/0")
 		}
 	}
-
-	ec2SourceRanges, ec2Ipv6SourceRanges := separateIPv4AndIPv6CIDRs(sourceCIDRs)
 
 	sslPorts := getPortSets(annotations[ServiceAnnotationLoadBalancerSSLPorts])
 	for _, port := range apiService.Spec.Ports {
@@ -2523,7 +2523,7 @@ func (c *Cloud) EnsureLoadBalancer(ctx context.Context, clusterName string, apiS
 		}
 
 		// Ensure SG rules only if the LB reconciliator finished successfully.
-		if err := c.ensureNLBSecurityGroupRules(ctx, securityGroups, ec2SourceRanges, ec2Ipv6SourceRanges, v2Mappings); err != nil {
+		if err := c.ensureNLBSecurityGroupRules(ctx, securityGroups, sourceCIDRs, v2Mappings); err != nil {
 			return nil, fmt.Errorf("error ensuring NLB security group rules: %w", err)
 		}
 
@@ -2698,6 +2698,9 @@ func (c *Cloud) EnsureLoadBalancer(ctx context.Context, clusterName string, apiS
 	}
 
 	if setupSg {
+		// Separate source CIDRs into IPv4 and IPv6 ranges for classic ELB
+		ec2SourceRanges, ec2Ipv6SourceRanges := separateIPv4AndIPv6CIDRs(sourceCIDRs)
+
 		permissions := NewIPPermissionSet()
 		for _, port := range apiService.Spec.Ports {
 			protocol := strings.ToLower(string(port.Protocol))
