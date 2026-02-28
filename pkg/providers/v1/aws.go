@@ -2227,55 +2227,85 @@ func (c *Cloud) buildNLBHealthCheckConfiguration(svc *v1.Service) (healthCheckCo
 }
 
 // ensureNLBSecurityGroup ensures the NLB security group is created and configured
-// based on the current NLB state and configuration mode, ensuring limitations
-// are clearly reported to users.
+// based on the current NLB state and configuration mode.
+//
+// This function handles security group selection in the following priority order:
+//  1. Existing NLB: Returns the security groups already attached to the NLB
+//  2. BYO (Bring Your Own): Uses security group from annotation (validated to be exactly one SG with "sg-" prefix)
+//  3. Global config: Uses security group from global configuration (ElbSecurityGroup)
+//  4. Managed mode: Creates a new managed security group when NLBSecurityGroupMode=Managed
+//  5. None: Returns empty list if none of the above apply
 //
 // Parameters:
 //   - ctx: The context for the request.
 //   - loadBalancerName: The name of the load balancer to create security groups for.
-//   - clusterName: The namespaced name of the service (used for tagging and descriptions).
-//   - svc: The service to generate the security group name for.
+//   - clusterName: The cluster name (used for tagging and SG naming).
+//   - svc: The service object containing annotations and metadata.
 //
 // Returns:
 //   - []string: A list of security group IDs to be associated with the NLB.
 //   - error: An error if any issue occurs while ensuring the NLB security group.
 func (c *Cloud) ensureNLBSecurityGroup(ctx context.Context, loadBalancerName, clusterName string, svc *v1.Service) ([]string, error) {
 	annotations := svc.Annotations
+	serviceName := types.NamespacedName{Namespace: svc.Namespace, Name: svc.Name}
+
 	loadBalancer, err := c.describeLoadBalancerv2(ctx, loadBalancerName)
 	if err != nil {
 		return nil, fmt.Errorf("error describing load balancer %s: %w", loadBalancerName, err)
 	}
 
+	// Priority 1: Existing NLB - return current security groups
 	if loadBalancer != nil {
-		// Existing NLB with security groups.
 		if len(loadBalancer.SecurityGroups) > 0 {
+			klog.V(2).Infof("NLB %q already has security groups: %v", loadBalancerName, loadBalancer.SecurityGroups)
 			return loadBalancer.SecurityGroups, nil
 		}
+		klog.V(2).Infof("NLB %q exists but has no security groups", loadBalancerName)
 		return []string{}, nil
 	}
 
-	// Do nothing when controller is not in NLB SG managed mode, NLBSecurityGroupMode=Managed.
+	// For new NLBs, determine security group based on configuration priority
+
+	// Priority 2: BYO Security Group from annotation
+	// Validation has already ensured this is exactly one valid SG ID (starts with "sg-")
+	if sgAnnotation, hasBYOSG := annotations[ServiceAnnotationLoadBalancerSecurityGroups]; hasBYOSG {
+		sgList := getSGListFromAnnotation(sgAnnotation)
+		if len(sgList) == 1 {
+			klog.Infof("Using BYO security group %q for NLB service %q (from annotation)", sgList[0], serviceName)
+			return sgList, nil
+		}
+		// If annotation exists but is empty, continue to next priority
+		klog.V(2).Infof("BYO security group annotation is empty for service %q, checking other options", serviceName)
+	}
+
+	// Priority 3: Global configuration security group
+	if c.cfg.Global.ElbSecurityGroup != "" {
+		klog.Infof("Using global config security group %q for NLB service %q", c.cfg.Global.ElbSecurityGroup, serviceName)
+		return []string{c.cfg.Global.ElbSecurityGroup}, nil
+	}
+
+	// Priority 4: Managed security group mode
 	isManaged, err := c.cfg.IsNLBSecurityGroupModeManaged()
 	if err != nil {
 		return nil, fmt.Errorf("error checking NLB security group mode: %w", err)
 	}
-	if !isManaged {
-		return []string{}, nil
+	if isManaged {
+		sgName := c.GetSecurityGroupNameForNLB(clusterName, svc)
+		klog.Infof("Creating managed NLB security group %q for service %q", sgName, serviceName)
+		securityGroupID, err := c.createSecurityGroup(ctx, sgName,
+			"[k8s] Managed SecurityGroup for LoadBalancer",
+			getKeyValuePropertiesFromAnnotation(annotations, ServiceAnnotationLoadBalancerAdditionalTags),
+		)
+		if err != nil {
+			return nil, fmt.Errorf("unable to create security group for NLB: %w", err)
+		}
+		klog.Infof("Created managed NLB security group %q for service %q", securityGroupID, serviceName)
+		return []string{securityGroupID}, nil
 	}
 
-	serviceName := types.NamespacedName{Namespace: svc.Namespace, Name: svc.Name}
-	sgName := c.GetSecurityGroupNameForNLB(clusterName, svc)
-	klog.Infof("Creating NLB security group %q for service %q", sgName, serviceName)
-	securityGroupID, err := c.createSecurityGroup(ctx, sgName,
-		"[k8s] Managed SecurityGroup for LoadBalancer",
-		getKeyValuePropertiesFromAnnotation(annotations, ServiceAnnotationLoadBalancerAdditionalTags),
-	)
-	if err != nil {
-		return nil, fmt.Errorf("unable to create security group for NLB: %w", err)
-	}
-	klog.Infof("Created NLB security group %q for service %q", securityGroupID, serviceName)
-
-	return []string{securityGroupID}, nil
+	// Priority 5: No security group configured
+	klog.V(2).Infof("No security group configured for NLB service %q (managed mode disabled, no BYO SG, no global config)", serviceName)
+	return []string{}, nil
 }
 
 // ensureNLBSecurityGroupRules ensures the NLB frontend security group rules are created and configured

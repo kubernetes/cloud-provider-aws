@@ -246,6 +246,181 @@ var _ = Describe("[cloud-provider-aws-e2e] loadbalancer", func() {
 				}
 			},
 		},
+		// E2E test for NLB BYO SG - verifies creating NLB with BYO SG from the start
+		// This test ensures BYO SG works when specified at service creation time
+		{
+			name:           "NLB with BYO SG - create with BYO from start",
+			resourceSuffix: "nlb-byo-c",
+			extraAnnotations: map[string]string{
+				annotationLBType: "nlb",
+			},
+			hookPostServiceConfig: func(cfg *e2eTestConfig) {
+				framework.Logf("running hook post-service-config: creating BYO security group")
+
+				// Initialize AWS helper
+				var err error
+				cfg.awsHelper, err = newAWSHelper(cfg.ctx, cfg.kubeClient)
+				framework.ExpectNoError(err, "failed to create AWS helper")
+
+				// Create BYO SG with proper "shared" tag
+				sgName := cfg.svc.Namespace + "-" + cfg.svc.Name + "-nlb-byo-sg"
+				cfg.byoSecurityGroupID, err = cfg.awsHelper.createSecurityGroup(
+					sgName,
+					fmt.Sprintf("BYO Security Group for NLB e2e test %s/%s", cfg.svc.Namespace, cfg.svc.Name),
+				)
+				framework.ExpectNoError(err, "failed to create BYO security group")
+
+				// Add BYO SG annotation to service
+				if cfg.svc.Annotations == nil {
+					cfg.svc.Annotations = map[string]string{}
+				}
+				cfg.svc.Annotations["service.beta.kubernetes.io/aws-load-balancer-security-groups"] = cfg.byoSecurityGroupID
+			},
+			hookPostServiceCreate: func(cfg *e2eTestConfig) {
+				framework.Logf("running hook post-service-create: verifying NLB was created with BYO SG")
+
+				// Get the service
+				svc, err := cfg.kubeClient.CoreV1().Services(cfg.LBJig.Namespace).Get(cfg.ctx, cfg.LBJig.Name, metav1.GetOptions{})
+				if err != nil {
+					framework.Failf("Failed to get service %s/%s: %v", cfg.LBJig.Namespace, cfg.LBJig.Name, err)
+				}
+
+				// Get load balancer DNS name from service status
+				if len(svc.Status.LoadBalancer.Ingress) == 0 {
+					framework.Failf("No ingress found in LoadBalancer status for service %s/%s", svc.Namespace, svc.Name)
+				}
+				lbDNS := svc.Status.LoadBalancer.Ingress[0].Hostname
+				framework.Logf("Load balancer DNS: %s", lbDNS)
+
+				// Get AWS ELB client
+				elbClient, err := getAWSClientLoadBalancer(cfg.ctx)
+				framework.ExpectNoError(err, "failed to create AWS ELB client")
+
+				// Get load balancer details
+				foundLB, err := getAWSLoadBalancerFromDNSName(cfg.ctx, elbClient, lbDNS)
+				framework.ExpectNoError(err, "failed to find load balancer with DNS name %s", lbDNS)
+				if foundLB == nil {
+					framework.Failf("Found load balancer is nil for DNS name %s", lbDNS)
+				}
+
+				// Get expected BYO SG from service annotation
+				expectedSG := svc.Annotations["service.beta.kubernetes.io/aws-load-balancer-security-groups"]
+				if expectedSG == "" {
+					framework.Failf("BYO SG annotation is missing from service")
+				}
+
+				framework.Logf("Load balancer has %d security groups", len(foundLB.SecurityGroups))
+				if len(foundLB.SecurityGroups) != 1 {
+					framework.Failf("Expected 1 security group (BYO SG), got %d: %v", len(foundLB.SecurityGroups), foundLB.SecurityGroups)
+				}
+
+				actualSG := foundLB.SecurityGroups[0]
+				if actualSG != expectedSG {
+					framework.Failf("Load balancer SG mismatch: expected BYO SG %s, got %s", expectedSG, actualSG)
+				}
+
+				framework.Logf("✓ Load balancer successfully created with BYO security group: %s", actualSG)
+				framework.Logf("✓ NLB create with BYO SG scenario verified")
+			},
+		},
+		// E2E test for NLB BYO SG - verifies managed→BYO SG update scenario
+		// This test prevents security group leaks when updating from managed to BYO SG
+		{
+			name:           "NLB with BYO SG update - managed to BYO scenario",
+			resourceSuffix: "nlb-byo-u",
+			extraAnnotations: map[string]string{
+				annotationLBType: "nlb",
+				// Start with no BYO SG annotation (will use managed SG)
+			},
+			hookPostServiceCreate: func(cfg *e2eTestConfig) {
+				framework.Logf("running hook post-service-create: updating service from managed to BYO SG")
+
+				// Initialize AWS helper
+				var err error
+				cfg.awsHelper, err = newAWSHelper(cfg.ctx, cfg.kubeClient)
+				framework.ExpectNoError(err, "failed to create AWS helper")
+
+				// Get the current service
+				svc, err := cfg.kubeClient.CoreV1().Services(cfg.LBJig.Namespace).Get(cfg.ctx, cfg.LBJig.Name, metav1.GetOptions{})
+				if err != nil {
+					framework.Failf("Failed to get service %s/%s: %v", cfg.LBJig.Namespace, cfg.LBJig.Name, err)
+				}
+
+				// Get load balancer DNS name from service status
+				if len(svc.Status.LoadBalancer.Ingress) == 0 {
+					framework.Failf("No ingress found in LoadBalancer status for service %s/%s", svc.Namespace, svc.Name)
+				}
+				lbDNS := svc.Status.LoadBalancer.Ingress[0].Hostname
+				framework.Logf("Load balancer DNS: %s", lbDNS)
+
+				// Get AWS ELB client
+				elbClient, err := getAWSClientLoadBalancer(cfg.ctx)
+				framework.ExpectNoError(err, "failed to create AWS ELB client")
+
+				// Get load balancer details to find current managed SG
+				foundLB, err := getAWSLoadBalancerFromDNSName(cfg.ctx, elbClient, lbDNS)
+				framework.ExpectNoError(err, "failed to find load balancer with DNS name %s", lbDNS)
+				if foundLB == nil {
+					framework.Failf("Found load balancer is nil for DNS name %s", lbDNS)
+				}
+
+				framework.Logf("Load balancer found with %d security groups", len(foundLB.SecurityGroups))
+				if len(foundLB.SecurityGroups) == 0 {
+					framework.Failf("No security groups found on load balancer - expected managed SG")
+				}
+
+				// Save the managed SG ID for logging
+				managedSGID := foundLB.SecurityGroups[0]
+				framework.Logf("Current managed security group ID: %s", managedSGID)
+
+				// Create a DIFFERENT security group to use as BYO SG
+				// This is critical - we need a different SG to test that the old managed SG gets deleted
+				byoSGName := cfg.svc.Namespace + "-" + cfg.svc.Name + "-nlb-byo-different-sg"
+				cfg.byoSecurityGroupID, err = cfg.awsHelper.createSecurityGroup(
+					byoSGName,
+					"Different BYO SG for managed→BYO update test",
+				)
+				framework.ExpectNoError(err, "failed to create different BYO security group")
+
+				framework.Logf("Created different BYO SG: %s (original managed SG: %s)", cfg.byoSecurityGroupID, managedSGID)
+
+				// Update service annotation to use the different BYO SG
+				framework.Logf("Updating service annotation to use BYO security group: %s", cfg.byoSecurityGroupID)
+				if svc.Annotations == nil {
+					svc.Annotations = map[string]string{}
+				}
+				svc.Annotations["service.beta.kubernetes.io/aws-load-balancer-security-groups"] = cfg.byoSecurityGroupID
+
+				// Update the service
+				_, err = cfg.kubeClient.CoreV1().Services(cfg.LBJig.Namespace).Update(cfg.ctx, svc, metav1.UpdateOptions{})
+				framework.ExpectNoError(err, "failed to update service with BYO SG annotation")
+
+				framework.Logf("Service updated with BYO SG annotation, waiting for reconciliation...")
+
+				// Wait for the controller to reconcile the change
+				// The controller should:
+				// 1. Detect the SG drift
+				// 2. Call SetSecurityGroups to update to BYO SG
+				// 3. Clean up the old managed SG
+				time.Sleep(30 * time.Second)
+
+				// Verify the load balancer now has the BYO SG
+				foundLB, err = getAWSLoadBalancerFromDNSName(cfg.ctx, elbClient, lbDNS)
+				framework.ExpectNoError(err, "failed to find load balancer after update")
+
+				framework.Logf("After update: Load balancer has %d security groups", len(foundLB.SecurityGroups))
+				if len(foundLB.SecurityGroups) != 1 {
+					framework.Failf("Expected 1 security group after BYO SG update, got %d", len(foundLB.SecurityGroups))
+				}
+
+				if foundLB.SecurityGroups[0] != cfg.byoSecurityGroupID {
+					framework.Failf("Load balancer SG mismatch: expected %s, got %s", cfg.byoSecurityGroupID, foundLB.SecurityGroups[0])
+				}
+
+				framework.Logf("✓ Load balancer successfully updated to use BYO security group: %s", cfg.byoSecurityGroupID)
+				framework.Logf("✓ Managed→BYO SG update scenario verified")
+			},
+		},
 	}
 
 	serviceNameBase := "lbconfig-test"
@@ -253,6 +428,7 @@ var _ = Describe("[cloud-provider-aws-e2e] loadbalancer", func() {
 		It(tc.name, func(ctx context.Context) {
 			By("setting up test environment and discovering worker nodes")
 			e2e := newE2eTestConfig(cs)
+			defer e2e.cleanup() // Ensure cleanup runs even if test fails
 			e2e.discoverClusterWorkerNode()
 			framework.Logf("[SETUP] Test case: %s", tc.name)
 			framework.Logf("[SETUP] Worker nodes discovered: %d nodes, selector: %s, sample node: %s", e2e.nodeCount, e2e.nodeSelector, e2e.nodeSingleSample)
@@ -401,6 +577,7 @@ var _ = Describe("[cloud-provider-aws-e2e] loadbalancer", func() {
 			_, err = e2e.LBJig.WaitForLoadBalancerDestroy(ctx, ingressAddress, svcPort, loadBalancerCreateTimeout)
 			framework.ExpectNoError(err)
 			framework.Logf("[CLEANUP] Load balancer destroyed successfully")
+			// Note: BYO security groups are cleaned up by defer e2e.cleanup()
 		})
 	}
 })
@@ -423,6 +600,10 @@ type e2eTestConfig struct {
 	nodeSelector     string
 	nodeCount        int
 	nodeSingleSample string
+
+	// AWS helper for BYO SG tests
+	awsHelper          *awsHelper
+	byoSecurityGroupID string
 }
 
 func newE2eTestConfig(cs clientset.Interface) *e2eTestConfig {
@@ -487,6 +668,17 @@ func (e2e *e2eTestConfig) buildService(portCount int, extraAnnotations map[strin
 	}
 
 	return svc
+}
+
+// cleanup handles cleanup of AWS resources created by BYO SG tests
+func (e2e *e2eTestConfig) cleanup() {
+	if e2e.awsHelper != nil && e2e.byoSecurityGroupID != "" {
+		framework.Logf("[CLEANUP] Deleting BYO security group %s", e2e.byoSecurityGroupID)
+		err := e2e.awsHelper.waitForSecurityGroupDeletion(e2e.byoSecurityGroupID, 2*time.Minute)
+		if err != nil {
+			framework.Logf("WARNING: Failed to delete BYO security group %s: %v", e2e.byoSecurityGroupID, err)
+		}
+	}
 }
 
 // buildDeployment creates a deployment configuration to the network load balancer test framework.
