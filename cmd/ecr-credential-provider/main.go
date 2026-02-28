@@ -186,10 +186,15 @@ func (e *ecrPlugin) buildCredentialsProvider(ctx context.Context, request *v1.Cr
 		return nil
 	}
 
-	arn, ok := request.ServiceAccountAnnotations["eks.amazonaws.com/ecr-role-arn"]
-	if !ok {
-		arn = os.Getenv("AWS_ECR_ROLE_ARN")
+	var arn string
+	if candidateARN, ok := request.ServiceAccountAnnotations["eks.amazonaws.com/ecr-role-arn"]; ok {
+		arn = candidateARN
+	} else if candidateARN, ok = os.LookupEnv("AWS_ECR_ROLE_ARN"); ok {
+		arn = candidateARN
+	} else if candidateARN, ok = request.ServiceAccountAnnotations["eks.amazonaws.com/role-arn"]; ok {
+		arn = candidateARN
 	}
+
 	if arn == "" {
 		klog.Info("no arn provided, cannot assume role using ServiceAccountToken")
 		return nil
