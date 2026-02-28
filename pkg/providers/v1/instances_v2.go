@@ -68,7 +68,7 @@ func (c *Cloud) InstanceShutdown(ctx context.Context, node *v1.Node) (bool, erro
 }
 
 func (c *Cloud) getAdditionalLabels(ctx context.Context, zoneName string, instanceID string, instanceType string,
-	region string, existingLabels map[string]string) (map[string]string, error) {
+	region string, existingLabels map[string]string, asgName *string) (map[string]string, error) {
 	additionalLabels := map[string]string{}
 
 	// If zone ID label is already set, skip.
@@ -107,6 +107,12 @@ func (c *Cloud) getAdditionalLabels(ctx context.Context, zoneName string, instan
 		}
 	}
 
+	if _, ok := existingLabels[LabelAutoScalingGroupName]; !ok {
+		if asgName != nil {
+			additionalLabels[LabelAutoScalingGroupName] = *asgName
+		}
+	}
+
 	return additionalLabels, nil
 }
 
@@ -129,6 +135,7 @@ func (c *Cloud) InstanceMetadata(ctx context.Context, node *v1.Node) (*cloudprov
 		instanceType  string
 		zone          cloudprovider.Zone
 		nodeAddresses []v1.NodeAddress
+		asg_name      *string
 	)
 	if variant.IsVariantNode(string(instanceID)) {
 		instanceType, err = c.InstanceTypeByProviderID(ctx, providerID)
@@ -157,9 +164,10 @@ func (c *Cloud) InstanceMetadata(ctx context.Context, node *v1.Node) (*cloudprov
 		if err != nil {
 			return nil, fmt.Errorf("failed to get node addresses for instance %s: %w", instanceID, err)
 		}
+		asg_name = c.getInstanceTag(instance, "aws:autoscaling:groupName")
 	}
 
-	additionalLabels, err := c.getAdditionalLabels(ctx, zone.FailureDomain, string(instanceID), instanceType, zone.Region, node.Labels)
+	additionalLabels, err := c.getAdditionalLabels(ctx, zone.FailureDomain, string(instanceID), instanceType, zone.Region, node.Labels, asg_name)
 	if err != nil {
 		return nil, err
 	}
