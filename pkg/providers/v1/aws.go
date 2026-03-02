@@ -2009,15 +2009,24 @@ func (c *Cloud) createSecurityGroupRules(ctx context.Context, sgID string, rules
 	if len(sgID) == 0 {
 		return fmt.Errorf("security group ID cannot be empty")
 	}
-	// Allow ICMP fragmentation packets, important for MTU discovery
-	permission := ec2types.IpPermission{
-		IpProtocol: aws.String("icmp"),
-		FromPort:   aws.Int32(3),
-		ToPort:     aws.Int32(4),
-		IpRanges:   ec2SourceRanges,
-		Ipv6Ranges: ec2Ipv6SourceRanges,
+	// Allow ICMP fragmentation packets, important for IPv4 MTU discovery
+	if len(ec2SourceRanges) > 0 {
+		rules.Insert(ec2types.IpPermission{
+			IpProtocol: aws.String("icmp"),
+			FromPort:   aws.Int32(3),
+			ToPort:     aws.Int32(4),
+			IpRanges:   ec2SourceRanges,
+		})
 	}
-	rules.Insert(permission)
+	// Allow ICMPv6 "Packet Too Big" messages, important for IPv6 MTU discovery
+	if len(ec2Ipv6SourceRanges) > 0 {
+		rules.Insert(ec2types.IpPermission{
+			IpProtocol: aws.String("icmpv6"),
+			FromPort:   aws.Int32(2),
+			ToPort:     aws.Int32(-1),
+			Ipv6Ranges: ec2Ipv6SourceRanges,
+		})
+	}
 
 	// Setup ingress rules
 	if _, err := c.setSecurityGroupIngress(ctx, sgID, rules); err != nil {

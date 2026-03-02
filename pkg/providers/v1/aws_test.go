@@ -4455,23 +4455,34 @@ func TestCreateSecurityGroupRules(t *testing.T) {
 			}
 			assert.NoError(t, err)
 
-			// Verify that the rules include the ICMP permission for MTU discovery
-			foundMTURule := false
-			for _, rule := range tc.rules {
-				if aws.ToString(rule.IpProtocol) == "icmp" &&
-					aws.ToInt32(rule.FromPort) == 3 &&
-					aws.ToInt32(rule.ToPort) == 4 {
-					foundMTURule = true
-					break
+			// Verify ICMP rule for IPv4 MTU discovery
+			if len(tc.ec2SourceRanges) > 0 {
+				foundICMPRule := false
+				for _, rule := range tc.rules {
+					if aws.ToString(rule.IpProtocol) == "icmp" &&
+						aws.ToInt32(rule.FromPort) == 3 &&
+						aws.ToInt32(rule.ToPort) == 4 {
+						foundICMPRule = true
+						assert.Equal(t, tc.ec2SourceRanges, rule.IpRanges, "ICMP rule should have correct IPv4 ranges")
+						assert.Empty(t, rule.Ipv6Ranges, "ICMP rule should not have IPv6 ranges")
+					}
 				}
+				assert.True(t, foundICMPRule, "ICMP MTU discovery rule should be added for IPv4")
 			}
-			assert.True(t, foundMTURule, "MTU discovery rule should be added")
 
-			// Verify the ec2SourceRanges were properly set
-			for _, rule := range tc.rules {
-				if aws.ToString(rule.IpProtocol) == "icmp" {
-					assert.Equal(t, tc.ec2SourceRanges, rule.IpRanges)
+			// Verify ICMPv6 rule for IPv6 MTU discovery
+			if len(tc.ec2Ipv6SourceRanges) > 0 {
+				foundICMPv6Rule := false
+				for _, rule := range tc.rules {
+					if aws.ToString(rule.IpProtocol) == "icmpv6" &&
+						aws.ToInt32(rule.FromPort) == 2 &&
+						aws.ToInt32(rule.ToPort) == -1 {
+						foundICMPv6Rule = true
+						assert.Equal(t, tc.ec2Ipv6SourceRanges, rule.Ipv6Ranges, "ICMPv6 rule should have correct IPv6 ranges")
+						assert.Empty(t, rule.IpRanges, "ICMPv6 rule should not have IPv4 ranges")
+					}
 				}
+				assert.True(t, foundICMPv6Rule, "ICMPv6 MTU discovery rule should be added for IPv6")
 			}
 		})
 	}
