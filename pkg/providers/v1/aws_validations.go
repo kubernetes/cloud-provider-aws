@@ -21,6 +21,7 @@ import (
 	"strings"
 
 	v1 "k8s.io/api/core/v1"
+	"k8s.io/utils/ptr"
 )
 
 // validationInput is the input parameters for validations.
@@ -165,6 +166,16 @@ func validateIPFamilyInfo(service *v1.Service, ipv6Requested bool) error {
 	// Sanity checks in case they're missed earlier up the call stack.
 	if service == nil {
 		return fmt.Errorf("service required")
+	}
+
+	// Make sure we have a usable zero value for IPFamilies
+	if service.Spec.IPFamilies == nil {
+		service.Spec.IPFamilies = make([]v1.IPFamily, 0)
+	}
+
+	// If we somehow got an unset IP familiy policy, (most likely in tests) set it explicitly for our use.
+	if service.Spec.IPFamilyPolicy == nil {
+		service.Spec.IPFamilyPolicy = ptr.To(v1.IPFamilyPolicySingleStack)
 	}
 
 	// Kube server will ensure that Spec.IPFamilyPolicy and Spec.IPFamilies are populated
