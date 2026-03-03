@@ -2373,11 +2373,6 @@ func (c *Cloud) ensureNLBSecurityGroupRules(ctx context.Context, securityGroups 
 
 // EnsureLoadBalancer implements LoadBalancer.EnsureLoadBalancer
 func (c *Cloud) EnsureLoadBalancer(ctx context.Context, clusterName string, apiService *v1.Service, nodes []*v1.Node) (*v1.LoadBalancerStatus, error) {
-	// If spec.loadBalancerClass is set, another controller is responsible for this Service
-	if apiService.Spec.LoadBalancerClass != nil {
-		return nil, nil
-	}
-
 	annotations := apiService.Annotations
 	if isLBExternal(annotations) {
 		return nil, cloudprovider.ImplementedElsewhere
