@@ -342,6 +342,12 @@ func Test_GetCredentials_Public(t *testing.T) {
 			response:                    generateResponse("public.ecr.aws", "user", "pass"),
 		},
 		{
+			name:                        "dualstack success",
+			image:                       "ecr-public.aws.com",
+			getAuthorizationTokenOutput: generatePublicGetAuthorizationTokenOutput("user", "pass", nil),
+			response:                    generateResponse("ecr-public.aws.com", "user", "pass"),
+		},
+		{
 			name:                        "empty image",
 			image:                       "",
 			getAuthorizationTokenOutput: &ecrpublic.GetAuthorizationTokenOutput{},
@@ -379,6 +385,17 @@ func Test_GetCredentials_Public(t *testing.T) {
 		{
 			name:  "invalid authorization token",
 			image: "public.ecr.aws",
+			getAuthorizationTokenOutput: &ecrpublic.GetAuthorizationTokenOutput{
+				AuthorizationData: &publictypes.AuthorizationData{
+					AuthorizationToken: aws.String(base64.StdEncoding.EncodeToString([]byte("foo"))),
+				},
+			},
+			getAuthorizationTokenError: nil,
+			expectedError:              errors.New("error parsing username and password from authorization token"),
+		},
+		{
+			name:  "dualstack invalid authorization token",
+			image: "ecr-public.aws.com",
 			getAuthorizationTokenOutput: &ecrpublic.GetAuthorizationTokenOutput{
 				AuthorizationData: &publictypes.AuthorizationData{
 					AuthorizationToken: aws.String(base64.StdEncoding.EncodeToString([]byte("foo"))),
