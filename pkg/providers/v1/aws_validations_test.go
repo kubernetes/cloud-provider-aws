@@ -564,3 +564,94 @@ func TestValidateServiceAnnotations(t *testing.T) {
 		})
 	}
 }
+
+func TestValidateIPFamilyInfo(t *testing.T) {
+	tests := []struct {
+		name           string
+		ipFamilyPolicy v1.IPFamilyPolicy
+		ipFamilies     []v1.IPFamily
+		expectedError  string
+	}{
+		{
+			name:           "SingleStack IPv6 errors",
+			ipFamilyPolicy: v1.IPFamilyPolicySingleStack,
+			ipFamilies:     []v1.IPFamily{v1.IPv6Protocol},
+			expectedError:  "single stack IPv6 is not supported for network load balancers",
+		},
+		{
+			name:           "SingleStack IPv4 works",
+			ipFamilyPolicy: v1.IPFamilyPolicySingleStack,
+			ipFamilies:     []v1.IPFamily{v1.IPv4Protocol},
+			expectedError:  "",
+		},
+		{
+			name:           "RequireDualStack with one family errors",
+			ipFamilyPolicy: v1.IPFamilyPolicyRequireDualStack,
+			ipFamilies:     []v1.IPFamily{v1.IPv6Protocol},
+			expectedError:  "policy RequireDualStack requires 2 entries in the ipFamilies field. got 1",
+		},
+		{
+			name:           "PreferDualStack with too many entries errors",
+			ipFamilyPolicy: v1.IPFamilyPolicyPreferDualStack,
+			ipFamilies:     []v1.IPFamily{v1.IPv6Protocol, v1.IPv4Protocol, v1.IPv4Protocol},
+			expectedError:  "ipFamilies requires 1 or 2 entries. got 3",
+		},
+		{
+			name:           "PreferDualStack with one entry works",
+			ipFamilyPolicy: v1.IPFamilyPolicyPreferDualStack,
+			ipFamilies:     []v1.IPFamily{v1.IPv6Protocol},
+			expectedError:  "",
+		},
+		{
+			name:           "PreferDualStack with two entries works",
+			ipFamilyPolicy: v1.IPFamilyPolicyPreferDualStack,
+			ipFamilies:     []v1.IPFamily{v1.IPv6Protocol, v1.IPv4Protocol},
+			expectedError:  "",
+		},
+		{
+			name:           "PreferDualStack with two entries works",
+			ipFamilyPolicy: v1.IPFamilyPolicyPreferDualStack,
+			ipFamilies:     []v1.IPFamily{v1.IPv6Protocol, v1.IPv4Protocol},
+			expectedError:  "",
+		},
+		{
+			name:           "RequireDualStack with two entries works",
+			ipFamilyPolicy: v1.IPFamilyPolicyPreferDualStack,
+			ipFamilies:     []v1.IPFamily{v1.IPv6Protocol, v1.IPv4Protocol},
+			expectedError:  "",
+		},
+		{
+			name:           "RequireDualStack with two entries works",
+			ipFamilyPolicy: v1.IPFamilyPolicyPreferDualStack,
+			ipFamilies:     []v1.IPFamily{v1.IPv6Protocol, v1.IPv4Protocol},
+			expectedError:  "",
+		},
+		{
+			name:           "IPFamily fields empty works (backwards compat, implies SingleStack IPv4)",
+			ipFamilyPolicy: "",
+			ipFamilies:     []v1.IPFamily{},
+			expectedError:  "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			s := &v1.Service{
+				Spec: v1.ServiceSpec{
+					IPFamilyPolicy: &tt.ipFamilyPolicy,
+					IPFamilies:     tt.ipFamilies,
+				},
+			}
+
+			err := validateIPFamilyInfo(s, serviceRequestsIPv6(s))
+
+			if tt.expectedError == "" {
+				assert.NoError(t, err, "Expected no error for test case: %s", tt.name)
+			} else {
+				assert.Error(t, err, "Expected error for test case: %s", tt.name)
+				assert.Equal(t, err.Error(), tt.expectedError, "Expected error for test case: %s", tt.name)
+				assert.Contains(t, err.Error(), tt.expectedError, "Error message should contain expected text for test case: %s", tt.name)
+			}
+		})
+	}
+}
