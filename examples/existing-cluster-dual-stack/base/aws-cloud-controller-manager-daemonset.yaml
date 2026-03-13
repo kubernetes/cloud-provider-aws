@@ -28,7 +28,7 @@ spec:
       serviceAccountName: cloud-controller-manager
       containers:
         - name: aws-cloud-controller-manager
-          image: registry.k8s.io/provider-aws/cloud-controller-manager:v1.27.1
+          image: registry.k8s.io/provider-aws/cloud-controller-manager:v1.28.1
           args:
             - --v=2
             - --cloud-provider=aws
@@ -37,10 +37,10 @@ spec:
             # Set --configure-cloud-routes=true if required by your CNI
             - --configure-cloud-routes=false
             - --cloud-config=/etc/kubernetes/cloud-config.conf
-            volumeMounts:
-             - name: cloud-config
-               mountPath: /etc/kubernetes/cloud-config.conf
-               subPath: cloud-config.conf
+          volumeMounts:
+          - name: cloud-config
+            mountPath: /etc/kubernetes/cloud-config.conf
+            subPath: cloud-config.conf
           resources:
             requests:
               cpu: 200m
@@ -50,14 +50,13 @@ spec:
         configMap:
           name: cloud-config
 ---
-
 apiVersion: v1
 kind: ConfigMap
-  metadata:
-    name: cloud-config
-    namespace: kube-system
-  data:
-    cloud-config.conf: |
-      [Global]
-      NodeIPFamilies=ipv6
-      NodeIPFamilies=ipv4
+metadata:
+  name: cloud-config
+  namespace: kube-system
+data:
+  cloud-config.conf: |
+    [Global]
+    NodeIPFamilies=ipv6
+    NodeIPFamilies=ipv4
