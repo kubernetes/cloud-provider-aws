@@ -690,18 +690,7 @@ func (c *Cloud) ensureTargetGroup(ctx context.Context, targetGroup *elbv2types.T
 
 func (c *Cloud) ensureTargetGroupTargets(ctx context.Context, tgARN string, expectedTargets []*elbv2types.TargetDescription, actualTargets []*elbv2types.TargetDescription) error {
 	targetsToRegister, targetsToDeregister := c.diffTargetGroupTargets(expectedTargets, actualTargets)
-	if len(targetsToRegister) > 0 {
-		targetsToRegisterChunks := c.chunkTargetDescriptions(targetsToRegister, defaultRegisterTargetsChunkSize)
-		for _, targetsChunk := range targetsToRegisterChunks {
-			req := &elbv2.RegisterTargetsInput{
-				TargetGroupArn: aws.String(tgARN),
-				Targets:        targetsChunk,
-			}
-			if _, err := c.elbv2.RegisterTargets(ctx, req); err != nil {
-				return fmt.Errorf("error trying to register targets in target group: %q", err)
-			}
-		}
-	}
+	// deregister targets prior to registering to allow instance replacements when the LB is at max instance capacity
 	if len(targetsToDeregister) > 0 {
 		targetsToDeregisterChunks := c.chunkTargetDescriptions(targetsToDeregister, defaultDeregisterTargetsChunkSize)
 		for _, targetsChunk := range targetsToDeregisterChunks {
@@ -869,6 +858,18 @@ func (c *Cloud) updateInstanceSecurityGroupsForNLB(ctx context.Context, lbName s
 				if err := c.updateInstanceSecurityGroupForNLBMTU(ctx, sgID, sgPerms); err != nil {
 					return err
 				}
+			}
+		}
+	}
+	if len(targetsToRegister) > 0 {
+		targetsToRegisterChunks := c.chunkTargetDescriptions(targetsToRegister, defaultRegisterTargetsChunkSize)
+		for _, targetsChunk := range targetsToRegisterChunks {
+			req := &elbv2.RegisterTargetsInput{
+				TargetGroupArn: aws.String(tgARN),
+				Targets:        targetsChunk,
+			}
+			if _, err := c.elbv2.RegisterTargets(ctx, req); err != nil {
+				return fmt.Errorf("error trying to register targets in target group: %q", err)
 			}
 		}
 	}
