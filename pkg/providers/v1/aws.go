@@ -897,6 +897,11 @@ func (c *Cloud) InstanceExistsByProviderID(ctx context.Context, providerID strin
 		return false, fmt.Errorf("multiple instances found for instance: %s", instanceID)
 	}
 
+	if instances[0].State == nil {
+		klog.Warningf("the instance %s has nil state, assuming it no longer exists", instanceID)
+		return false, nil
+	}
+
 	state := instances[0].State.Name
 	if state == ec2types.InstanceStateNameTerminated {
 		klog.Warningf("the instance %s is terminated", instanceID)
