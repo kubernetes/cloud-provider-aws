@@ -29,6 +29,7 @@ go mod edit -replace k8s.io/csi-translation-lib=../../k8s.io/kubernetes/staging/
 go mod edit -replace k8s.io/apiserver=../../k8s.io/kubernetes/staging/src/k8s.io/apiserver
 go mod edit -replace k8s.io/component-helpers=../../k8s.io/kubernetes/staging/src/k8s.io/component-helpers
 go mod edit -replace k8s.io/kms=../../k8s.io/kubernetes/staging/src/k8s.io/kms
+go mod edit -replace k8s.io/streaming=../../k8s.io/kubernetes/staging/src/k8s.io/streaming
 
 
 go mod tidy
