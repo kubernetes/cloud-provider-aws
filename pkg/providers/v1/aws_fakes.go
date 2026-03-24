@@ -715,6 +715,11 @@ func (elb *FakeELBV2) SetSecurityGroups(ctx context.Context, input *elbv2.SetSec
 	panic("Not implemented")
 }
 
+// SetIpAddressType is not implemented but is required for interface conformance
+func (elb *FakeELBV2) SetIpAddressType(ctx context.Context, input *elbv2.SetIpAddressTypeInput, optFns ...func(*elbv2.Options)) (*elbv2.SetIpAddressTypeOutput, error) {
+	panic("Not implemented")
+}
+
 // ModifyLoadBalancerAttributes is not implemented but is required for interface conformance
 func (elb *FakeELBV2) ModifyLoadBalancerAttributes(ctx context.Context, input *elbv2.ModifyLoadBalancerAttributesInput, optFns ...func(*elbv2.Options)) (*elbv2.ModifyLoadBalancerAttributesOutput, error) {
 	panic("Not implemented")

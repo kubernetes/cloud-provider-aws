@@ -266,6 +266,21 @@ func (c *Cloud) ensureLoadBalancerv2(ctx context.Context, namespacedName types.N
 	} else {
 		// TODO: Sync internal vs non-internal
 
+		// Reconcile LB IpAddressType: if the Service's desired address family
+		// differs from what the existing NLB has, update it via SetIpAddressType.
+		desiredIPAddressType := getLoadBalancerIPAddressTypeFromService(service)
+		if loadBalancer.IpAddressType != desiredIPAddressType {
+			klog.Infof("Updating load balancer %s IpAddressType from %s to %s for %v",
+				loadBalancerName, loadBalancer.IpAddressType, desiredIPAddressType, namespacedName)
+			if _, err := c.elbv2.SetIpAddressType(ctx, &elbv2.SetIpAddressTypeInput{
+				LoadBalancerArn: loadBalancer.LoadBalancerArn,
+				IpAddressType:   desiredIPAddressType,
+			}); err != nil {
+				return nil, fmt.Errorf("error updating load balancer IpAddressType: %q", err)
+			}
+			dirty = true
+		}
+
 		// sync mappings
 		{
 			listenerDescriptions, err := c.elbv2.DescribeListeners(ctx,
