@@ -2518,6 +2518,7 @@ func (m *MockedFakeELBV2) CreateLoadBalancer(ctx context.Context, input *elbv2.C
 		LoadBalancerArn:  aws.String(arn),
 		LoadBalancerName: input.Name,
 		Type:             elbv2types.LoadBalancerTypeEnumNetwork,
+		IpAddressType:    input.IpAddressType,
 		VpcId:            aws.String("vpc-abc123def456abc78"),
 		AvailabilityZones: []elbv2types.AvailabilityZone{
 			{
@@ -2586,6 +2587,17 @@ func (m *MockedFakeELBV2) DescribeLoadBalancers(ctx context.Context, input *elbv
 
 func (m *MockedFakeELBV2) DeleteLoadBalancer(ctx context.Context, input *elbv2.DeleteLoadBalancerInput, optFns ...func(*elbv2.Options)) (*elbv2.DeleteLoadBalancerOutput, error) {
 	panic("Not implemented")
+}
+
+func (m *MockedFakeELBV2) SetIpAddressType(ctx context.Context, input *elbv2.SetIpAddressTypeInput, optFns ...func(*elbv2.Options)) (*elbv2.SetIpAddressTypeOutput, error) {
+	for _, lb := range m.LoadBalancers {
+		if aws.ToString(lb.LoadBalancerArn) == aws.ToString(input.LoadBalancerArn) {
+			lb.IpAddressType = input.IpAddressType
+			break
+		}
+	}
+	m.FakeELBV2.IpAddressType = input.IpAddressType
+	return &elbv2.SetIpAddressTypeOutput{IpAddressType: input.IpAddressType}, nil
 }
 
 func (m *MockedFakeELBV2) ModifyLoadBalancerAttributes(ctx context.Context, input *elbv2.ModifyLoadBalancerAttributesInput, optFns ...func(*elbv2.Options)) (*elbv2.ModifyLoadBalancerAttributesOutput, error) {

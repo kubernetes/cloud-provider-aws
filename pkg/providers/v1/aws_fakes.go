@@ -34,6 +34,7 @@ import (
 	elb "github.com/aws/aws-sdk-go-v2/service/elasticloadbalancing"
 	elbtypes "github.com/aws/aws-sdk-go-v2/service/elasticloadbalancing/types"
 	elbv2 "github.com/aws/aws-sdk-go-v2/service/elasticloadbalancingv2"
+	elbv2types "github.com/aws/aws-sdk-go-v2/service/elasticloadbalancingv2/types"
 	"github.com/aws/aws-sdk-go-v2/service/kms"
 	"k8s.io/klog/v2"
 
@@ -681,7 +682,8 @@ func (e *FakeELB) ModifyLoadBalancerAttributes(ctx context.Context, input *elb.M
 
 // FakeELBV2 is a fake ELBV2 client used for testing
 type FakeELBV2 struct {
-	aws *FakeAWSServices
+	aws           *FakeAWSServices
+	IpAddressType elbv2types.IpAddressType
 }
 
 // AddTags is not implemented but is required for interface conformance
@@ -715,9 +717,10 @@ func (elb *FakeELBV2) SetSecurityGroups(ctx context.Context, input *elbv2.SetSec
 	panic("Not implemented")
 }
 
-// SetIpAddressType is not implemented but is required for interface conformance
+// SetIpAddressType stores the given IpAddressType for later inspection and returns success.
 func (elb *FakeELBV2) SetIpAddressType(ctx context.Context, input *elbv2.SetIpAddressTypeInput, optFns ...func(*elbv2.Options)) (*elbv2.SetIpAddressTypeOutput, error) {
-	panic("Not implemented")
+	elb.IpAddressType = input.IpAddressType
+	return &elbv2.SetIpAddressTypeOutput{IpAddressType: input.IpAddressType}, nil
 }
 
 // ModifyLoadBalancerAttributes is not implemented but is required for interface conformance
