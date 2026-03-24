@@ -1094,7 +1094,18 @@ func (c *Cloud) updateInstanceSecurityGroupsForNLB(ctx context.Context, lbName s
 			if desiredSGIDs.Has(sgID) {
 				// If the client rule is 1) all addresses 2) tcp and 3) has same ports as the healthcheck,
 				// then the health rules are a subset of the client rule and are not needed.
-				if len(clientCIDRs) != 1 || clientCIDRs[0] != "0.0.0.0/0" || clientProtocol != "tcp" || !healthCheckPorts.Equal(clientPorts) {
+				// "All addresses" means 0.0.0.0/0 for IPv4-only, or both 0.0.0.0/0 and ::/0 for dual-stack.
+				var ipv4ClientCIDRs, ipv6ClientCIDRs []string
+				for _, cidr := range clientCIDRs {
+					if isIPv6CIDR(cidr) {
+						ipv6ClientCIDRs = append(ipv6ClientCIDRs, cidr)
+					} else {
+						ipv4ClientCIDRs = append(ipv4ClientCIDRs, cidr)
+					}
+				}
+				clientCIDRsAllOpen := len(ipv4ClientCIDRs) == 1 && ipv4ClientCIDRs[0] == "0.0.0.0/0" &&
+					(len(ipv6ClientCIDRs) == 0 || (len(ipv6ClientCIDRs) == 1 && ipv6ClientCIDRs[0] == "::/0"))
+				if !clientCIDRsAllOpen || clientProtocol != "tcp" || !healthCheckPorts.Equal(clientPorts) {
 					if err := c.updateInstanceSecurityGroupForNLBTraffic(ctx, sgID, sgPerms, healthRuleAnnotation, "tcp", healthCheckPorts, subnetCIDRs); err != nil {
 						return err
 					}
