@@ -152,6 +152,38 @@ func validateServiceAnnotationTargetGroupAttributes(v *awsValidationInput) error
 	return nil
 }
 
+// canFallbackToIPv4 reports whether a Service can be provisioned as an IPv4-only Classic Load
+// Balancer even when IPv6 appears in spec.ipFamilies. It returns true when the service's IP
+// family policy allows an IPv4-only load balancer:
+//   - nil policy or SingleStack with only IPv4 (no IPv6 requested)
+//   - PreferDualStack (IPv4-only is an acceptable fallback)
+//
+// It returns false when the policy demands IPv6 participation:
+//   - SingleStack with IPv6 in ipFamilies
+//   - RequireDualStack (CLB cannot satisfy a dual-stack requirement)
+func canFallbackToIPv4(service *v1.Service) bool {
+	if service == nil {
+		return true
+	}
+
+	policy := service.Spec.IPFamilyPolicy
+	if policy == nil {
+		// Implicit SingleStack: acceptable only if no IPv6 family is present.
+		return !serviceRequestsIPv6(service)
+	}
+
+	switch *policy {
+	case v1.IPFamilyPolicySingleStack:
+		return !serviceRequestsIPv6(service)
+	case v1.IPFamilyPolicyPreferDualStack:
+		return true
+	case v1.IPFamilyPolicyRequireDualStack:
+		return false
+	}
+
+	return true
+}
+
 // validateIPFamilyInfo validates that a Service's IP Families and IP Family Policies are supported.
 // Special cases:
 // - Cannot have an IPv6, single stack service (AWS limitation)

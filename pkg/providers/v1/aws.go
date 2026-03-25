@@ -2389,7 +2389,7 @@ func (c *Cloud) EnsureLoadBalancer(ctx context.Context, clusterName string, apiS
 		return nil, err
 	}
 
-	if !isNLB(annotations) && serviceRequestsIPv6(apiService) {
+	if !isNLB(annotations) && !canFallbackToIPv4(apiService) {
 		return nil, fmt.Errorf("classic load balancer for service %s does not support IPv6", apiService.Name)
 	}
 
