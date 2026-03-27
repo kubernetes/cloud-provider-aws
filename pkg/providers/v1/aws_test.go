@@ -3692,7 +3692,7 @@ func TestInstanceExistsByProviderIDForInstanceNotFound(t *testing.T) {
 
 func TestInstanceExistsByProviderIDNilState(t *testing.T) {
 	mockedEC2API := newMockedEC2API()
-	c := &Cloud{ec2: &awsSdkEC2{ec2: mockedEC2API}, describeInstanceBatcher: newdescribeInstanceBatcher(context.Background(), &awsSdkEC2{ec2: mockedEC2API})}
+	c := &Cloud{ec2: &awsSdkEC2{ec2: mockedEC2API}}
 
 	mockedEC2API.On("DescribeInstances", mock.Anything).Return(&ec2.DescribeInstancesOutput{
 		Reservations: []ec2types.Reservation{
@@ -3714,7 +3714,7 @@ func TestInstanceExistsByProviderIDNilState(t *testing.T) {
 
 func TestInstanceExistsByProviderIDTerminated(t *testing.T) {
 	mockedEC2API := newMockedEC2API()
-	c := &Cloud{ec2: &awsSdkEC2{ec2: mockedEC2API}, describeInstanceBatcher: newdescribeInstanceBatcher(context.Background(), &awsSdkEC2{ec2: mockedEC2API})}
+	c := &Cloud{ec2: &awsSdkEC2{ec2: mockedEC2API}}
 
 	mockedEC2API.On("DescribeInstances", mock.Anything).Return(&ec2.DescribeInstancesOutput{
 		Reservations: []ec2types.Reservation{
@@ -3738,7 +3738,7 @@ func TestInstanceExistsByProviderIDTerminated(t *testing.T) {
 
 func TestInstanceExistsByProviderIDRunning(t *testing.T) {
 	mockedEC2API := newMockedEC2API()
-	c := &Cloud{ec2: &awsSdkEC2{ec2: mockedEC2API}, describeInstanceBatcher: newdescribeInstanceBatcher(context.Background(), &awsSdkEC2{ec2: mockedEC2API})}
+	c := &Cloud{ec2: &awsSdkEC2{ec2: mockedEC2API}}
 
 	mockedEC2API.On("DescribeInstances", mock.Anything).Return(&ec2.DescribeInstancesOutput{
 		Reservations: []ec2types.Reservation{
