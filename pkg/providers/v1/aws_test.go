@@ -3756,6 +3756,76 @@ func TestInstanceExistsByProviderIDForInstanceNotFound(t *testing.T) {
 	assert.False(t, instanceExists)
 }
 
+func TestInstanceExistsByProviderIDNilState(t *testing.T) {
+	mockedEC2API := newMockedEC2API()
+	c := &Cloud{ec2: &awsSdkEC2{ec2: mockedEC2API}, describeInstanceBatcher: newdescribeInstanceBatcher(context.Background(), &awsSdkEC2{ec2: mockedEC2API})}
+
+	mockedEC2API.On("DescribeInstances", mock.Anything).Return(&ec2.DescribeInstancesOutput{
+		Reservations: []ec2types.Reservation{
+			{
+				Instances: []ec2types.Instance{
+					{
+						InstanceId: aws.String("i-nil-state"),
+						State:      nil,
+					},
+				},
+			},
+		},
+	}, nil)
+
+	instanceExists, err := c.InstanceExistsByProviderID(context.TODO(), "aws:///us-west-2c/1abc-2def/i-nil-state")
+	assert.Nil(t, err)
+	assert.False(t, instanceExists)
+}
+
+func TestInstanceExistsByProviderIDTerminated(t *testing.T) {
+	mockedEC2API := newMockedEC2API()
+	c := &Cloud{ec2: &awsSdkEC2{ec2: mockedEC2API}, describeInstanceBatcher: newdescribeInstanceBatcher(context.Background(), &awsSdkEC2{ec2: mockedEC2API})}
+
+	mockedEC2API.On("DescribeInstances", mock.Anything).Return(&ec2.DescribeInstancesOutput{
+		Reservations: []ec2types.Reservation{
+			{
+				Instances: []ec2types.Instance{
+					{
+						InstanceId: aws.String("i-terminated"),
+						State: &ec2types.InstanceState{
+							Name: ec2types.InstanceStateNameTerminated,
+						},
+					},
+				},
+			},
+		},
+	}, nil)
+
+	instanceExists, err := c.InstanceExistsByProviderID(context.TODO(), "aws:///us-west-2c/1abc-2def/i-terminated")
+	assert.Nil(t, err)
+	assert.False(t, instanceExists)
+}
+
+func TestInstanceExistsByProviderIDRunning(t *testing.T) {
+	mockedEC2API := newMockedEC2API()
+	c := &Cloud{ec2: &awsSdkEC2{ec2: mockedEC2API}, describeInstanceBatcher: newdescribeInstanceBatcher(context.Background(), &awsSdkEC2{ec2: mockedEC2API})}
+
+	mockedEC2API.On("DescribeInstances", mock.Anything).Return(&ec2.DescribeInstancesOutput{
+		Reservations: []ec2types.Reservation{
+			{
+				Instances: []ec2types.Instance{
+					{
+						InstanceId: aws.String("i-running"),
+						State: &ec2types.InstanceState{
+							Name: ec2types.InstanceStateNameRunning,
+						},
+					},
+				},
+			},
+		},
+	}, nil)
+
+	instanceExists, err := c.InstanceExistsByProviderID(context.TODO(), "aws:///us-west-2c/1abc-2def/i-running")
+	assert.Nil(t, err)
+	assert.True(t, instanceExists)
+}
+
 func TestInstanceNotExistsByProviderIDForFargate(t *testing.T) {
 	awsServices := newMockedFakeAWSServices(TestClusterID)
 	c, _ := newAWSCloud(config.CloudConfig{}, awsServices)
