@@ -74,15 +74,12 @@ func validateServiceAnnotations(v *awsValidationInput) error {
 	}
 
 	// ServiceAnnotationLoadBalancerSecurityGroups
-	// NLB only: ensure the BYO annotations are not supported and return an error.
-	// FIXME: the BYO SG for NLB implementation is blocked by https://github.com/kubernetes/cloud-provider-aws/pull/1209
-	if _, hasBYOAnnotation := v.annotations[ServiceAnnotationLoadBalancerSecurityGroups]; hasBYOAnnotation {
-		if isNLB {
-			return fmt.Errorf("BYO security group annotation %q is not supported by NLB", ServiceAnnotationLoadBalancerSecurityGroups)
-		}
-	}
+	// NLB only: BYO security group annotation is only supported in managed mode.
+	// The validation for this is performed in ensureNLBSecurityGroup where the
+	// cloud config is accessible to check if managed mode is enabled.
 
 	// ServiceAnnotationLoadBalancerExtraSecurityGroups
+	// NLB only: BYO extra security group annotation is not yet supported for NLB.
 	if _, hasExtraBYOAnnotation := v.annotations[ServiceAnnotationLoadBalancerExtraSecurityGroups]; hasExtraBYOAnnotation {
 		if isNLB {
 			return fmt.Errorf("BYO extra security group annotation %q is not supported by NLB", ServiceAnnotationLoadBalancerExtraSecurityGroups)

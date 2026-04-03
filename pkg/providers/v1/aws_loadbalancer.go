@@ -220,6 +220,41 @@ func (c *Cloud) ensureLoadBalancerv2(ctx context.Context, namespacedName types.N
 	} else {
 		// TODO: Sync internal vs non-internal
 
+		// Sync security groups if they have changed
+		{
+			oldSecurityGroups := loadBalancer.SecurityGroups
+			needsSecurityGroupUpdate := false
+
+			// Check if security groups have changed
+			if len(securityGroups) != len(oldSecurityGroups) {
+				needsSecurityGroupUpdate = true
+			} else {
+				// Compare the sets
+				oldSGSet := make(map[string]bool)
+				for _, sg := range oldSecurityGroups {
+					oldSGSet[sg] = true
+				}
+				for _, sg := range securityGroups {
+					if !oldSGSet[sg] {
+						needsSecurityGroupUpdate = true
+						break
+					}
+				}
+			}
+
+			if needsSecurityGroupUpdate && len(securityGroups) > 0 {
+				klog.V(2).Infof("Updating security groups for NLB %s from %v to %v", namespacedName, oldSecurityGroups, securityGroups)
+				_, err := c.elbv2.SetSecurityGroups(ctx, &elbv2.SetSecurityGroupsInput{
+					LoadBalancerArn: loadBalancer.LoadBalancerArn,
+					SecurityGroups:  securityGroups,
+				})
+				if err != nil {
+					return nil, fmt.Errorf("error setting security groups on load balancer: %q", err)
+				}
+				dirty = true
+			}
+		}
+
 		// sync mappings
 		{
 			listenerDescriptions, err := c.elbv2.DescribeListeners(ctx,

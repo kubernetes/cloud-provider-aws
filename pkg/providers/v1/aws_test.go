@@ -4583,6 +4583,22 @@ func TestEnsureNLBSecurityGroup(t *testing.T) {
 					},
 				}
 			},
+			mockCreateSecurityGroup: func(m *MockedFakeEC2) {
+				// Mock for isOwnedSecurityGroup check - existing SG is owned
+				m.On("DescribeSecurityGroups", &ec2.DescribeSecurityGroupsInput{
+					GroupIds: []string{fakeSecurityGroupID},
+				}).Return([]ec2types.SecurityGroup{
+					{
+						GroupId: aws.String(fakeSecurityGroupID),
+						Tags: []ec2types.Tag{
+							{
+								Key:   aws.String("kubernetes.io/cluster/" + TestClusterID),
+								Value: aws.String(ResourceLifecycleOwned),
+							},
+						},
+					},
+				}, nil)
+			},
 		},
 		{
 			name:                   "new NLB with managed mode - creates new SG",
@@ -4627,6 +4643,22 @@ func TestEnsureNLBSecurityGroup(t *testing.T) {
 			name:                   "existing NLB without security groups - returns empty",
 			annotations:            map[string]string{},
 			configNLBSGMode:        true,
+			expectedSecurityGroups: []string{},
+			expectedError:          "",
+			mockDescribeLoadBalancer: func(m *MockedFakeELBV2) {
+				m.LoadBalancers = []*elbv2types.LoadBalancer{
+					{
+						LoadBalancerName: aws.String(loadBalancerName),
+						Type:             elbv2types.LoadBalancerTypeEnumNetwork,
+						SecurityGroups:   []string{},
+					},
+				}
+			},
+		},
+		{
+			name:                   "existing NLB without security groups + managed mode disabled - returns empty",
+			annotations:            map[string]string{},
+			configNLBSGMode:        false,
 			expectedSecurityGroups: []string{},
 			expectedError:          "",
 			mockDescribeLoadBalancer: func(m *MockedFakeELBV2) {
@@ -4717,6 +4749,86 @@ func TestEnsureNLBSecurityGroup(t *testing.T) {
 				})).Return(&ec2.CreateSecurityGroupOutput{}, fmt.Errorf("CreateSecurityGroup failed"))
 			},
 		},
+		// BYO Security Group test cases
+		{
+			name: "BYO SG with managed mode enabled - returns BYO SGs",
+			annotations: map[string]string{
+				ServiceAnnotationLoadBalancerSecurityGroups: byoSecurityGroupID,
+			},
+			configNLBSGMode:        true,
+			expectedSecurityGroups: []string{byoSecurityGroupID},
+			expectedError:          "",
+		},
+		{
+			name: "BYO SG with managed mode disabled - returns empty (ignored)",
+			annotations: map[string]string{
+				ServiceAnnotationLoadBalancerSecurityGroups: byoSecurityGroupID,
+			},
+			configNLBSGMode:        false,
+			expectedSecurityGroups: []string{},
+			expectedError:          "",
+		},
+		{
+			name: "BYO multiple SGs with managed mode enabled - returns all BYO SGs",
+			annotations: map[string]string{
+				ServiceAnnotationLoadBalancerSecurityGroups: byoSecurityGroupID + ",sg-another",
+			},
+			configNLBSGMode:        true,
+			expectedSecurityGroups: []string{byoSecurityGroupID, "sg-another"},
+			expectedError:          "",
+		},
+		{
+			name: "BYO SG with whitespace - returns trimmed SGs",
+			annotations: map[string]string{
+				ServiceAnnotationLoadBalancerSecurityGroups: " " + byoSecurityGroupID + " , sg-another ",
+			},
+			configNLBSGMode:        true,
+			expectedSecurityGroups: []string{byoSecurityGroupID, "sg-another"},
+			expectedError:          "",
+		},
+		// BYO annotation removed scenario
+		{
+			name:                   "existing NLB with BYO SG (annotation removed) - creates managed SG",
+			annotations:            map[string]string{}, // No BYO annotation anymore
+			configNLBSGMode:        true,
+			expectedSecurityGroups: []string{"sg-123456789"}, // Should create new managed SG (AWS NLB requirement)
+			expectedError:          "",
+			mockDescribeLoadBalancer: func(m *MockedFakeELBV2) {
+				m.LoadBalancers = []*elbv2types.LoadBalancer{
+					{
+						LoadBalancerName: aws.String(loadBalancerName),
+						Type:             elbv2types.LoadBalancerTypeEnumNetwork,
+						SecurityGroups:   []string{"sg-byo-unowned"},
+					},
+				}
+			},
+			mockCreateSecurityGroup: func(m *MockedFakeEC2) {
+				// Mock for isOwnedSecurityGroup check - BYO SG is not owned
+				m.On("DescribeSecurityGroups", &ec2.DescribeSecurityGroupsInput{
+					GroupIds: []string{"sg-byo-unowned"},
+				}).Return([]ec2types.SecurityGroup{
+					{
+						GroupId: aws.String("sg-byo-unowned"),
+						Tags:    []ec2types.Tag{}, // No ownership tag
+					},
+				}, nil)
+
+				// Mock for createSecurityGroup (ensureSecurityGroup checks if SG exists by name)
+				m.On("DescribeSecurityGroups", mock.MatchedBy(func(input *ec2.DescribeSecurityGroupsInput) bool {
+					return len(input.Filters) == 2 &&
+						aws.ToString(input.Filters[0].Name) == "group-name" &&
+						len(input.Filters[0].Values) == 1 &&
+						strings.HasPrefix(input.Filters[0].Values[0], "k8s-testname-testserv-")
+				})).Return([]ec2types.SecurityGroup{}, nil)
+
+				// Mock CreateSecurityGroup call
+				m.On("CreateSecurityGroup", mock.MatchedBy(func(input *ec2.CreateSecurityGroupInput) bool {
+					return strings.HasPrefix(aws.ToString(input.GroupName), "k8s-testname-testserv-")
+				})).Return(&ec2.CreateSecurityGroupOutput{
+					GroupId: aws.String("sg-123456789"),
+				}, nil)
+			},
+		},
 	}
 
 	for _, tc := range testCases {
@@ -4757,10 +4869,11 @@ func TestEnsureNLBSecurityGroup(t *testing.T) {
 			if tc.expectedError != "" {
 				assert.Error(t, err)
 				assert.Contains(t, err.Error(), tc.expectedError)
-				assert.Empty(t, result)
+				assert.Nil(t, result)
 			} else {
 				assert.NoError(t, err)
-				assert.Equal(t, tc.expectedSecurityGroups, result)
+				assert.NotNil(t, result)
+				assert.Equal(t, tc.expectedSecurityGroups, result.SecurityGroups)
 			}
 
 			// Verify all mocks were called as expected
