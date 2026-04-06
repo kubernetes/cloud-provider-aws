@@ -19,7 +19,9 @@ package aws
 import (
 	"context"
 	"fmt"
+	"net/http"
 	"sync"
+	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/aws/middleware"
@@ -39,6 +41,12 @@ import (
 	"k8s.io/cloud-provider-aws/pkg/providers/v1/iface"
 	"k8s.io/klog/v2"
 )
+
+// defaultHTTPClient is shared across all AWS SDK clients to enforce an explicit
+// HTTP request timeout and reuse connection pools. Without a timeout, a single
+// slow response can trigger the Go SDK's clock skew overcorrection and break all
+// subsequent API calls (COE-389792).
+var defaultHTTPClient = &http.Client{Timeout: 30 * time.Second}
 
 type awsSDKProvider struct {
 	creds aws.CredentialsProvider
@@ -114,6 +122,7 @@ func (p *awsSDKProvider) getCrossRequestRetryDelay(regionName string) *CrossRequ
 func (p *awsSDKProvider) Compute(ctx context.Context, regionName string, assumeRoleProvider *stscredsv2.AssumeRoleProvider) (iface.EC2, error) {
 	cfg, err := awsConfig.LoadDefaultConfig(ctx, awsConfig.WithDefaultsMode(aws.DefaultsModeInRegion),
 		awsConfig.WithRegion(regionName),
+		awsConfig.WithHTTPClient(defaultHTTPClient),
 	)
 	if assumeRoleProvider != nil {
 		cfg.Credentials = aws.NewCredentialsCache(assumeRoleProvider)
@@ -142,6 +151,7 @@ func (p *awsSDKProvider) Compute(ctx context.Context, regionName string, assumeR
 func (p *awsSDKProvider) LoadBalancing(ctx context.Context, regionName string, assumeRoleProvider *stscredsv2.AssumeRoleProvider) (ELB, error) {
 	cfg, err := awsConfig.LoadDefaultConfig(ctx, awsConfig.WithDefaultsMode(aws.DefaultsModeInRegion),
 		awsConfig.WithRegion(regionName),
+		awsConfig.WithHTTPClient(defaultHTTPClient),
 	)
 	if assumeRoleProvider != nil {
 		cfg.Credentials = aws.NewCredentialsCache(assumeRoleProvider)
@@ -167,6 +177,7 @@ func (p *awsSDKProvider) LoadBalancing(ctx context.Context, regionName string, a
 func (p *awsSDKProvider) LoadBalancingV2(ctx context.Context, regionName string, assumeRoleProvider *stscredsv2.AssumeRoleProvider) (ELBV2, error) {
 	cfg, err := awsConfig.LoadDefaultConfig(ctx, awsConfig.WithDefaultsMode(aws.DefaultsModeInRegion),
 		awsConfig.WithRegion(regionName),
+		awsConfig.WithHTTPClient(defaultHTTPClient),
 	)
 	if assumeRoleProvider != nil {
 		cfg.Credentials = aws.NewCredentialsCache(assumeRoleProvider)
@@ -190,7 +201,9 @@ func (p *awsSDKProvider) LoadBalancingV2(ctx context.Context, regionName string,
 }
 
 func (p *awsSDKProvider) Metadata(ctx context.Context) (config.EC2Metadata, error) {
-	cfg, err := awsConfig.LoadDefaultConfig(context.TODO(), awsConfig.WithDefaultsMode(aws.DefaultsModeInRegion))
+	cfg, err := awsConfig.LoadDefaultConfig(context.TODO(), awsConfig.WithDefaultsMode(aws.DefaultsModeInRegion),
+		awsConfig.WithHTTPClient(defaultHTTPClient),
+	)
 	if err != nil {
 		return nil, fmt.Errorf("unable to initialize AWS config: %v", err)
 	}
@@ -226,6 +239,7 @@ func (p *awsSDKProvider) Metadata(ctx context.Context) (config.EC2Metadata, erro
 func (p *awsSDKProvider) KeyManagement(ctx context.Context, regionName string, assumeRoleProvider *stscredsv2.AssumeRoleProvider) (KMS, error) {
 	cfg, err := awsConfig.LoadDefaultConfig(ctx, awsConfig.WithDefaultsMode(aws.DefaultsModeInRegion),
 		awsConfig.WithRegion(regionName),
+		awsConfig.WithHTTPClient(defaultHTTPClient),
 	)
 	if assumeRoleProvider != nil {
 		cfg.Credentials = aws.NewCredentialsCache(assumeRoleProvider)
