@@ -19,6 +19,8 @@ package services
 import (
 	"context"
 	"fmt"
+	"net/http"
+	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws/arn"
 	"github.com/aws/aws-sdk-go-v2/config"
@@ -67,7 +69,9 @@ func WithStsHeadersMiddleware(headers map[string]string) func(*sts.Options) {
 // NewStsClient provides a new STS client.
 func NewStsClient(ctx context.Context, region, roleARN, sourceARN string) (*sts.Client, error) {
 	klog.Infof("Using AWS assumed role %v", roleARN)
-	cfg, err := config.LoadDefaultConfig(ctx)
+	cfg, err := config.LoadDefaultConfig(ctx,
+		config.WithHTTPClient(&http.Client{Timeout: 30 * time.Second}),
+	)
 	if err != nil {
 		return nil, err
 	}
