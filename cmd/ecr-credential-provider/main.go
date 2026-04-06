@@ -21,6 +21,7 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"net/http"
 	"net/url"
 	"os"
 	"regexp"
@@ -41,6 +42,8 @@ import (
 )
 
 const ecrPublicRegion string = "us-east-1"
+
+var defaultHTTPClient = &http.Client{Timeout: 30 * time.Second}
 
 var ecrPublicHosts []string = []string{"public.ecr.aws", "ecr-public.aws.com"}
 
@@ -67,10 +70,13 @@ func defaultECRProvider(ctx context.Context, region string) (ECR, error) {
 	if region != "" {
 		cfg, err = config.LoadDefaultConfig(ctx,
 			config.WithRegion(region),
+			config.WithHTTPClient(defaultHTTPClient),
 		)
 	} else {
 		klog.Warningf("No region found in the image reference, the default region will be used. Please refer to AWS SDK documentation for configuration purpose.")
-		cfg, err = config.LoadDefaultConfig(ctx)
+		cfg, err = config.LoadDefaultConfig(ctx,
+			config.WithHTTPClient(defaultHTTPClient),
+		)
 	}
 
 	if err != nil {
@@ -85,6 +91,7 @@ func publicECRProvider(ctx context.Context) (ECRPublic, error) {
 	// in the "aws" partition.
 	cfg, err := config.LoadDefaultConfig(ctx,
 		config.WithRegion(ecrPublicRegion),
+		config.WithHTTPClient(defaultHTTPClient),
 	)
 	if err != nil {
 		return nil, err
