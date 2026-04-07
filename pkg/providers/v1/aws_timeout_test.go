@@ -13,7 +13,7 @@ import (
 // TestAllLoadDefaultConfigHaveHTTPClient scans all .go source files and verifies
 // that every call to LoadDefaultConfig includes a WithHTTPClient option.
 // This prevents SDK clients from being created without an explicit HTTP timeout,
-// which can lead to clock skew overcorrection on slow responses (COE-389792).
+// which can lead to clock skew overcorrection on slow responses.
 func TestAllLoadDefaultConfigHaveHTTPClient(t *testing.T) {
 	repoRoot := filepath.Join("..", "..", "..")
 	var violations []string
