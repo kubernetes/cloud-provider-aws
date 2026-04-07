@@ -19,13 +19,13 @@ package aws
 import (
 	"context"
 	"fmt"
-	"net/http"
 	"sync"
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/aws/middleware"
 	"github.com/aws/aws-sdk-go-v2/aws/retry"
+	awshttp "github.com/aws/aws-sdk-go-v2/aws/transport/http"
 	awsConfig "github.com/aws/aws-sdk-go-v2/config"
 	stscredsv2 "github.com/aws/aws-sdk-go-v2/credentials/stscreds"
 	"github.com/aws/aws-sdk-go-v2/feature/ec2/imds"
@@ -45,8 +45,8 @@ import (
 // defaultHTTPClient is shared across all AWS SDK clients to enforce an explicit
 // HTTP request timeout and reuse connection pools. Without a timeout, a single
 // slow response can trigger the Go SDK's clock skew overcorrection and break all
-// subsequent API calls (COE-389792).
-var defaultHTTPClient = &http.Client{Timeout: 30 * time.Second}
+// subsequent API calls.
+var defaultHTTPClient = awshttp.NewBuildableClient().WithTimeout(30 * time.Second)
 
 type awsSDKProvider struct {
 	creds aws.CredentialsProvider
