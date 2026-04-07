@@ -21,7 +21,6 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
-	"net/http"
 	"net/url"
 	"os"
 	"regexp"
@@ -30,6 +29,7 @@ import (
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
+	awshttp "github.com/aws/aws-sdk-go-v2/aws/transport/http"
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/ecr"
 	"github.com/aws/aws-sdk-go-v2/service/ecrpublic"
@@ -44,7 +44,7 @@ import (
 
 const ecrPublicRegion string = "us-east-1"
 
-var defaultHTTPClient = &http.Client{Timeout: 30 * time.Second}
+var defaultHTTPClient = awshttp.NewBuildableClient().WithTimeout(30 * time.Second)
 
 var ecrPublicHosts []string = []string{"public.ecr.aws", "ecr-public.aws.com"}
 
