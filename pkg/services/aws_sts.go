@@ -70,7 +70,7 @@ func WithStsHeadersMiddleware(headers map[string]string) func(*sts.Options) {
 func NewStsClient(ctx context.Context, region, roleARN, sourceARN string) (*sts.Client, error) {
 	klog.Infof("Using AWS assumed role %v", roleARN)
 	cfg, err := config.LoadDefaultConfig(ctx,
-		config.WithHTTPClient(awshttp.NewBuildableClient().WithTimeout(30 * time.Second)),
+		config.WithHTTPClient(awshttp.NewBuildableClient().WithTimeout(30*time.Second)),
 	)
 	if err != nil {
 		return nil, err
