@@ -303,9 +303,9 @@ func TestValidateServiceAnnotations(t *testing.T) {
 			expectedError: "",
 		},
 
-		// BYO SG annotation validation is deferred to ensureNLBSecurityGroup
+		// BYO SG annotations validation
 		{
-			name: "NLB with BYO SG annotation - deferred validation (passes pre-flight)",
+			name: "NLB with BYO SG annotation - should pass validations",
 			annotations: map[string]string{
 				ServiceAnnotationLoadBalancerType:           "nlb",
 				ServiceAnnotationLoadBalancerSecurityGroups: byoSecurityGroupID,
@@ -330,67 +330,26 @@ func TestValidateServiceAnnotations(t *testing.T) {
 			expectedError: "BYO extra security group annotation \"service.beta.kubernetes.io/aws-load-balancer-extra-security-groups\" is not supported by NLB",
 		},
 		{
-			name: "NLB with BYO SG with empty value - deferred validation (passes pre-flight)",
+			name: "NLB with BYO extra SG with empty value - error (not supported)",
 			annotations: map[string]string{
-				ServiceAnnotationLoadBalancerType:           "nlb",
-				ServiceAnnotationLoadBalancerSecurityGroups: "",
+				ServiceAnnotationLoadBalancerType:                "nlb",
+				ServiceAnnotationLoadBalancerExtraSecurityGroups: "BYO extra security group annotation \"service.beta.kubernetes.io/aws-load-balancer-extra-security-groups\" is not supported by NLB",
 			},
-			expectedError: "",
+			expectedError: "BYO extra security group annotation \"service.beta.kubernetes.io/aws-load-balancer-extra-security-groups\" is not supported by NLB",
 		},
 		{
-			name: "NLB with BYO SG with multiple values - deferred validation (passes pre-flight)",
+			name: "NLB with BYO extra SG with multiple values - error (not supported)",
+			annotations: map[string]string{
+				ServiceAnnotationLoadBalancerType:                "nlb",
+				ServiceAnnotationLoadBalancerExtraSecurityGroups: "sg-123,sg-456",
+			},
+			expectedError: "BYO extra security group annotation \"service.beta.kubernetes.io/aws-load-balancer-extra-security-groups\" is not supported by NLB",
+		},
+		{
+			name: "NLB with BYO SG with multiple values - should pass validations",
 			annotations: map[string]string{
 				ServiceAnnotationLoadBalancerType:           "nlb",
 				ServiceAnnotationLoadBalancerSecurityGroups: "sg-123,sg-456",
-			},
-			expectedError: "",
-		},
-		{
-			name: "NLB with single BYO SG - deferred validation (passes pre-flight)",
-			annotations: map[string]string{
-				ServiceAnnotationLoadBalancerType:           "nlb",
-				ServiceAnnotationLoadBalancerSecurityGroups: "sg-123456789",
-			},
-			expectedError: "",
-		},
-		{
-			name: "NLB with multiple BYO SGs - deferred validation (passes pre-flight)",
-			annotations: map[string]string{
-				ServiceAnnotationLoadBalancerType:           "nlb",
-				ServiceAnnotationLoadBalancerSecurityGroups: "sg-123456789,sg-987654321",
-			},
-			expectedError: "",
-		},
-		{
-			name: "NLB with invalid BYO SG format - deferred validation (passes pre-flight)",
-			annotations: map[string]string{
-				ServiceAnnotationLoadBalancerType:           "nlb",
-				ServiceAnnotationLoadBalancerSecurityGroups: "invalid-sg-format",
-			},
-			expectedError: "",
-		},
-		{
-			name: "NLB case sensitivity - deferred validation (passes pre-flight)",
-			annotations: map[string]string{
-				ServiceAnnotationLoadBalancerType:           "nlb",
-				ServiceAnnotationLoadBalancerSecurityGroups: "SG-123ABC",
-			},
-			expectedError: "",
-		},
-		{
-			name: "NLB mixed annotations - deferred validation (passes pre-flight)",
-			annotations: map[string]string{
-				ServiceAnnotationLoadBalancerSecurityGroups: "sg-123456",
-				ServiceAnnotationLoadBalancerType:           "nlb",
-				ServiceAnnotationLoadBalancerInternal:       "true",
-			},
-			expectedError: "",
-		},
-		{
-			name: "NLB whitespace in BYO SG values - deferred validation (passes pre-flight)",
-			annotations: map[string]string{
-				ServiceAnnotationLoadBalancerType:           "nlb",
-				ServiceAnnotationLoadBalancerSecurityGroups: " sg-123456 ",
 			},
 			expectedError: "",
 		},
