@@ -73,11 +73,6 @@ func validateServiceAnnotations(v *awsValidationInput) error {
 		}
 	}
 
-	// ServiceAnnotationLoadBalancerSecurityGroups
-	// NLB only: BYO security group annotation is only supported in managed mode.
-	// The validation for this is performed in ensureNLBSecurityGroup where the
-	// cloud config is accessible to check if managed mode is enabled.
-
 	// ServiceAnnotationLoadBalancerExtraSecurityGroups
 	// NLB only: BYO extra security group annotation is not yet supported for NLB.
 	if _, hasExtraBYOAnnotation := v.annotations[ServiceAnnotationLoadBalancerExtraSecurityGroups]; hasExtraBYOAnnotation {
