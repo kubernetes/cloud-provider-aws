@@ -2380,7 +2380,6 @@ func (c *Cloud) ensureNLBSecurityGroup(ctx context.Context, clusterName string, 
 //
 // Parameters:
 //   - ctx: The context for the request.
-//   - svc: The Kubernetes service object (used for logging).
 //   - sgs: The security groups to be used by the NLB.
 //   - ec2SourceRanges: The CIDR ranges allowed to access the load balancer.
 //   - v2Mappings: The NLB port mappings defining frontend ports and protocols.
