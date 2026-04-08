@@ -2368,10 +2368,8 @@ func (c *Cloud) ensureNLBSecurityGroup(ctx context.Context, clusterName string, 
 
 // ensureNLBSecurityGroupRules ensures the NLB frontend security group rules are created and configured
 // for the specified security groups based on the load balancer port mappings (Load Balancer listeners),
-// allowing traffic from the specified source ranges.
-//
-// Only manages rules for owned (controller-managed) security groups when managed mode is enabled.
-// BYO security groups and rules when managed mode is disabled are skipped.
+// allowing traffic from the specified source ranges. Rules are attached only to the first owned
+// security group, if any.
 //
 // Parameters:
 //   - ctx: The context for the request.
@@ -2398,41 +2396,39 @@ func (c *Cloud) ensureNLBSecurityGroupRules(ctx context.Context, sgs *nlbSecurit
 		return nil
 	}
 
-	// Manage rules only for owned security groups (other/BYO SGs are skipped)
-	for _, securityGroupID := range sgs.ownedSGs {
-		ingressRules := NewIPPermissionSet()
-		for _, mapping := range v2Mappings {
-			ingressRules.Insert(ec2types.IpPermission{
-				FromPort:   aws.Int32(int32(mapping.FrontendPort)),
-				ToPort:     aws.Int32(int32(mapping.FrontendPort)),
-				IpProtocol: aws.String(strings.ToLower(string((mapping.FrontendProtocol)))),
-				IpRanges:   ec2SourceRanges,
-			})
-		}
-		if err := c.createSecurityGroupRules(ctx, securityGroupID, ingressRules, ec2SourceRanges); err != nil {
-			return fmt.Errorf("error while updating rules to security group %q: %w", securityGroupID, err)
-		}
+	// Attach rules only to the first owned security group
+	securityGroupID := sgs.ownedSGs[0]
+
+	ingressRules := NewIPPermissionSet()
+	for _, mapping := range v2Mappings {
+		ingressRules.Insert(ec2types.IpPermission{
+			FromPort:   aws.Int32(int32(mapping.FrontendPort)),
+			ToPort:     aws.Int32(int32(mapping.FrontendPort)),
+			IpProtocol: aws.String(strings.ToLower(string((mapping.FrontendProtocol)))),
+			IpRanges:   ec2SourceRanges,
+		})
+	}
+	if err := c.createSecurityGroupRules(ctx, securityGroupID, ingressRules, ec2SourceRanges); err != nil {
+		return fmt.Errorf("error while updating rules to security group %q: %w", securityGroupID, err)
 	}
 
 	return nil
 }
 
-// cleanupOldManagedSecurityGroups removes managed security groups that are no longer attached to the NLB
-// and removes stale ingress rules referencing old NLB security groups across the cluster-owned SGs.
+// getDetachedSecurityGroups compares existing and new security groups and returns the set of
+// groups that were detached.
 //
 // Parameters:
-//   - ctx: The context for the request.
-//   - svc: The Kubernetes service object.
 //   - existingSGs: The security groups that were attached before the update.
 //   - newSGs: The security groups currently attached to the NLB.
 //
 // Returns:
-//   - error: An error if any issue occurs while cleaning up security groups.
-func (c *Cloud) cleanupOldManagedSecurityGroups(ctx context.Context, svc *v1.Service, existingSGs *nlbSecurityGroups, newSGs *nlbSecurityGroups) error {
-	serviceName := types.NamespacedName{Namespace: svc.Namespace, Name: svc.Name}
+//   - *nlbSecurityGroups: The groups that were detached, i.e. present in the existing SGs but missing in the new SGs.
+func (c *Cloud) getDetachedSecurityGroups(existingSGs *nlbSecurityGroups, newSGs *nlbSecurityGroups) *nlbSecurityGroups {
+	detachedSGs := &nlbSecurityGroups{}
 
 	if existingSGs == nil || existingSGs.Count() == 0 {
-		return nil
+		return detachedSGs
 	}
 
 	newSGSet := make(map[string]bool)
@@ -2441,7 +2437,6 @@ func (c *Cloud) cleanupOldManagedSecurityGroups(ctx context.Context, svc *v1.Ser
 	}
 
 	// Collect detached SGs, preserving their categorization (owned vs other)
-	detachedSGs := &nlbSecurityGroups{}
 	for _, sg := range existingSGs.ownedSGs {
 		if !newSGSet[sg] {
 			detachedSGs.ownedSGs = append(detachedSGs.ownedSGs, sg)
@@ -2452,15 +2447,7 @@ func (c *Cloud) cleanupOldManagedSecurityGroups(ctx context.Context, svc *v1.Ser
 			detachedSGs.otherSGs = append(detachedSGs.otherSGs, sg)
 		}
 	}
-
-	// Remove old security groups with cross-reference cleanup
-	if err := c.cleanupNLBSecurityGroups(ctx, serviceName.String(), detachedSGs); err != nil {
-		klog.Warningf("Error cleaning up NLB security groups for service %q: %v", serviceName, err)
-		// TODO: check if we want to error here
-		// Don't return error - cleanup is best effort
-	}
-
-	return nil
+	return detachedSGs
 }
 
 // cleanupNLBSecurityGroups cleans up the given security groups by revoking ingress rules pointing to them
@@ -2649,19 +2636,19 @@ func (c *Cloud) EnsureLoadBalancer(ctx context.Context, clusterName string, apiS
 			instanceIDs = append(instanceIDs, string(id))
 		}
 
-		// Describe the load balancer to check if it exists and get current security groups
+		// Describe the load balancer, if one exists. Will return nil if it does not exist.
 		existingLB, err := c.describeLoadBalancerv2(ctx, loadBalancerName)
 		if err != nil {
 			return nil, fmt.Errorf("error describing load balancer %s: %w", loadBalancerName, err)
 		}
 
-		// Get existing NLB security groups
+		// Get existing NLB security groups, if any
 		existingSGs, err := c.getCurrentNLBSecurityGroups(ctx, existingLB)
 		if err != nil {
 			return nil, err
 		}
 
-		// Create/retrieve the new Security Groups to be used with the NLB
+		// Create/retrieve the Security Groups to be used with the NLB
 		newSGs, err := c.ensureNLBSecurityGroup(ctx,
 			clusterName,
 			apiService,
@@ -2690,9 +2677,9 @@ func (c *Cloud) EnsureLoadBalancer(ctx context.Context, clusterName string, apiS
 			return nil, fmt.Errorf("error ensuring NLB security group rules: %w", err)
 		}
 
-		// Cleanup old managed security groups and stale rules
-		if existingSGs != nil && existingSGs.Count() > 0 {
-			if err := c.cleanupOldManagedSecurityGroups(ctx, apiService, existingSGs, newSGs); err != nil {
+		// Cleanup old managed security groups and rules referencing them, if any
+		if detachedSGs := c.getDetachedSecurityGroups(existingSGs, newSGs); detachedSGs.Count() > 0 {
+			if err := c.cleanupNLBSecurityGroups(ctx, loadBalancerName, detachedSGs); err != nil {
 				klog.Warningf("Error cleaning up old managed security groups: %v", err)
 				// Don't fail the whole operation if cleanup fails
 			}
