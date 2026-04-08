@@ -2242,12 +2242,19 @@ type nlbSecurityGroups struct {
 
 // All returns all security groups combined.
 func (n *nlbSecurityGroups) All() []string {
-	sgs := append([]string{}, n.ownedSGs...)
+	if n == nil {
+		return []string{}
+	}
+	sgs := make([]string, 0, n.Count())
+	sgs = append(sgs, n.ownedSGs...)
 	return append(sgs, n.otherSGs...)
 }
 
 // Count returns the total number of security groups.
 func (n *nlbSecurityGroups) Count() int {
+	if n == nil {
+		return 0
+	}
 	return len(n.ownedSGs) + len(n.otherSGs)
 }
 
