@@ -146,7 +146,7 @@ const ServiceAnnotationLoadBalancerCrossZoneLoadBalancingEnabled = "service.beta
 const ServiceAnnotationLoadBalancerExtraSecurityGroups = "service.beta.kubernetes.io/aws-load-balancer-extra-security-groups"
 
 // ServiceAnnotationLoadBalancerSecurityGroups is the annotation used
-// on the service to specify the security groups to be added to ELB created. Differently from the annotation
+// on the service to specify the security groups to be added to ELB or NLB created. Differently from the annotation
 // "service.beta.kubernetes.io/aws-load-balancer-extra-security-groups", this replaces all other security groups previously assigned to the ELB.
 const ServiceAnnotationLoadBalancerSecurityGroups = "service.beta.kubernetes.io/aws-load-balancer-security-groups"
 
