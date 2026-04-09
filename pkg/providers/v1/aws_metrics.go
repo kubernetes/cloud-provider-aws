@@ -19,6 +19,7 @@ package aws
 import (
 	"sync"
 
+	"k8s.io/cloud-provider-aws/pkg/services"
 	"k8s.io/component-base/metrics"
 	"k8s.io/component-base/metrics/legacyregistry"
 )
@@ -69,4 +70,5 @@ func registerMetrics() {
 		legacyregistry.MustRegister(awsAPIErrorMetric)
 		legacyregistry.MustRegister(awsAPIThrottlesMetric)
 	})
+	services.RegisterAWSAPIMetrics()
 }
