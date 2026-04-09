@@ -76,6 +76,13 @@ func NewStsClient(ctx context.Context, region, roleARN, sourceARN string) (*sts.
 		return nil, err
 	}
 
+	// Record AWS API response status codes and error codes as metrics.
+	cfg.APIOptions = append(cfg.APIOptions,
+		func(stack *middleware.Stack) error {
+			return stack.Deserialize.Add(AWSAPIMetricsMiddleware(), middleware.After)
+		},
+	)
+
 	parsedSourceArn, err := arn.Parse(roleARN)
 	if err != nil {
 		return nil, err
