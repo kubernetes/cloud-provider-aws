@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package services
+package aws
 
 import (
 	"context"
@@ -30,7 +30,7 @@ import (
 )
 
 func TestAWSAPIMetricsMiddleware(t *testing.T) {
-	RegisterAWSAPIMetrics()
+	registerMetrics()
 
 	tests := []struct {
 		name             string
@@ -68,9 +68,9 @@ func TestAWSAPIMetricsMiddleware(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			AWSAPIResponseStatusTotal.Reset()
+			awsAPIResponseStatusTotal.Reset()
 
-			mw := AWSAPIMetricsMiddleware()
+			mw := awsAPIMetricsMiddleware()
 			handler := middleware.DeserializeHandlerFunc(
 				func(ctx context.Context, in middleware.DeserializeInput) (
 					middleware.DeserializeOutput, middleware.Metadata, error,
@@ -86,7 +86,7 @@ func TestAWSAPIMetricsMiddleware(t *testing.T) {
 			_, _, _ = mw.HandleDeserialize(context.Background(), middleware.DeserializeInput{}, handler)
 
 			if tc.expectStatusCode != "" {
-				val, err := testutil.GetCounterMetricValue(AWSAPIResponseStatusTotal.With(map[string]string{
+				val, err := testutil.GetCounterMetricValue(awsAPIResponseStatusTotal.With(map[string]string{
 					"service":     "",
 					"operation":   "",
 					"status_code": tc.expectStatusCode,
