@@ -39,7 +39,6 @@ import (
 	"k8s.io/client-go/pkg/version"
 	"k8s.io/cloud-provider-aws/pkg/providers/v1/config"
 	"k8s.io/cloud-provider-aws/pkg/providers/v1/iface"
-	"k8s.io/cloud-provider-aws/pkg/services"
 	"k8s.io/klog/v2"
 )
 
@@ -90,7 +89,7 @@ func (p *awsSDKProvider) AddMiddleware(ctx context.Context, regionName string, c
 	// Record AWS API response status codes and error codes as metrics.
 	cfg.APIOptions = append(cfg.APIOptions,
 		func(stack *smithymiddleware.Stack) error {
-			return stack.Deserialize.Add(services.AWSAPIMetricsMiddleware(), smithymiddleware.After)
+			return stack.Deserialize.Add(awsAPIMetricsMiddleware(), smithymiddleware.After)
 		},
 	)
 }
