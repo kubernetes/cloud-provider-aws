@@ -696,10 +696,12 @@ func (e2e *E2ETestHelper) gatherServiceStatus() {
 }
 
 // gatherEventsOnFailure gathers events on failure.
-func (e2e *E2ETestHelper) GatherEventsOnFailure() {
+func (e2e *E2ETestHelper) GatherEventsOnFailure(msgState string) {
+	framework.Logf("=== %s ===", msgState)
 	e2e.GatherServiceInfo()
 	e2e.gatherAllEvents()
 	e2e.gatherControllerLogs()
+	framework.Logf("=== End of %s ===", msgState)
 }
 
 // GatherServiceEvents gathers service events.

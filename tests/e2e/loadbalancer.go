@@ -183,7 +183,7 @@ var _ = Describe("[cloud-provider-aws-e2e] loadbalancer", func() {
 				// Use AWS SDK paginator to search through all load balancers
 				foundLB, err := e2e.GetAWSHelper().GetLoadBalancerFromDNSNameWithRetry(hostAddr, 10*time.Minute)
 				if err != nil {
-					e2e.GatherEventsOnFailure()
+					e2e.GatherEventsOnFailure("Target Group Attributes Validation Failure")
 					framework.Failf("failed to find load balancer with DNS name %s: %v", hostAddr, err)
 				}
 				if foundLB == nil {
@@ -289,40 +289,16 @@ var _ = Describe("[cloud-provider-aws-e2e] loadbalancer", func() {
 			e2e.svc, err = e2e.LBJig.WaitForLoadBalancer(ctx, loadBalancerCreateTimeout)
 			// Collect comprehensive debugging information when LoadBalancer provisioning fails
 			if err != nil {
-				serviceName := e2e.LBJig.Name
-				if e2e.svc != nil {
-					serviceName = e2e.svc.Name
-				}
-				framework.Logf("ERROR: LoadBalancer provisioning failed for service %q: %v", serviceName, err)
-				framework.Logf("ERROR: LoadBalancer provisioning timeout reached after %v", loadBalancerCreateTimeout)
-
-				// Ensure we have detailed debugging information before failing
-				framework.Logf("=== LoadBalancer Provisioning Failure Debug Information ===")
-				e2e.GatherEventsOnFailure()
-				framework.Logf("=== End of LoadBalancer Provisioning Failure Debug Information ===")
-
-				// Fail the test immediately to prevent further execution
-				framework.ExpectNoError(err, "LoadBalancer provisioning failed - check debug information above")
+				e2e.GatherEventsOnFailure("LoadBalancer Provisioning Failure")
+				framework.ExpectNoError(err, "LoadBalancer provisioning failed - check failure logs")
 			}
 			framework.Logf("[AWS] Load balancer provisioned successfully")
 
 			By("creating backend server pods")
 			_, err = e2e.LBJig.Run(ctx, e2e.buildDeployment(tc.requireAffinity))
 			if err != nil {
-				serviceName := e2e.LBJig.Name
-				if e2e.svc != nil {
-					serviceName = e2e.svc.Name
-				}
-				framework.Logf("ERROR: LoadBalancer provisioning failed for service %q: %v", serviceName, err)
-				framework.Logf("ERROR: LoadBalancer provisioning timeout reached after %v", loadBalancerCreateTimeout)
-
-				// Ensure we have detailed debugging information before failing
-				framework.Logf("=== LoadBalancer Provisioning Failure Debug Information ===")
-				e2e.GatherEventsOnFailure()
-				framework.Logf("=== End of LoadBalancer Provisioning Failure Debug Information ===")
-
-				// Fail the test immediately to prevent further execution
-				framework.ExpectNoError(err, "LoadBalancer provisioning failed - check debug information above")
+				e2e.GatherEventsOnFailure("Backend Pod Creation Failure")
+				framework.ExpectNoError(err, "Backend pod creation failed - check failure logs")
 			}
 
 			framework.Logf("[K8S] Backend pods created, affinity required: %t", tc.requireAffinity)
@@ -334,20 +310,17 @@ var _ = Describe("[cloud-provider-aws-e2e] loadbalancer", func() {
 
 			By("collecting service and load balancer information")
 			if e2e.svc == nil {
-				framework.Logf("=== Service Validation Error Debug Information ===")
-				e2e.GatherEventsOnFailure()
+				e2e.GatherEventsOnFailure("Service Validation Failure")
 				framework.Failf("Service is nil after LoadBalancer provisioning for service %s", e2e.LBJig.Name)
 			}
 			if len(e2e.svc.Spec.Ports) == 0 {
-				framework.Logf("=== Service Ports Error Debug Information ===")
+				e2e.GatherEventsOnFailure("Service Ports Validation Failure")
 				framework.Logf("Service spec: %+v", e2e.svc.Spec)
-				e2e.GatherEventsOnFailure()
 				framework.Failf("No ports found in service spec for service %s/%s", e2e.svc.Namespace, e2e.svc.Name)
 			}
 			if len(e2e.svc.Status.LoadBalancer.Ingress) == 0 {
-				framework.Logf("=== LoadBalancer Ingress Error Debug Information ===")
+				e2e.GatherEventsOnFailure("LoadBalancer Ingress Validation Failure")
 				framework.Logf("Service status: %+v", e2e.svc.Status)
-				e2e.GatherEventsOnFailure()
 				framework.Failf("No ingress found in LoadBalancer status for service %s/%s", e2e.svc.Namespace, e2e.svc.Name)
 			}
 
@@ -356,9 +329,8 @@ var _ = Describe("[cloud-provider-aws-e2e] loadbalancer", func() {
 			framework.Logf("[LB-INFO] Ingress address: %s, port: %d", ingressAddress, svcPort)
 
 			if ingressAddress == "" {
-				framework.Logf("=== Empty Ingress Address Debug Information ===")
-				framework.Logf("LoadBalancer ingress[0]: %+v", e2e.svc.Status.LoadBalancer.Ingress[0])
-				e2e.GatherEventsOnFailure()
+				e2e.GatherEventsOnFailure("Empty Ingress Address Validation Failure")
+				framework.Logf("LoadBalancer ingress[]: %+v", e2e.svc.Status.LoadBalancer.Ingress)
 				framework.Failf("LoadBalancer ingress address is empty for service %s/%s", e2e.svc.Namespace, e2e.svc.Name)
 			}
 
