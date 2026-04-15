@@ -18,6 +18,7 @@ package e2e
 import (
 	"context"
 	"fmt"
+	"os"
 	"sort"
 	"strings"
 	"time"
@@ -29,6 +30,7 @@ import (
 	"k8s.io/apimachinery/pkg/util/wait"
 	clientset "k8s.io/client-go/kubernetes"
 
+	g "github.com/onsi/gomega"
 	appsv1 "k8s.io/api/apps/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/kubernetes/test/e2e/framework"
@@ -242,10 +244,21 @@ func (e2e *E2ETestHelper) discoverClusterWorkerNode() {
 	var workerNodeList []string
 	framework.Logf("discovering node label used in the kubernetes distributions")
 	for _, selector := range lookupNodeSelectors {
-		nodeList, err := e2e.kubeClient.CoreV1().Nodes().List(e2e.ctx, metav1.ListOptions{
-			LabelSelector: selector,
-		})
-		framework.ExpectNoError(err, "failed to list worker nodes")
+		var nodeList *v1.NodeList
+		g.Eventually(e2e.ctx, func(ctx context.Context) error {
+			nodeList, err := e2e.kubeClient.CoreV1().Nodes().List(e2e.ctx, metav1.ListOptions{
+				LabelSelector: selector,
+			})
+			if err != nil {
+				return fmt.Errorf("failed to list worker nodes: %v", err)
+			}
+			if len(nodeList.Items) == 0 {
+				return fmt.Errorf("no worker nodes found")
+			}
+			return nil
+		}, 2*time.Minute, 5*time.Second).Should(g.Succeed(), "failed to list worker nodes")
+		g.Expect(nodeList).NotTo(g.BeNil(), "found worker nodes is nil")
+
 		e2e.nodeCount = len(nodeList.Items)
 		if len(nodeList.Items) > 0 {
 			for i := range nodeList.Items {
@@ -295,14 +308,18 @@ func (e2e *E2ETestHelper) inClusterTestReachableHTTP(target string, targetPort i
 	// Enhanced curl configuration for better resilience
 	// Total timeout calculation: 30 retries * 30s delay + 15min curl max time = ~25 minutes
 	// This aligns with the 25-minute polling timeout below
+	default_max_time := "900" // 15 minutes max for curl operations
+	if os.Getenv("CCM_E2E_OVERRIDE_MAX_TIME") != "" {
+		default_max_time = os.Getenv("CCM_E2E_OVERRIDE_MAX_TIME")
+	}
 	curlArgs := []string{
 		"--retry", "30", // Increase retries for new LBs
 		"--retry-delay", "30", // Longer delay for DNS propagation
-		"--retry-max-time", "900", // 15 minutes max for curl operations
+		"--retry-max-time", default_max_time, // max time for curl operations
 		"--retry-all-errors",      // Retry on all errors including DNS
 		"--retry-connrefused",     // Explicitly retry connection refused
 		"--connect-timeout", "30", // 30s connection timeout
-		"--max-time", "45", // 45s per individual request
+		"--max-time", default_max_time, // 45s per individual request
 		"--trace-time", // Include timestamps for debugging
 		"--verbose",    // More detailed output for troubleshooting
 		"-w", "\"\\nCURL_SUMMARY: HTTPCode=%{http_code} Time=%{time_total}s ConnectTime=%{time_connect}s DNSTime=%{time_namelookup}s\\n\"",
