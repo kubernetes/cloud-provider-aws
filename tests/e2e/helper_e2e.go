@@ -55,9 +55,9 @@ type E2ETestHelper struct {
 	svc *v1.Service
 
 	// node discovery
-	nodeSelector     string
-	nodeCount        int
-	nodeSingleSample string
+	nodeSelector   string
+	nodeCount      int
+	sampleNodeName string
 }
 
 // NewE2ETestHelper creates a new E2ETestHelper instance.
@@ -208,7 +208,7 @@ func (e2e *E2ETestHelper) buildDeployment(affinity bool) func(deployment *appsv1
 									{
 										Key:      "kubernetes.io/hostname",
 										Operator: v1.NodeSelectorOpIn,
-										Values:   []string{e2e.nodeSingleSample},
+										Values:   []string{e2e.sampleNodeName},
 									},
 								},
 							},
@@ -246,6 +246,7 @@ func (e2e *E2ETestHelper) discoverClusterWorkerNode() {
 			LabelSelector: selector,
 		})
 		framework.ExpectNoError(err, "failed to list worker nodes")
+		e2e.nodeCount = len(nodeList.Items)
 		if len(nodeList.Items) > 0 {
 			for i := range nodeList.Items {
 				node := &nodeList.Items[i]
@@ -257,8 +258,7 @@ func (e2e *E2ETestHelper) discoverClusterWorkerNode() {
 			}
 			// Save the first worker node in the list to be used in cases.
 			sort.Strings(workerNodeList)
-			e2e.nodeCount = len(nodeList.Items)
-			e2e.nodeSingleSample = workerNodeList[0]
+			e2e.sampleNodeName = workerNodeList[0]
 			e2e.nodeSelector = selector
 			return
 		}
@@ -349,7 +349,7 @@ func (e2e *E2ETestHelper) inClusterTestReachableHTTP(target string, targetPort i
 									{
 										Key:      "kubernetes.io/hostname",
 										Operator: v1.NodeSelectorOpIn,
-										Values:   []string{e2e.nodeSingleSample},
+										Values:   []string{e2e.sampleNodeName},
 									},
 								},
 							},
@@ -397,7 +397,7 @@ func (e2e *E2ETestHelper) inClusterTestReachableHTTP(target string, targetPort i
 			// Debugging information for CI troubleshooting
 			if consecutiveErrorCount == 1 {
 				framework.Logf("=== CI Environment Debug Info ===")
-				framework.Logf("Namespace: %s, PodName: %s, NodeName: %s", e2e.svc.Namespace, podName, e2e.nodeSingleSample)
+				framework.Logf("Namespace: %s, PodName: %s, NodeName: %s", e2e.svc.Namespace, podName, e2e.sampleNodeName)
 				framework.Logf("Error type: %T", err)
 				framework.Logf("Error details: %v", err)
 				framework.Logf("API server connectivity issue detected in CI environment")
@@ -605,28 +605,28 @@ func (e2e *E2ETestHelper) inClusterTestReachableHTTP(target string, targetPort i
 // - All namespace events
 // - Cloud controller manager logs
 // - Service status
-func gatherResourceEvents(ctx context.Context, cs clientset.Interface, namespace, resourceName string) {
+func (e2e *E2ETestHelper) gatherResourceEvents() {
 	framework.Logf("=== Collecting resource events for debugging ===")
-	events, err := cs.CoreV1().Events(namespace).List(ctx, metav1.ListOptions{
-		FieldSelector: "involvedObject.name=" + resourceName,
+	events, err := e2e.kubeClient.CoreV1().Events(e2e.LBJig.Namespace).List(e2e.ctx, metav1.ListOptions{
+		FieldSelector: "involvedObject.name=" + e2e.LBJig.Name,
 	})
 	if err != nil {
-		framework.Logf("Error getting events for resource %q: %v", resourceName, err)
+		framework.Logf("Error getting events for resource %q: %v", e2e.LBJig.Name, err)
 	} else {
-		framework.Logf("Resource events for %q:", resourceName)
+		framework.Logf("Resource events for %q:", e2e.LBJig.Name)
 		for _, event := range events.Items {
 			framework.Logf("  [%s] %s/%s: %s - %s", event.Type, event.Reason, event.InvolvedObject.Name, event.Message, event.FirstTimestamp)
 		}
 	}
 }
 
-func gatherAllEvents(ctx context.Context, cs clientset.Interface, namespace string) {
+func (e2e *E2ETestHelper) gatherAllEvents() {
 	framework.Logf("=== Collecting all namespace events ===")
-	allEvents, err := cs.CoreV1().Events(namespace).List(ctx, metav1.ListOptions{})
+	allEvents, err := e2e.kubeClient.CoreV1().Events(e2e.LBJig.Namespace).List(e2e.ctx, metav1.ListOptions{})
 	if err != nil {
 		framework.Logf("Error getting all namespace events: %v", err)
 	} else {
-		framework.Logf("All events in namespace %q:", namespace)
+		framework.Logf("All events in namespace %q:", e2e.LBJig.Namespace)
 		for _, event := range allEvents.Items {
 			if strings.Contains(event.Message, "loadbalancer") || strings.Contains(event.Message, "LoadBalancer") ||
 				strings.Contains(event.Reason, "LoadBalancer") || strings.Contains(event.Source.Component, "cloud-controller-manager") {
@@ -636,9 +636,9 @@ func gatherAllEvents(ctx context.Context, cs clientset.Interface, namespace stri
 	}
 }
 
-func gatherControllerLogs(ctx context.Context, cs clientset.Interface) {
+func (e2e *E2ETestHelper) gatherControllerLogs() {
 	framework.Logf("=== Collecting cloud controller manager logs ===")
-	ccmPods, err := cs.CoreV1().Pods("").List(ctx, metav1.ListOptions{
+	ccmPods, err := e2e.kubeClient.CoreV1().Pods("").List(e2e.ctx, metav1.ListOptions{
 		LabelSelector: "app=cloud-controller-manager",
 	})
 	if err != nil {
@@ -653,7 +653,7 @@ func gatherControllerLogs(ctx context.Context, cs clientset.Interface) {
 				TailLines: &tailLines,
 				Previous:  false,
 			}
-			logs, err1 := cs.CoreV1().Pods(pod.Namespace).GetLogs(pod.Name, logOpts).DoRaw(ctx)
+			logs, err1 := e2e.kubeClient.CoreV1().Pods(pod.Namespace).GetLogs(pod.Name, logOpts).DoRaw(e2e.ctx)
 			if err1 != nil {
 				framework.Logf("Error getting logs for CCM pod %s/%s: %v", pod.Namespace, pod.Name, err)
 			} else {
@@ -664,9 +664,9 @@ func gatherControllerLogs(ctx context.Context, cs clientset.Interface) {
 	}
 }
 
-func gatherServiceStatus(ctx context.Context, cs clientset.Interface, namespace, resourceName string) {
+func (e2e *E2ETestHelper) gatherServiceStatus() {
 	framework.Logf("=== Service Status ===")
-	currentSvc, err := cs.CoreV1().Services(namespace).Get(ctx, resourceName, metav1.GetOptions{})
+	currentSvc, err := e2e.kubeClient.CoreV1().Services(e2e.LBJig.Namespace).Get(e2e.ctx, e2e.LBJig.Name, metav1.GetOptions{})
 	if err != nil {
 		framework.Logf("Error getting current service status: %v", err)
 	} else {
@@ -678,17 +678,17 @@ func gatherServiceStatus(ctx context.Context, cs clientset.Interface, namespace,
 }
 
 // gatherEventsOnFailure gathers events on failure.
-func (e2e *E2ETestHelper) GatherEventsOnFailure(namespace, resourceName string) {
-	e2e.GatherServiceInfo(namespace, resourceName)
-	gatherAllEvents(e2e.ctx, e2e.kubeClient, namespace)
-	gatherControllerLogs(e2e.ctx, e2e.kubeClient)
+func (e2e *E2ETestHelper) GatherEventsOnFailure() {
+	e2e.GatherServiceInfo()
+	e2e.gatherAllEvents()
+	e2e.gatherControllerLogs()
 }
 
 // GatherServiceEvents gathers service events.
-func (e2e *E2ETestHelper) GatherServiceInfo(namespace, resourceName string) {
+func (e2e *E2ETestHelper) GatherServiceInfo() {
 	framework.Logf("=== Service Events ===")
-	gatherResourceEvents(e2e.ctx, e2e.kubeClient, namespace, resourceName)
-	gatherServiceStatus(e2e.ctx, e2e.kubeClient, namespace, resourceName)
+	e2e.gatherResourceEvents()
+	e2e.gatherServiceStatus()
 	framework.Logf("=== End of Service Events ===")
 }
 
