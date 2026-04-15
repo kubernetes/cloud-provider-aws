@@ -245,8 +245,9 @@ func (e2e *E2ETestHelper) discoverClusterWorkerNode() {
 	framework.Logf("discovering node label used in the kubernetes distributions")
 	for _, selector := range lookupNodeSelectors {
 		var nodeList *v1.NodeList
+		var err error
 		g.Eventually(e2e.ctx, func(ctx context.Context) error {
-			nodeList, err := e2e.kubeClient.CoreV1().Nodes().List(e2e.ctx, metav1.ListOptions{
+			nodeList, err = e2e.kubeClient.CoreV1().Nodes().List(ctx, metav1.ListOptions{
 				LabelSelector: selector,
 			})
 			if err != nil {
