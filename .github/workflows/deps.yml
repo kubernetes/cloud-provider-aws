@@ -24,11 +24,11 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: "Checkout Repository"
-        uses: actions/checkout@v4
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
         with:
           show-progress: false
       - name: "Dependency Review"
-        uses: actions/dependency-review-action@v4
+        uses: actions/dependency-review-action@2031cfc080254a8a887f58cffee85186f0e49e48 # v4.9.0
         with:
           base-ref: ${{ inputs.base_ref || github.event.pull_request.base.sha || 'master' }}
           head-ref: ${{ inputs.head_ref || github.event.pull_request.head.sha || github.ref }}
@@ -36,22 +36,22 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: "Checkout Repository"
-        uses: actions/checkout@v4
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
         with:
           show-progress: false
       - id: govulncheck
-        uses: golang/govulncheck-action@v1
+        uses: golang/govulncheck-action@31f7c5463448f83528bd771c2d978d940080c9fd # master (post-v1.0.4 with pinned deps)
         with:
           go-version-file: go.mod
       - id: govulncheck-tests-e2e
-        uses: golang/govulncheck-action@v1
+        uses: golang/govulncheck-action@31f7c5463448f83528bd771c2d978d940080c9fd # master (post-v1.0.4 with pinned deps)
         with:
           go-version-file: tests/e2e/go.mod
   gomod-match-check:
     runs-on: ubuntu-latest
     steps:
       - name: "Checkout Repository"
-        uses: actions/checkout@v4
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
         with:
           show-progress: false
       - name: "All go.mod go directive must use version major.minor.patch that matches GOLANG_DIRECTIVE_VERSION"
