@@ -34,6 +34,7 @@ import (
 	admissionapi "k8s.io/pod-security-admission/api"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/aws/retry"
 	"github.com/aws/aws-sdk-go-v2/config"
 	elbv2 "github.com/aws/aws-sdk-go-v2/service/elasticloadbalancingv2"
 	elbv2types "github.com/aws/aws-sdk-go-v2/service/elasticloadbalancingv2/types"
@@ -674,32 +675,49 @@ func getAWSClientLoadBalancer(ctx context.Context) (*elbv2.Client, error) {
 	if err != nil {
 		return nil, fmt.Errorf("unable to load AWS config: %v", err)
 	}
-	return elbv2.NewFromConfig(cfg), nil
+
+	// Configure custom retryer to handle primarily transient AWS API errors and DNS failures.
+	customRetryer := retry.NewStandard(func(o *retry.StandardOptions) {
+		o.MaxAttempts = 10              // Handle transient errors
+		o.MaxBackoff = 30 * time.Second // Cap backoff to avoid excessive waiting
+	})
+
+	return elbv2.NewFromConfig(cfg, func(o *elbv2.Options) {
+		o.Retryer = customRetryer
+	}), nil
 }
 
 func getAWSLoadBalancerFromDNSName(ctx context.Context, elbClient *elbv2.Client, lbDNSName string) (*elbv2types.LoadBalancer, error) {
 	var foundLB *elbv2types.LoadBalancer
 	framework.Logf("describing load balancers with DNS %s", lbDNSName)
 
-	paginator := elbv2.NewDescribeLoadBalancersPaginator(elbClient, &elbv2.DescribeLoadBalancersInput{})
-	for paginator.HasMorePages() {
-		page, err := paginator.NextPage(ctx)
-		if err != nil {
-			return nil, fmt.Errorf("failed to describe load balancers: %v", err)
-		}
+	// Retry wrapper for DNS failures in EUSC regions
+	// AWS endpoint DNS may take up to 15 minutes to propagate in new regions
+	err := wait.PollUntilContextTimeout(ctx, 5*time.Second, 15*time.Minute, true, func(ctx context.Context) (bool, error) {
+		paginator := elbv2.NewDescribeLoadBalancersPaginator(elbClient, &elbv2.DescribeLoadBalancersInput{})
+		for paginator.HasMorePages() {
+			page, err := paginator.NextPage(ctx)
+			if err != nil {
+				framework.Logf("transient error describing load balancers (will retry): %v", err)
+				return false, nil // Retry on any error
+			}
 
-		framework.Logf("found %d load balancers in page", len(page.LoadBalancers))
-		// Search for the load balancer with matching DNS name in this page
-		for i := range page.LoadBalancers {
-			if aws.ToString(page.LoadBalancers[i].DNSName) == lbDNSName {
-				foundLB = &page.LoadBalancers[i]
-				framework.Logf("found load balancer with DNS %s", aws.ToString(foundLB.DNSName))
-				break
+			framework.Logf("found %d load balancers in page", len(page.LoadBalancers))
+			// Search for the load balancer with matching DNS name in this page
+			for i := range page.LoadBalancers {
+				if aws.ToString(page.LoadBalancers[i].DNSName) == lbDNSName {
+					foundLB = &page.LoadBalancers[i]
+					framework.Logf("found load balancer with DNS %s", aws.ToString(foundLB.DNSName))
+					return true, nil
+				}
 			}
 		}
-		if foundLB != nil {
-			break
-		}
+		// Load balancer not found yet, retry
+		return false, nil
+	})
+
+	if err != nil {
+		return nil, fmt.Errorf("failed to find load balancer with DNS name %s: %v", lbDNSName, err)
 	}
 
 	if foundLB == nil {
@@ -749,12 +767,16 @@ func inClusterTestReachableHTTP(cs clientset.Interface, namespace, nodeName, tar
 					Image:   imageutils.GetE2EImage(imageutils.Agnhost),
 					Command: []string{"curl"},
 					Args: []string{
-						"--retry", "15", // Retry up to 15 times in case of transient network issues.
-						"--retry-delay", "20", // Wait 20 seconds between retries.
-						"--retry-max-time", "480", // Maximum time for retries is 480 seconds.
-						"--retry-all-errors",                                                       // Retry on all errors, ensuring robustness against temporary failures.
-						"--trace-time",                                                             // Include timestamps in trace output for debugging.
-						"-w", "\\\"\\n---> HTTPCode=%{http_code} Time=%{time_total}ms <---\\n\\\"", // Format output to include HTTP code and response time.
+						"--retry", "30", // Retry in case of transient network issues.
+						"--retry-delay", "30", // Wait in seconds between retries.
+						"--retry-max-time", "1200", // Max time for retries.
+						"--retry-all-errors",  // Retry on all errors
+						"--retry-connrefused", // Retry connection refused
+						"--connect-timeout", "30",
+						"--max-time", "60", // Max time for each operation.
+						"--trace-time", // Include timestamps in trace output for debugging
+						"--verbose",
+						"-w", "\\\"\\n---> HTTPCode=%{http_code} time_total('%{time_total}s') time_namelookup('%{time_namelookup}s') time_connect('%{time_connect}s') time_appconnect('%{time_appconnect}s') time_pretransfer('%{time_pretransfer}s') time_redirect('%{time_redirect}s') time_starttransfer('%{time_starttransfer}s') <---\\n\\\"",
 						fmt.Sprintf("http://%s:%d/echo?msg=hello", target, targetPort),
 					},
 				},
@@ -821,7 +843,7 @@ func inClusterTestReachableHTTP(cs clientset.Interface, namespace, nodeName, tar
 	// Wait for the test pod to complete. Limit waiter be higher than curl retries.
 	waitCount := 0
 	pendingCount := 0
-	err = wait.PollImmediate(15*time.Second, 15*time.Minute, func() (bool, error) {
+	err = wait.PollImmediate(15*time.Second, 25*time.Minute, func() (bool, error) {
 		p, err := cs.CoreV1().Pods(namespace).Get(context.TODO(), podName, metav1.GetOptions{})
 		if err != nil {
 			framework.Logf("Error getting pod %s: %v", podName, err)
