@@ -67,7 +67,7 @@ func WithStsHeadersMiddleware(headers map[string]string) func(*sts.Options) {
 }
 
 // NewStsClient provides a new STS client.
-func NewStsClient(ctx context.Context, region, roleARN, sourceARN string) (*sts.Client, error) {
+func NewStsClient(ctx context.Context, region, roleARN, sourceARN string, apiOptions ...func(*middleware.Stack) error) (*sts.Client, error) {
 	klog.Infof("Using AWS assumed role %v", roleARN)
 	cfg, err := config.LoadDefaultConfig(ctx,
 		config.WithHTTPClient(awshttp.NewBuildableClient().WithTimeout(30*time.Second)),
@@ -75,6 +75,8 @@ func NewStsClient(ctx context.Context, region, roleARN, sourceARN string) (*sts.
 	if err != nil {
 		return nil, err
 	}
+
+	cfg.APIOptions = append(cfg.APIOptions, apiOptions...)
 
 	parsedSourceArn, err := arn.Parse(roleARN)
 	if err != nil {

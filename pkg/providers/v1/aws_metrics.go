@@ -17,8 +17,12 @@ limitations under the License.
 package aws
 
 import (
+	"context"
+	"strconv"
 	"sync"
 
+	"github.com/aws/smithy-go/middleware"
+	smithyhttp "github.com/aws/smithy-go/transport/http"
 	"k8s.io/component-base/metrics"
 	"k8s.io/component-base/metrics/legacyregistry"
 )
@@ -47,6 +51,15 @@ var (
 			StabilityLevel: metrics.ALPHA,
 		},
 		[]string{"operation_name"})
+
+	// awsAPIResponseStatusTotal counts AWS API responses by status code.
+	awsAPIResponseStatusTotal = metrics.NewCounterVec(
+		&metrics.CounterOpts{
+			Name:           "cloudprovider_aws_api_response_status_total",
+			Help:           "AWS API response status code counts",
+			StabilityLevel: metrics.ALPHA,
+		},
+		[]string{"service", "operation", "status_code"})
 )
 
 func recordAWSMetric(actionName string, timeTaken float64, err error) {
@@ -68,5 +81,32 @@ func registerMetrics() {
 		legacyregistry.MustRegister(awsAPIMetric)
 		legacyregistry.MustRegister(awsAPIErrorMetric)
 		legacyregistry.MustRegister(awsAPIThrottlesMetric)
+		legacyregistry.MustRegister(awsAPIResponseStatusTotal)
 	})
+}
+
+// awsAPIMetricsMiddleware returns a Deserialize middleware that records
+// AWS API response status codes as metrics.
+func awsAPIMetricsMiddleware() middleware.DeserializeMiddleware {
+	return middleware.DeserializeMiddlewareFunc(
+		"k8s/aws-api-metrics",
+		func(ctx context.Context, in middleware.DeserializeInput, next middleware.DeserializeHandler) (
+			out middleware.DeserializeOutput, metadata middleware.Metadata, err error,
+		) {
+			out, metadata, err = next.HandleDeserialize(ctx, in)
+
+			service := middleware.GetServiceID(ctx)
+			operation := middleware.GetOperationName(ctx)
+
+			if response, ok := out.RawResponse.(*smithyhttp.Response); ok && response.StatusCode >= 400 {
+				awsAPIResponseStatusTotal.With(metrics.Labels{
+					"service":     service,
+					"operation":   operation,
+					"status_code": strconv.Itoa(response.StatusCode),
+				}).Inc()
+			}
+
+			return out, metadata, err
+		},
+	)
 }
