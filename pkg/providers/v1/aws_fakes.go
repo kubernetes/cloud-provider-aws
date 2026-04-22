@@ -394,6 +394,9 @@ func (ec2i *FakeEC2Impl) CreateTags(ctx context.Context, input *ec2.CreateTagsIn
 				return nil, errors.New("InvalidInstanceID.NotFound: Instance not found")
 			}
 		}
+		if strings.HasPrefix(id, "i-invalid-id") {
+			return nil, errors.New("InvalidID: The ID '" + id + "' is not valid")
+		}
 	}
 	return &ec2.CreateTagsOutput{}, nil
 }
@@ -407,6 +410,9 @@ func (ec2i *FakeEC2Impl) DeleteTags(ctx context.Context, input *ec2.DeleteTagsIn
 
 		if id == "i-not-found" {
 			return nil, errors.New("InvalidInstanceID.NotFound: Instance not found")
+		}
+		if strings.HasPrefix(id, "i-invalid-id") {
+			return nil, errors.New("InvalidID: The ID '" + id + "' is not valid")
 		}
 	}
 	return &ec2.DeleteTagsOutput{}, nil

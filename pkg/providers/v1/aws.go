@@ -1093,6 +1093,26 @@ func IsAWSErrorInstanceNotFound(err error) bool {
 	return false
 }
 
+// IsAWSErrorInvalidInstanceID returns true if the specified error indicates that the instance ID format is invalid.
+// This is different from IsAWSErrorInstanceNotFound: "InvalidID" means the ID format itself is not valid,
+// while "InvalidInstanceId.NotFound" means the format is valid but no instance with that ID exists.
+// This can happen with virtual/simulated nodes (e.g. KWOK) that generate
+// instance IDs which pass the basic `i-*` prefix check but are not valid AWS instance IDs.
+func IsAWSErrorInvalidInstanceID(err error) bool {
+	if err == nil {
+		return false
+	}
+
+	var ae smithy.APIError
+	if errors.As(err, &ae) {
+		return ae.ErrorCode() == "InvalidID"
+	} else if strings.Contains(err.Error(), "InvalidID") {
+		return true
+	}
+
+	return false
+}
+
 // Builds the awsInstance for the EC2 instance on which we are running.
 // This is called when the AWSCloud is initialized, and should not be called otherwise (because the awsInstance for the local instance is a singleton with drive mapping state)
 func (c *Cloud) buildSelfAWSInstance(ctx context.Context) (*awsInstance, error) {
