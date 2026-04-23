@@ -28,6 +28,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -3430,22 +3431,40 @@ func (c *Cloud) getInstancesByIDs(ctx context.Context, instanceIDs []string) (ma
 		return instancesByID, nil
 	}
 
-	request := &ec2.DescribeInstancesInput{
-		InstanceIds: instanceIDs,
+	// describeInstanceBatcher.DescribeInstances enforces a single-instance
+	// input; the batcher itself coalesces concurrent calls into one
+	// DescribeInstances API call. Fan out one goroutine per instance ID so
+	// the batcher can aggregate them, instead of passing the full slice in
+	// one call (which the batcher rejects). See #1351.
+	var (
+		mu   sync.Mutex
+		wg   sync.WaitGroup
+		errs []error
+	)
+	for _, id := range instanceIDs {
+		wg.Add(1)
+		go func(id string) {
+			defer wg.Done()
+			req := &ec2.DescribeInstancesInput{InstanceIds: []string{id}}
+			instances, err := c.describeInstanceBatcher.DescribeInstances(ctx, req)
+			mu.Lock()
+			defer mu.Unlock()
+			if err != nil {
+				errs = append(errs, err)
+				return
+			}
+			for _, instance := range instances {
+				instanceID := aws.ToString(instance.InstanceId)
+				if instanceID == "" {
+					continue
+				}
+				instancesByID[instanceID] = instance
+			}
+		}(id)
 	}
-
-	instances, err := c.describeInstanceBatcher.DescribeInstances(ctx, request)
-	if err != nil {
-		return nil, err
-	}
-
-	for _, instance := range instances {
-		instanceID := aws.ToString(instance.InstanceId)
-		if instanceID == "" {
-			continue
-		}
-
-		instancesByID[instanceID] = instance
+	wg.Wait()
+	if len(errs) > 0 {
+		return nil, errors.Join(errs...)
 	}
 
 	return instancesByID, nil
