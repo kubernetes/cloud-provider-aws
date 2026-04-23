@@ -26,7 +26,7 @@ OUTPUT ?= $(shell pwd)/_output
 INSTALL_PATH ?= $(OUTPUT)/bin
 LDFLAGS ?= -w -s -X k8s.io/component-base/version.gitVersion=$(VERSION) -X main.gitVersion=$(VERSION)
 
-GOLANG_DIRECTIVE_VERSION ?= 1.25.0
+GOLANG_DIRECTIVE_VERSION ?= 1.26.0
 CURL_RETRIES ?= 3
 
 # flags for ecr-credential-provider artifact promotion
