@@ -247,6 +247,230 @@ var _ = Describe("[cloud-provider-aws-e2e] loadbalancer", func() {
 				}
 			},
 		},
+		// Dual-stack test cases
+		{
+			name:             "NLB dual-stack (IPv4 primary) should be reachable",
+			resourceSuffix:   "nlb-ds-v4",
+			extraAnnotations: map[string]string{annotationLBType: "nlb"},
+			listenerCount:    1,
+			hookPostServiceConfig: func(cfg *e2eTestConfig) {
+				framework.Logf("running hook post-service-config: configuring dual-stack with IPv4 primary")
+				// Set dual-stack configuration with IPv4 as primary
+				cfg.svc.Spec.IPFamilies = []v1.IPFamily{v1.IPv4Protocol, v1.IPv6Protocol}
+				ipFamilyPolicy := v1.IPFamilyPolicyPreferDualStack
+				cfg.svc.Spec.IPFamilyPolicy = &ipFamilyPolicy
+				framework.Logf("Service configured: IPFamilies=%v, IPFamilyPolicy=%v",
+					cfg.svc.Spec.IPFamilies, *cfg.svc.Spec.IPFamilyPolicy)
+			},
+			hookPostServiceCreate: func(cfg *e2eTestConfig) {
+				framework.Logf("running hook post-service-create: validating dual-stack AWS load balancer configuration")
+
+				if len(cfg.svc.Status.LoadBalancer.Ingress) == 0 {
+					framework.Failf("No ingress found in LoadBalancer status for service %s/%s",
+						cfg.svc.Namespace, cfg.svc.Name)
+				}
+
+				lbDNS := cfg.svc.Status.LoadBalancer.Ingress[0].Hostname
+				framework.Logf("Load balancer DNS: %s", lbDNS)
+
+				// Get AWS ELB client
+				elbClient, err := getAWSClientLoadBalancer(cfg.ctx)
+				framework.ExpectNoError(err, "failed to create AWS ELB client")
+
+				// Find load balancer by DNS name
+				lb, err := getAWSLoadBalancerFromDNSName(cfg.ctx, elbClient, lbDNS)
+				framework.ExpectNoError(err, "failed to find load balancer with DNS name %s", lbDNS)
+
+				if lb == nil {
+					framework.Failf("Load balancer is nil for DNS name %s", lbDNS)
+				}
+
+				// Validate Load Balancer IP Address Type is Dualstack
+				if lb.IpAddressType != elbv2types.IpAddressTypeDualstack {
+					framework.Failf("Load balancer IpAddressType mismatch: expected %s, got %s",
+						elbv2types.IpAddressTypeDualstack, lb.IpAddressType)
+				}
+				framework.Logf("✓ Load Balancer IpAddressType: %s", lb.IpAddressType)
+
+				// Get Target Groups
+				tgResp, err := elbClient.DescribeTargetGroups(cfg.ctx, &elbv2.DescribeTargetGroupsInput{
+					LoadBalancerArn: lb.LoadBalancerArn,
+				})
+				framework.ExpectNoError(err, "failed to describe target groups")
+
+				if len(tgResp.TargetGroups) == 0 {
+					framework.Failf("No target groups found for load balancer")
+				}
+
+				// Validate Target Group IP Address Type is ipv4 (based on first IP family)
+				tg := tgResp.TargetGroups[0]
+				expectedTGType := elbv2types.TargetGroupIpAddressTypeEnumIpv4
+				if tg.IpAddressType != expectedTGType {
+					framework.Failf("Target group IpAddressType mismatch: expected %s, got %s",
+						expectedTGType, tg.IpAddressType)
+				}
+				framework.Logf("✓ Target Group IpAddressType: %s, TargetType: %s",
+					tg.IpAddressType, tg.TargetType)
+			},
+		},
+		{
+			name:             "NLB dual-stack (IPv6 primary) should be reachable",
+			resourceSuffix:   "nlb-ds-v6",
+			extraAnnotations: map[string]string{annotationLBType: "nlb"},
+			listenerCount:    1,
+			hookPostServiceConfig: func(cfg *e2eTestConfig) {
+				framework.Logf("running hook post-service-config: configuring dual-stack with IPv6 primary")
+				// Set dual-stack configuration with IPv6 as primary
+				cfg.svc.Spec.IPFamilies = []v1.IPFamily{v1.IPv6Protocol, v1.IPv4Protocol}
+				ipFamilyPolicy := v1.IPFamilyPolicyPreferDualStack
+				cfg.svc.Spec.IPFamilyPolicy = &ipFamilyPolicy
+				framework.Logf("Service configured: IPFamilies=%v, IPFamilyPolicy=%v",
+					cfg.svc.Spec.IPFamilies, *cfg.svc.Spec.IPFamilyPolicy)
+			},
+			hookPostServiceCreate: func(cfg *e2eTestConfig) {
+				framework.Logf("running hook post-service-create: validating dual-stack AWS load balancer configuration with IPv6 target group")
+
+				if len(cfg.svc.Status.LoadBalancer.Ingress) == 0 {
+					framework.Failf("No ingress found in LoadBalancer status for service %s/%s",
+						cfg.svc.Namespace, cfg.svc.Name)
+				}
+
+				lbDNS := cfg.svc.Status.LoadBalancer.Ingress[0].Hostname
+				elbClient, err := getAWSClientLoadBalancer(cfg.ctx)
+				framework.ExpectNoError(err, "failed to create AWS ELB client")
+
+				lb, err := getAWSLoadBalancerFromDNSName(cfg.ctx, elbClient, lbDNS)
+				framework.ExpectNoError(err, "failed to find load balancer")
+
+				// Validate Load Balancer IP Address Type
+				if lb.IpAddressType != elbv2types.IpAddressTypeDualstack {
+					framework.Failf("Load balancer IpAddressType mismatch: expected %s, got %s",
+						elbv2types.IpAddressTypeDualstack, lb.IpAddressType)
+				}
+				framework.Logf("✓ Load Balancer IpAddressType: %s", lb.IpAddressType)
+
+				// Get Target Groups and validate IPv6 type
+				tgResp, err := elbClient.DescribeTargetGroups(cfg.ctx, &elbv2.DescribeTargetGroupsInput{
+					LoadBalancerArn: lb.LoadBalancerArn,
+				})
+				framework.ExpectNoError(err, "failed to describe target groups")
+
+				if len(tgResp.TargetGroups) == 0 {
+					framework.Failf("No target groups found for load balancer")
+				}
+
+				// Validate Target Group IP Address Type is ipv6 (based on first IP family)
+				tg := tgResp.TargetGroups[0]
+				expectedTGType := elbv2types.TargetGroupIpAddressTypeEnumIpv6
+				if tg.IpAddressType != expectedTGType {
+					framework.Failf("Target group IpAddressType mismatch: expected %s, got %s",
+						expectedTGType, tg.IpAddressType)
+				}
+				framework.Logf("✓ Target Group IpAddressType: %s, TargetType: %s",
+					tg.IpAddressType, tg.TargetType)
+			},
+		},
+		{
+			name:           "NLB internal dual-stack should be reachable",
+			resourceSuffix: "nlb-ds-internal",
+			extraAnnotations: map[string]string{
+				annotationLBType:     "nlb",
+				annotationLBInternal: "true",
+			},
+			overrideTestRunInClusterReachableHTTP: true,
+			requireAffinity:                       true,
+			listenerCount:                         1,
+			hookPostServiceConfig: func(cfg *e2eTestConfig) {
+				framework.Logf("running hook post-service-config: configuring internal dual-stack NLB with node affinity")
+				// Set dual-stack configuration
+				cfg.svc.Spec.IPFamilies = []v1.IPFamily{v1.IPv4Protocol, v1.IPv6Protocol}
+				ipFamilyPolicy := v1.IPFamilyPolicyPreferDualStack
+				cfg.svc.Spec.IPFamilyPolicy = &ipFamilyPolicy
+
+				// Pin to single node for hairpin testing
+				if cfg.svc.Annotations == nil {
+					cfg.svc.Annotations = map[string]string{}
+				}
+				cfg.svc.Annotations[annotationLBTargetNodeLabels] = fmt.Sprintf("kubernetes.io/hostname=%s", cfg.nodeSingleSample)
+				framework.Logf("Service configured: IPFamilies=%v, IPFamilyPolicy=%v, Target node=%s",
+					cfg.svc.Spec.IPFamilies, *cfg.svc.Spec.IPFamilyPolicy, cfg.nodeSingleSample)
+			},
+			hookPostServiceCreate: func(cfg *e2eTestConfig) {
+				framework.Logf("running hook post-service-create: validating internal dual-stack load balancer")
+
+				if len(cfg.svc.Status.LoadBalancer.Ingress) == 0 {
+					framework.Failf("No ingress found in LoadBalancer status for service %s/%s",
+						cfg.svc.Namespace, cfg.svc.Name)
+				}
+
+				lbDNS := cfg.svc.Status.LoadBalancer.Ingress[0].Hostname
+				elbClient, err := getAWSClientLoadBalancer(cfg.ctx)
+				framework.ExpectNoError(err, "failed to create AWS ELB client")
+
+				lb, err := getAWSLoadBalancerFromDNSName(cfg.ctx, elbClient, lbDNS)
+				framework.ExpectNoError(err, "failed to find load balancer")
+
+				// Validate Load Balancer is internal and dual-stack
+				if lb.Scheme != elbv2types.LoadBalancerSchemeEnumInternal {
+					framework.Failf("Load balancer scheme mismatch: expected %s, got %s",
+						elbv2types.LoadBalancerSchemeEnumInternal, lb.Scheme)
+				}
+				framework.Logf("✓ Load Balancer Scheme: %s", lb.Scheme)
+
+				if lb.IpAddressType != elbv2types.IpAddressTypeDualstack {
+					framework.Failf("Load balancer IpAddressType mismatch: expected %s, got %s",
+						elbv2types.IpAddressTypeDualstack, lb.IpAddressType)
+				}
+				framework.Logf("✓ Load Balancer IpAddressType: %s", lb.IpAddressType)
+
+				// Validate target count matches single node
+				framework.ExpectNoError(getLBTargetCount(cfg.ctx, lbDNS, 1),
+					"AWS LB target count validation failed for single-node affinity")
+			},
+		},
+		// NOTE: This test documents current behavior for Classic ELB with dual-stack configuration.
+		// Classic ELB does NOT properly support dual-stack (Issue #7 - missing validation).
+		// This test validates that Classic ELB is created but may not handle IPv6 correctly.
+		{
+			name:             "CLB dual-stack documents current behavior",
+			resourceSuffix:   "clb-ds",
+			extraAnnotations: map[string]string{}, // No annotation = Classic ELB
+			listenerCount:    1,
+			skipTestFailure:  true, // May fail due to lack of IPv6 support
+			hookPostServiceConfig: func(cfg *e2eTestConfig) {
+				framework.Logf("running hook post-service-config: configuring dual-stack with Classic ELB (unsupported)")
+				// Set dual-stack configuration with Classic ELB
+				cfg.svc.Spec.IPFamilies = []v1.IPFamily{v1.IPv4Protocol, v1.IPv6Protocol}
+				ipFamilyPolicy := v1.IPFamilyPolicyPreferDualStack
+				cfg.svc.Spec.IPFamilyPolicy = &ipFamilyPolicy
+				framework.Logf("WARNING: Classic ELB does not properly support dual-stack")
+				framework.Logf("Service configured: IPFamilies=%v, IPFamilyPolicy=%v",
+					cfg.svc.Spec.IPFamilies, *cfg.svc.Spec.IPFamilyPolicy)
+			},
+			hookPostServiceCreate: func(cfg *e2eTestConfig) {
+				framework.Logf("running hook post-service-create: documenting Classic ELB behavior with dual-stack")
+
+				// Note: Classic ELB may be created but won't have dual-stack support
+				// This test documents what actually happens rather than asserting correct behavior
+
+				if len(cfg.svc.Status.LoadBalancer.Ingress) == 0 {
+					framework.Logf("No ingress found - Classic ELB may have failed to provision with dual-stack")
+					return
+				}
+
+				framework.Logf("Classic ELB provisioned with dual-stack config")
+				framework.Logf("NOTE: Classic ELB does NOT have IpAddressType field - cannot validate dual-stack")
+				framework.Logf("TODO: Add validation in Issue #7 to reject dual-stack for Classic ELB")
+
+				// Document what was created
+				lbIngress := cfg.svc.Status.LoadBalancer.Ingress[0]
+				if lbIngress.Hostname != "" {
+					framework.Logf("Classic ELB DNS: %s", lbIngress.Hostname)
+				} else if lbIngress.IP != "" {
+					framework.Logf("Classic ELB IP: %s", lbIngress.IP)
+				}
+			},
+		},
 	}
 
 	serviceNameBase := "lbconfig-test"

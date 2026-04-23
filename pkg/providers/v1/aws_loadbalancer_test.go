@@ -347,6 +347,7 @@ func TestBuildTargetGroupName(t *testing.T) {
 		targetProtocol elbv2types.ProtocolEnum
 		targetType     elbv2types.TargetTypeEnum
 		nlbConfig      nlbPortMapping
+		ipAddressType  elbv2types.TargetGroupIpAddressTypeEnum
 	}
 	tests := []struct {
 		name      string
@@ -364,8 +365,9 @@ func TestBuildTargetGroupName(t *testing.T) {
 				targetProtocol: elbv2types.ProtocolEnumTcp,
 				targetType:     elbv2types.TargetTypeEnumInstance,
 				nlbConfig:      nlbPortMapping{},
+				ipAddressType:  elbv2types.TargetGroupIpAddressTypeEnumIpv4,
 			},
-			want: "k8s-default-servicea-7fa2e07508",
+			want: "k8s-default-servicea-d09db77308",
 		},
 		{
 			name:      "base case & clusterID changed",
@@ -377,8 +379,9 @@ func TestBuildTargetGroupName(t *testing.T) {
 				targetProtocol: elbv2types.ProtocolEnumTcp,
 				targetType:     elbv2types.TargetTypeEnumInstance,
 				nlbConfig:      nlbPortMapping{},
+				ipAddressType:  elbv2types.TargetGroupIpAddressTypeEnumIpv4,
 			},
-			want: "k8s-default-servicea-719ee635da",
+			want: "k8s-default-servicea-b8ce450922",
 		},
 		{
 			name:      "base case & serviceNamespace changed",
@@ -390,8 +393,9 @@ func TestBuildTargetGroupName(t *testing.T) {
 				targetProtocol: elbv2types.ProtocolEnumTcp,
 				targetType:     elbv2types.TargetTypeEnumInstance,
 				nlbConfig:      nlbPortMapping{},
+				ipAddressType:  elbv2types.TargetGroupIpAddressTypeEnumIpv4,
 			},
-			want: "k8s-another-servicea-f66e09847d",
+			want: "k8s-another-servicea-8c06319cd6",
 		},
 		{
 			name:      "base case & serviceName changed",
@@ -403,8 +407,9 @@ func TestBuildTargetGroupName(t *testing.T) {
 				targetProtocol: elbv2types.ProtocolEnumTcp,
 				targetType:     elbv2types.TargetTypeEnumInstance,
 				nlbConfig:      nlbPortMapping{},
+				ipAddressType:  elbv2types.TargetGroupIpAddressTypeEnumIpv4,
 			},
-			want: "k8s-default-serviceb-196c19c881",
+			want: "k8s-default-serviceb-138b54c161",
 		},
 		{
 			name:      "base case & servicePort changed",
@@ -416,8 +421,9 @@ func TestBuildTargetGroupName(t *testing.T) {
 				targetProtocol: elbv2types.ProtocolEnumTcp,
 				targetType:     elbv2types.TargetTypeEnumInstance,
 				nlbConfig:      nlbPortMapping{},
+				ipAddressType:  elbv2types.TargetGroupIpAddressTypeEnumIpv4,
 			},
-			want: "k8s-default-servicea-06876706cb",
+			want: "k8s-default-servicea-3398ce2582",
 		},
 		{
 			name:      "base case & nodePort changed",
@@ -429,8 +435,9 @@ func TestBuildTargetGroupName(t *testing.T) {
 				targetProtocol: elbv2types.ProtocolEnumTcp,
 				targetType:     elbv2types.TargetTypeEnumInstance,
 				nlbConfig:      nlbPortMapping{},
+				ipAddressType:  elbv2types.TargetGroupIpAddressTypeEnumIpv4,
 			},
-			want: "k8s-default-servicea-119f844ec0",
+			want: "k8s-default-servicea-c829356629",
 		},
 		{
 			name:      "base case & targetProtocol changed",
@@ -442,8 +449,9 @@ func TestBuildTargetGroupName(t *testing.T) {
 				targetProtocol: elbv2types.ProtocolEnumUdp,
 				targetType:     elbv2types.TargetTypeEnumInstance,
 				nlbConfig:      nlbPortMapping{},
+				ipAddressType:  elbv2types.TargetGroupIpAddressTypeEnumIpv4,
 			},
-			want: "k8s-default-servicea-3868761686",
+			want: "k8s-default-servicea-57da8753a8",
 		},
 		{
 			name:      "base case & targetType changed",
@@ -455,8 +463,9 @@ func TestBuildTargetGroupName(t *testing.T) {
 				targetProtocol: elbv2types.ProtocolEnumTcp,
 				targetType:     elbv2types.TargetTypeEnumIp,
 				nlbConfig:      nlbPortMapping{},
+				ipAddressType:  elbv2types.TargetGroupIpAddressTypeEnumIpv4,
 			},
-			want: "k8s-default-servicea-0fa31f4b0f",
+			want: "k8s-default-servicea-5160ded19b",
 		},
 		{
 			name:      "custom healthcheck config",
@@ -473,8 +482,23 @@ func TestBuildTargetGroupName(t *testing.T) {
 						Interval: 10,
 					},
 				},
+				ipAddressType: elbv2types.TargetGroupIpAddressTypeEnumIpv4,
 			},
-			want: "k8s-default-servicea-4028e49618",
+			want: "k8s-default-servicea-c3f46cd4ed",
+		},
+		{
+			name:      "base case & ipAddressType changed to ipv6",
+			clusterID: "cluster-a",
+			args: args{
+				serviceName:    types.NamespacedName{Namespace: "default", Name: "service-a"},
+				servicePort:    80,
+				nodePort:       8080,
+				targetProtocol: elbv2types.ProtocolEnumTcp,
+				targetType:     elbv2types.TargetTypeEnumInstance,
+				nlbConfig:      nlbPortMapping{},
+				ipAddressType:  elbv2types.TargetGroupIpAddressTypeEnumIpv6,
+			},
+			want: "k8s-default-servicea-6abd575e99",
 		},
 	}
 	for _, tt := range tests {
@@ -482,7 +506,7 @@ func TestBuildTargetGroupName(t *testing.T) {
 			c := &Cloud{
 				tagging: awsTagging{ClusterID: tt.clusterID},
 			}
-			if got := c.buildTargetGroupName(tt.args.serviceName, tt.args.servicePort, tt.args.nodePort, tt.args.targetProtocol, tt.args.targetType, tt.args.nlbConfig); got != tt.want {
+			if got := c.buildTargetGroupName(tt.args.serviceName, tt.args.servicePort, tt.args.nodePort, tt.args.targetProtocol, tt.args.targetType, tt.args.nlbConfig, tt.args.ipAddressType); got != tt.want {
 				assert.Equal(t, tt.want, got)
 			}
 		})
@@ -1951,6 +1975,7 @@ func TestCloud_ensureTargetGroupTargets(t *testing.T) {
 
 	tests := []struct {
 		name            string
+		service         *v1.Service
 		maxTargets      int
 		expectedTargets []*elbv2types.TargetDescription
 		actualTargets   []*elbv2types.TargetDescription
@@ -2072,6 +2097,204 @@ func TestCloud_ensureTargetGroupTargets(t *testing.T) {
 			} else {
 				assert.NoError(t, err, "Expected no error for test case: %s", tt.description)
 			}
+		})
+	}
+}
+
+func TestGetTargetGroupIPAddressTypeFromService(t *testing.T) {
+	tests := []struct {
+		name     string
+		service  *v1.Service
+		expected elbv2types.TargetGroupIpAddressTypeEnum
+	}{
+		{
+			name: "IPv6 as first IP family",
+			service: &v1.Service{
+				Spec: v1.ServiceSpec{
+					IPFamilies: []v1.IPFamily{v1.IPv6Protocol, v1.IPv4Protocol},
+				},
+			},
+			expected: elbv2types.TargetGroupIpAddressTypeEnumIpv6,
+		},
+		{
+			name: "IPv6 as only IP family",
+			service: &v1.Service{
+				Spec: v1.ServiceSpec{
+					IPFamilies: []v1.IPFamily{v1.IPv6Protocol},
+				},
+			},
+			expected: elbv2types.TargetGroupIpAddressTypeEnumIpv6,
+		},
+		{
+			name: "IPv4 as first IP family",
+			service: &v1.Service{
+				Spec: v1.ServiceSpec{
+					IPFamilies: []v1.IPFamily{v1.IPv4Protocol, v1.IPv6Protocol},
+				},
+			},
+			expected: elbv2types.TargetGroupIpAddressTypeEnumIpv4,
+		},
+		{
+			name: "IPv4 as only IP family",
+			service: &v1.Service{
+				Spec: v1.ServiceSpec{
+					IPFamilies: []v1.IPFamily{v1.IPv4Protocol},
+				},
+			},
+			expected: elbv2types.TargetGroupIpAddressTypeEnumIpv4,
+		},
+		{
+			name: "No IP families specified (defaults to IPv4)",
+			service: &v1.Service{
+				Spec: v1.ServiceSpec{
+					IPFamilies: []v1.IPFamily{},
+				},
+			},
+			expected: elbv2types.TargetGroupIpAddressTypeEnumIpv4,
+		},
+		{
+			name:     "Nil service (defaults to IPv4)",
+			service:  nil,
+			expected: elbv2types.TargetGroupIpAddressTypeEnumIpv4,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := getTargetGroupIPAddressTypeFromService(tt.service)
+			assert.Equal(t, tt.expected, result, "IP address type should match expected for test case: %s", tt.name)
+		})
+	}
+}
+
+func TestServiceRequestsIPv6(t *testing.T) {
+	tests := []struct {
+		name     string
+		service  *v1.Service
+		expected bool
+	}{
+		{
+			name: "IPv6 only",
+			service: &v1.Service{
+				Spec: v1.ServiceSpec{
+					IPFamilies: []v1.IPFamily{v1.IPv6Protocol},
+				},
+			},
+			expected: true,
+		},
+		{
+			name: "Dual-stack IPv4 first",
+			service: &v1.Service{
+				Spec: v1.ServiceSpec{
+					IPFamilies: []v1.IPFamily{v1.IPv4Protocol, v1.IPv6Protocol},
+				},
+			},
+			expected: true,
+		},
+		{
+			name: "Dual-stack IPv6 first",
+			service: &v1.Service{
+				Spec: v1.ServiceSpec{
+					IPFamilies: []v1.IPFamily{v1.IPv6Protocol, v1.IPv4Protocol},
+				},
+			},
+			expected: true,
+		},
+		{
+			name: "IPv4 only",
+			service: &v1.Service{
+				Spec: v1.ServiceSpec{
+					IPFamilies: []v1.IPFamily{v1.IPv4Protocol},
+				},
+			},
+			expected: false,
+		},
+		{
+			name: "No IP families",
+			service: &v1.Service{
+				Spec: v1.ServiceSpec{
+					IPFamilies: []v1.IPFamily{},
+				},
+			},
+			expected: false,
+		},
+		{
+			name:     "Nil service",
+			service:  nil,
+			expected: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := serviceRequestsIPv6(tt.service)
+			assert.Equal(t, tt.expected, result, "IPv6 support detection should match expected for test case: %s", tt.name)
+		})
+	}
+}
+
+func TestGetLoadBalancerIpAddressType(t *testing.T) {
+	tests := []struct {
+		name     string
+		service  *v1.Service
+		expected elbv2types.IpAddressType
+	}{
+		{
+			name: "No IP families defined",
+			service: &v1.Service{
+				Spec: v1.ServiceSpec{
+					IPFamilies: []v1.IPFamily{},
+				},
+			},
+			expected: elbv2types.IpAddressTypeIpv4,
+		},
+		{
+			name: "Only IPv4 defined",
+			service: &v1.Service{
+				Spec: v1.ServiceSpec{
+					IPFamilies: []v1.IPFamily{v1.IPv4Protocol},
+				},
+			},
+			expected: elbv2types.IpAddressTypeIpv4,
+		},
+		{
+			name: "Only IPv6 defined",
+			service: &v1.Service{
+				Spec: v1.ServiceSpec{
+					IPFamilies: []v1.IPFamily{v1.IPv6Protocol},
+				},
+			},
+			expected: elbv2types.IpAddressTypeDualstack,
+		},
+		{
+			name: "IPv6 and IPv4",
+			service: &v1.Service{
+				Spec: v1.ServiceSpec{
+					IPFamilies: []v1.IPFamily{v1.IPv6Protocol, v1.IPv4Protocol},
+				},
+			},
+			expected: elbv2types.IpAddressTypeDualstack,
+		},
+		{
+			name: "IPv4 and IPv6",
+			service: &v1.Service{
+				Spec: v1.ServiceSpec{
+					IPFamilies: []v1.IPFamily{v1.IPv4Protocol, v1.IPv6Protocol},
+				},
+			},
+			expected: elbv2types.IpAddressTypeDualstack,
+		},
+		{
+			name:     "No service",
+			service:  nil,
+			expected: elbv2types.IpAddressTypeIpv4,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := getLoadBalancerIPAddressTypeFromService(tt.service)
+			assert.Equal(t, tt.expected, result, "IP address type did not expected for test case: %s", tt.name)
 		})
 	}
 }
