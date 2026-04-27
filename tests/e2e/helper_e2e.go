@@ -30,7 +30,6 @@ import (
 	"k8s.io/apimachinery/pkg/util/wait"
 	clientset "k8s.io/client-go/kubernetes"
 
-	g "github.com/onsi/gomega"
 	appsv1 "k8s.io/api/apps/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/kubernetes/test/e2e/framework"
@@ -233,41 +232,75 @@ func (e2e *E2ETestHelper) isNodeSchedulable(node *v1.Node) bool {
 func (e2e *E2ETestHelper) discoverClusterWorkerNode(ctx context.Context) {
 	var workerNodeList []string
 	framework.Logf("discovering node label used in the kubernetes distributions")
-	for _, selector := range lookupNodeSelectors {
-		var nodeList *v1.NodeList
-		var err error
-		g.Eventually(ctx, func(ctx context.Context) error {
-			nodeList, err = e2e.kubeClient.CoreV1().Nodes().List(ctx, metav1.ListOptions{
-				LabelSelector: selector,
-			})
-			if err != nil {
-				return fmt.Errorf("failed to list worker nodes: %v", err)
-			}
-			if len(nodeList.Items) == 0 {
-				return fmt.Errorf("no worker nodes found")
-			}
-			return nil
-		}, 2*time.Minute, 5*time.Second).Should(g.Succeed(), "failed to list worker nodes")
-		g.Expect(nodeList).NotTo(g.BeNil(), "found worker nodes is nil")
 
-		e2e.nodeCount = len(nodeList.Items)
+	// Step 1: Wait for at least one node to exist in the cluster (handles cluster initialization)
+	// This retry is for the cluster itself, not for specific label selectors
+	var allNodes *v1.NodeList
+	var clusterErr error
+	err := wait.PollUntilContextTimeout(ctx, 5*time.Second, 2*time.Minute, true, func(ctx context.Context) (bool, error) {
+		allNodes, clusterErr = e2e.kubeClient.CoreV1().Nodes().List(ctx, metav1.ListOptions{})
+		if clusterErr != nil {
+			framework.Logf("waiting for cluster nodes to be available: %v", clusterErr)
+			return false, nil // Retry on API errors
+		}
+		if len(allNodes.Items) == 0 {
+			framework.Logf("waiting for nodes to register in the cluster...")
+			return false, nil // Retry if no nodes yet
+		}
+		return true, nil // Nodes exist, continue
+	})
+	if err != nil {
+		framework.ExpectNoError(fmt.Errorf("timeout waiting for cluster nodes: %v (last error: %v)", err, clusterErr))
+		return
+	}
+
+	// Diagnostic: Log node labels to help debug label selector issues
+	framework.Logf("Found %d total nodes in cluster", len(allNodes.Items))
+	for i, node := range allNodes.Items {
+		if i < 3 { // Only log first 3 nodes to avoid spam
+			framework.Logf("Node[%d] %s labels: %v", i, node.Name, node.Labels)
+		}
+	}
+
+	// Step 2: Try each known label selector to find worker nodes
+	// Don't retry here - if the selector doesn't match, try the next one immediately
+	for _, selector := range lookupNodeSelectors {
+		framework.Logf("trying node label selector: %s", selector)
+		nodeList, err := e2e.kubeClient.CoreV1().Nodes().List(ctx, metav1.ListOptions{
+			LabelSelector: selector,
+		})
+		if err != nil {
+			framework.Logf("API error listing nodes with selector %s: %v, trying next selector", selector, err)
+			continue
+		}
+		framework.Logf("found %d nodes matching selector %s", len(nodeList.Items), selector)
+
 		if len(nodeList.Items) > 0 {
+			// Filter for schedulable nodes
 			for i := range nodeList.Items {
 				node := &nodeList.Items[i]
 				if !e2e.isNodeSchedulable(node) {
-					framework.Logf("skipping node %s because it has taints: %v", node.Name, node.Spec.Taints)
+					framework.Logf("skipping node %s (has taints: %v)", node.Name, node.Spec.Taints)
 					continue
 				}
 				workerNodeList = append(workerNodeList, node.Name)
 			}
-			// Save the first worker node in the list to be used in cases.
-			sort.Strings(workerNodeList)
-			e2e.sampleNodeName = workerNodeList[0]
-			e2e.nodeSelector = selector
-			return
+
+			// Check if we found any schedulable nodes
+			if len(workerNodeList) > 0 {
+				sort.Strings(workerNodeList)
+				e2e.nodeCount = len(workerNodeList)
+				e2e.sampleNodeName = workerNodeList[0]
+				e2e.nodeSelector = selector
+				framework.Logf("Successfully discovered %d schedulable worker nodes using selector: %s", e2e.nodeCount, selector)
+				return
+			}
+			framework.Logf("selector %s matched %d nodes but all are unschedulable, trying next selector", selector, len(nodeList.Items))
 		}
 	}
-	framework.ExpectNoError(fmt.Errorf("unable to find node selector for %v", lookupNodeSelectors))
+
+	// No selector matched schedulable nodes - provide detailed error
+	framework.ExpectNoError(fmt.Errorf("unable to find schedulable worker nodes with any known selector %v (found %d total nodes in cluster)", lookupNodeSelectors, len(allNodes.Items)))
 }
 
 // inClusterTestReachableHTTP creates a pod within the cluster to test HTTP connectivity to a target IP and port.
