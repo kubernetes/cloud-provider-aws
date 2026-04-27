@@ -598,34 +598,33 @@ func (e2e *E2ETestHelper) inClusterTestReachableHTTP(ctx context.Context, target
 	}
 
 	// Validate HTTP response format with enhanced checking
-	// Expected format: CURL_SUMMARY: HTTPCode=200 Time=<time>s ConnectTime=<time>s DNSTime=<time>s
+	// Expected format: ---> HTTPCode=200 time_total(...) <---
 	response := gatherPodLogs(ctx, e2e, podName, 0)
 	framework.Logf("=== HTTP RESPONSE VALIDATION ===")
 	framework.Logf("Full curl output:\n%s", response)
 
 	// Check for successful HTTP response
-	if strings.Contains(response, "CURL_SUMMARY: HTTPCode=200") {
+	if strings.Contains(response, "---> HTTPCode=200") {
 		framework.Logf("✓ HTTP connectivity test PASSED - Found HTTPCode=200")
 
-		if strings.Contains(response, "DNSTime=") {
-			lines := strings.Split(response, "\n")
-			for _, line := range lines {
-				if strings.Contains(line, "CURL_SUMMARY:") {
-					framework.Logf("Connection timing: %s", strings.TrimSpace(line))
-					break
-				}
+		// Log timing information
+		lines := strings.Split(response, "\n")
+		for _, line := range lines {
+			if strings.Contains(line, "---> HTTPCode=200") {
+				framework.Logf("Connection timing: %s", strings.TrimSpace(line))
+				break
 			}
 		}
 		return nil
 	}
 
 	// Check for partial success (HTTP response received but not 200)
-	if strings.Contains(response, "HTTPCode=") {
-		framework.Logf("HTTP response received but not successful")
-		// Try to extract the actual HTTP code
+	if strings.Contains(response, "---> HTTPCode=") {
+		framework.Logf("HTTP response received but not 200")
+		// Extract the actual HTTP code
 		lines := strings.Split(response, "\n")
 		for _, line := range lines {
-			if strings.Contains(line, "HTTPCode=") && !strings.Contains(line, "HTTPCode=200") {
+			if strings.Contains(line, "---> HTTPCode=") {
 				framework.Logf("Received HTTP response: %s", strings.TrimSpace(line))
 				break
 			}
