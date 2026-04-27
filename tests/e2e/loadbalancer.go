@@ -119,9 +119,9 @@ var _ = Describe("[cloud-provider-aws-e2e] loadbalancer", func() {
 				}
 				lbDNS := cfg.svc.Status.LoadBalancer.Ingress[0].Hostname
 				// TODO expected lbDNS not empty
-				// TODO expect awshelper not nil
-				targets, err := cfg.GetAWSHelper().GetLBTargets(ctx, lbDNS, 80, cfg.GetServicePodPort())
-				framework.ExpectNoError(err, "failed to get LB target count")
+
+				targets, err := cfg.GetAWSHelper().WaitForLBTargets(ctx, lbDNS, 80, cfg.GetServicePodPort(), cfg.nodeCount, DefaultTargetWaitTimeout)
+				framework.ExpectNoError(err, "failed waiting for LB targets to register")
 				framework.Logf("LB targets: %v", targets)
 				gomega.Expect(len(targets)).To(gomega.Equal(cfg.nodeCount), "AWS LB target count validation failed")
 			},
