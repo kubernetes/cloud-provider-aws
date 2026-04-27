@@ -184,6 +184,8 @@ make e2e.test
 ./e2e.test --ginkgo.v  --ginkgo.focus="loadbalancer.*NLB"
 ```
 
+For advanced E2E test development including customization, mocking, and testing patterns across different environments, see the [E2E Test Development Guide](development_e2e.md).
+
 ## CI Test Infrastructure
 
 The cloud-provider-aws project uses [Prow][prow] as to the CI/CD (Continuous Integration/Continuous Delivery) system to schedule CI jobs, and use [kops][kops] to create the cluster used by jobs.
