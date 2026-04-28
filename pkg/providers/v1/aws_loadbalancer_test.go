@@ -1249,9 +1249,9 @@ func TestCloud_ensureTargetGroupTargets(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			mockClient := &mockELBV2ClientForEnsureTargetGroupTargets{
 				MockedFakeELBV2: &MockedFakeELBV2{
-					LoadBalancers:          []*elbv2types.LoadBalancer{},
-					TargetGroups:           []*elbv2types.TargetGroup{},
-					Listeners:              []*elbv2types.Listener{},
+					LoadBalancers:          []elbv2types.LoadBalancer{},
+					TargetGroups:           []elbv2types.TargetGroup{},
+					Listeners:              []elbv2types.Listener{},
 					LoadBalancerAttributes: make(map[string]map[string]string),
 					Tags:                   make(map[string][]elbv2types.Tag),
 					RegisteredInstances:    make(map[string][]string),
