@@ -4676,7 +4676,7 @@ func TestEnsureNLBSecurityGroup(t *testing.T) {
 			annotations:            map[string]string{},
 			configNLBSGMode:        true,
 			expectedSecurityGroups: []string{},
-			expectedError:          "error describing load balancer test-lb: error describing load balancer: \"AWS API error\"",
+			expectedError:          "error describing load balancer: \"AWS API error\"",
 			mockDescribeLoadBalancer: func(m *MockedFakeELBV2) {
 				m.On("DescribeLoadBalancers", mock.Anything, mock.Anything).Return(&elbv2.DescribeLoadBalancersOutput{}, fmt.Errorf("AWS API error"))
 			},
@@ -4914,7 +4914,7 @@ func TestEnsureNLBSecurityGroup(t *testing.T) {
 			existingLB, err := c.describeLoadBalancerv2(context.TODO(), loadBalancerName)
 			if tc.expectedError != "" && err != nil {
 				// Expected error from describe - verify and skip rest
-				assert.Error(t, err)
+				assert.Contains(t, err.Error(), tc.expectedError)
 				return
 			}
 

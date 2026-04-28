@@ -116,6 +116,7 @@ This test demonstrates using user-managed security groups with NLB instead of co
   - Ensure your cloud-config has `NLBSecurityGroupMode = Managed`
   - Have one or more existing security groups in AWS that you want to attach to the NLB
   - Ensure the security groups are in the same VPC as your cluster and have appropriate ingress rules configured
+  - Ensure the control plane IAM role has the `elasticloadbalancing:SetSecurityGroups` permission.
 
 **Steps:**
 
