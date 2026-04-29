@@ -303,14 +303,14 @@ func TestValidateServiceAnnotations(t *testing.T) {
 			expectedError: "",
 		},
 
-		// Error cases - NLB should reject BYO security group annotations
+		// BYO SG annotations validation
 		{
-			name: "NLB with BYO SG annotation - error (not supported)",
+			name: "NLB with BYO SG annotation - should pass validations",
 			annotations: map[string]string{
 				ServiceAnnotationLoadBalancerType:           "nlb",
 				ServiceAnnotationLoadBalancerSecurityGroups: byoSecurityGroupID,
 			},
-			expectedError: "BYO security group annotation \"service.beta.kubernetes.io/aws-load-balancer-security-groups\" is not supported by NLB",
+			expectedError: "",
 		},
 		{
 			name: "NLB with BYO extra SG annotation - error (not supported)",
@@ -321,78 +321,37 @@ func TestValidateServiceAnnotations(t *testing.T) {
 			expectedError: "BYO extra security group annotation \"service.beta.kubernetes.io/aws-load-balancer-extra-security-groups\" is not supported by NLB",
 		},
 		{
-			name: "NLB with both BYO SG annotations - error (not supported)",
+			name: "NLB with both BYO SG annotations - extra SG error still applies",
 			annotations: map[string]string{
 				ServiceAnnotationLoadBalancerType:                "nlb",
 				ServiceAnnotationLoadBalancerSecurityGroups:      byoSecurityGroupID,
 				ServiceAnnotationLoadBalancerExtraSecurityGroups: "sg-extra123",
 			},
-			expectedError: "BYO security group annotation \"service.beta.kubernetes.io/aws-load-balancer-security-groups\" is not supported by NLB",
+			expectedError: "BYO extra security group annotation \"service.beta.kubernetes.io/aws-load-balancer-extra-security-groups\" is not supported by NLB",
 		},
 		{
-			name: "NLB with BYO SG with empty value - error (not supported)",
+			name: "NLB with BYO extra SG with empty value - error (not supported)",
 			annotations: map[string]string{
-				ServiceAnnotationLoadBalancerType:           "nlb",
-				ServiceAnnotationLoadBalancerSecurityGroups: "",
+				ServiceAnnotationLoadBalancerType:                "nlb",
+				ServiceAnnotationLoadBalancerExtraSecurityGroups: "BYO extra security group annotation \"service.beta.kubernetes.io/aws-load-balancer-extra-security-groups\" is not supported by NLB",
 			},
-			expectedError: "BYO security group annotation \"service.beta.kubernetes.io/aws-load-balancer-security-groups\" is not supported by NLB",
+			expectedError: "BYO extra security group annotation \"service.beta.kubernetes.io/aws-load-balancer-extra-security-groups\" is not supported by NLB",
 		},
 		{
-			name: "NLB with BYO SG with multiple values - error (not supported)",
+			name: "NLB with BYO extra SG with multiple values - error (not supported)",
+			annotations: map[string]string{
+				ServiceAnnotationLoadBalancerType:                "nlb",
+				ServiceAnnotationLoadBalancerExtraSecurityGroups: "sg-123,sg-456",
+			},
+			expectedError: "BYO extra security group annotation \"service.beta.kubernetes.io/aws-load-balancer-extra-security-groups\" is not supported by NLB",
+		},
+		{
+			name: "NLB with BYO SG with multiple values - should pass validations",
 			annotations: map[string]string{
 				ServiceAnnotationLoadBalancerType:           "nlb",
 				ServiceAnnotationLoadBalancerSecurityGroups: "sg-123,sg-456",
 			},
-			expectedError: "BYO security group annotation \"service.beta.kubernetes.io/aws-load-balancer-security-groups\" is not supported by NLB",
-		},
-		{
-			name: "NLB with single BYO SG - error (not supported)",
-			annotations: map[string]string{
-				ServiceAnnotationLoadBalancerType:           "nlb",
-				ServiceAnnotationLoadBalancerSecurityGroups: "sg-123456789",
-			},
-			expectedError: "BYO security group annotation \"service.beta.kubernetes.io/aws-load-balancer-security-groups\" is not supported by NLB",
-		},
-		{
-			name: "NLB with multiple BYO SGs - error (not supported)",
-			annotations: map[string]string{
-				ServiceAnnotationLoadBalancerType:           "nlb",
-				ServiceAnnotationLoadBalancerSecurityGroups: "sg-123456789,sg-987654321",
-			},
-			expectedError: "BYO security group annotation \"service.beta.kubernetes.io/aws-load-balancer-security-groups\" is not supported by NLB",
-		},
-		{
-			name: "NLB with invalid BYO SG format - error (not supported)",
-			annotations: map[string]string{
-				ServiceAnnotationLoadBalancerType:           "nlb",
-				ServiceAnnotationLoadBalancerSecurityGroups: "invalid-sg-format",
-			},
-			expectedError: "BYO security group annotation \"service.beta.kubernetes.io/aws-load-balancer-security-groups\" is not supported by NLB",
-		},
-		{
-			name: "NLB case sensitivity - BYO SG annotation with different casing should still be rejected",
-			annotations: map[string]string{
-				ServiceAnnotationLoadBalancerType:           "nlb",
-				ServiceAnnotationLoadBalancerSecurityGroups: "SG-123ABC",
-			},
-			expectedError: "BYO security group annotation \"service.beta.kubernetes.io/aws-load-balancer-security-groups\" is not supported by NLB",
-		},
-		{
-			name: "NLB mixed annotations - BYO and other annotations",
-			annotations: map[string]string{
-				ServiceAnnotationLoadBalancerSecurityGroups: "sg-123456",
-				ServiceAnnotationLoadBalancerType:           "nlb",
-				ServiceAnnotationLoadBalancerInternal:       "true",
-			},
-			expectedError: "BYO security group annotation \"service.beta.kubernetes.io/aws-load-balancer-security-groups\" is not supported by NLB",
-		},
-		{
-			name: "NLB whitespace in BYO SG values - should still be rejected",
-			annotations: map[string]string{
-				ServiceAnnotationLoadBalancerType:           "nlb",
-				ServiceAnnotationLoadBalancerSecurityGroups: " sg-123456 ",
-			},
-			expectedError: "BYO security group annotation \"service.beta.kubernetes.io/aws-load-balancer-security-groups\" is not supported by NLB",
+			expectedError: "",
 		},
 
 		// Target group attributes validation for NLB (should succeed)

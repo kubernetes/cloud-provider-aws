@@ -4,7 +4,7 @@
 
 The controller can be configured to enable managed Security Group (SG) for Services using AWS Network Load Balancer (NLB) by setting an opt-in configuration in your cloud config. When enabled, each NLB created for a Kubernetes Service of type `LoadBalancer` with annotation `service.beta.kubernetes.io/aws-load-balancer-type=nlb` will have a dedicated Security Group, managed by the cloud provider controller. We are calling this as opt-in Managed NLB Security Group ("Managed SG" mode).
 
-> Note: The BYO SG (user-provided security groups) annotations (`service.beta.kubernetes.io/aws-load-balancer-security-groups` and `service.beta.kubernetes.io/aws-load-balancer-extra-security-groups`) are valid only for Classic Load Balancers. To learn more about supported annotations by load balancer type, see the [service_controller documentation][doc-ctrl-service].
+> Note: The BYO SG (user-provided security groups) annotation `service.beta.kubernetes.io/aws-load-balancer-security-groups` is supported for both Classic Load Balancers and Network Load Balancers (requires `NLBSecurityGroupMode = Managed` for NLB). When managed mode is disabled for NLB, this annotation is ignored. The annotation `service.beta.kubernetes.io/aws-load-balancer-extra-security-groups` is valid only for Classic Load Balancers. To learn more about supported annotations by load balancer type, see the [service_controller documentation][doc-ctrl-service].
 
 [doc-ctrl-service]: https://github.com/kubernetes/cloud-provider-aws/blob/master/docs/service_controller.md
 
@@ -30,6 +30,7 @@ NLBSecurityGroupMode = Managed
 - **When to use:**
   - When you want the controller to manage NLB security groups automatically for NLB.
   - When your security/compliance policies require explicit SGs for each NLB.
+  - When you want to associate one or more Bring Your Own (BYO) security groups with the NLB.
 
 ## Upgrade and Migration Notes
 
@@ -50,8 +51,10 @@ NLBSecurityGroupMode = Managed
 - **Tagging:**
   - Managed SGs are tagged for identification and safe cleanup. Example cluster tag:
     - `kubernetes.io/cluster/<cluster-name>: owned`
+  - BYO SGs are left untagged.
 - **Deletion:**
   - Managed SGs are deleted when the corresponding Service is deleted. The controller uses exponential backoff to handle AWS dependency violations.
+  - BYO SGs are never deleted.
 
 ## Testing and Validation
 
@@ -105,13 +108,88 @@ curl -v $LB_DNS
 ```
   4. Delete the Service and verify that the SG is deleted.
 
+### Test 2 - **How to test BYO (Bring Your Own) Security Groups:**
+
+This test demonstrates using user-managed security groups with NLB instead of controller-managed SGs.
+
+**Prerequisites:**
+  - Ensure your cloud-config has `NLBSecurityGroupMode = Managed`
+  - Have one or more existing security groups in AWS that you want to attach to the NLB
+  - Ensure the security groups are in the same VPC as your cluster and have appropriate ingress rules configured
+  - Ensure the control plane IAM role has the `elasticloadbalancing:SetSecurityGroups` permission.
+
+**Steps:**
+
+1. Create a Service with the BYO security group annotation:
+```sh
+# Set your BYO security group ID (replace with your actual BYO Security Group ID)
+BYO_SG_ID="sg-0123xyz"
+APP_NAME=app
+APP_NAMESPACE=$APP_NAME
+SVC_NAME="${APP_NAME}-nlb-byo"
+cat << EOF | kubectl create -f -
+apiVersion: v1
+kind: Service
+metadata:
+  name: "${SVC_NAME}"
+  namespace: "${APP_NAMESPACE}"
+  annotations:
+    service.beta.kubernetes.io/aws-load-balancer-type: nlb
+    service.beta.kubernetes.io/aws-load-balancer-security-groups: "${BYO_SG_ID}"
+spec:
+  selector:
+    app: "${APP_NAME}"
+  ports:
+    - port: 80
+      targetPort: 8080
+      protocol: TCP
+  type: LoadBalancer
+EOF
+```
+Wait a few minutes for the NLB to be provisioned before moving to step 2.
+
+2. Verify the BYO security group is attached to the NLB:
+```sh
+LB_DNS=$(kubectl get svc $SVC_NAME -n ${APP_NAMESPACE} -o jsonpath='{.status.loadBalancer.ingress[0].hostname}')
+LB_ARN=$(aws elbv2 describe-load-balancers --query "LoadBalancers[?DNSName=='$LB_DNS'].LoadBalancerArn" --output text)
+
+# Check security groups attached to NLB.
+aws elbv2 describe-load-balancers --load-balancer-arns $LB_ARN \
+  --query 'LoadBalancers[0].SecurityGroups' --output json
+
+# Should show your BYO security group ID
+```
+
+3. Verify the BYO security group is NOT tagged with cluster ownership:
+```sh
+aws ec2 describe-security-groups --group-ids $BYO_SG_ID \
+  --query 'SecurityGroups[0].Tags' --output json
+
+# Should NOT contain kubernetes.io/cluster/<cluster-name>: owned tag
+```
+
+4. Delete the Service and verify the BYO security group is NOT deleted:
+```sh
+kubectl delete svc $SVC_NAME -n ${APP_NAMESPACE}
+
+# Wait for NLB to be deleted, then verify BYO SG still exists
+aws ec2 describe-security-groups --group-ids $BYO_SG_ID
+
+# Should still exist (controller does not delete BYO SGs)
+```
+
+**Notes:**
+- When using BYO security groups, **you are responsible** for managing ingress/egress rules
+- The controller will not automatically add rules based on Service ports
+- Ensure your BYO security groups allow traffic on the Service ports you define
+- BYO security groups must be in the same VPC as the NLB
+
 ## Troubleshooting
 
+- **BYO SG not attached:**
+  - Ensure `NLBSecurityGroupMode = Managed` is set in the cloud config.
+  - Ensure Security Group is in the same VPC as the NLB
 - **SG not deleted:**
   - Check for AWS dependency violations (e.g., NLB still deleting). The controller will retry deletion with backoff.
-- **NLB not created:**
-  - Ensure the controller has IAM permissions to manage Security Groups.
 - **SG rules not as expected:**
   - Check your Service annotations and cloud config.
-- **Config changes not taking effect:**
-  - Ensure you have restarted the controller after changing the config.

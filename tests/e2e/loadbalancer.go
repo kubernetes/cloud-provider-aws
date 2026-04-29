@@ -36,6 +36,8 @@ import (
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/aws/retry"
 	"github.com/aws/aws-sdk-go-v2/config"
+	"github.com/aws/aws-sdk-go-v2/service/ec2"
+	ec2types "github.com/aws/aws-sdk-go-v2/service/ec2/types"
 	elbv2 "github.com/aws/aws-sdk-go-v2/service/elasticloadbalancingv2"
 	elbv2types "github.com/aws/aws-sdk-go-v2/service/elasticloadbalancingv2/types"
 )
@@ -45,6 +47,7 @@ const (
 	annotationLBInternal              = "service.beta.kubernetes.io/aws-load-balancer-internal"
 	annotationLBTargetNodeLabels      = "service.beta.kubernetes.io/aws-load-balancer-target-node-labels"
 	annotationLBTargetGroupAttributes = "service.beta.kubernetes.io/aws-load-balancer-target-group-attributes"
+	annotationLBSecurityGroups        = "service.beta.kubernetes.io/aws-load-balancer-security-groups"
 )
 
 var (
@@ -247,6 +250,246 @@ var _ = Describe("[cloud-provider-aws-e2e] loadbalancer", func() {
 				}
 			},
 		},
+		// Test creation of NLB with Bring Your Own (BYO) Security Group from the start.
+		// This test validates:
+		// - NLB can be created with BYO SG annotation from the start
+		// - NLB has ONLY the BYO SG attached (no managed SG)
+		// - NLB is reachable with BYO SG
+		{
+			name:           "NLB created with BYO Security Group should have BYO Security Group associated",
+			resourceSuffix: "nlb-byo",
+			listenerCount:  1,
+			extraAnnotations: map[string]string{
+				annotationLBType: "nlb",
+			},
+			hookPostServiceConfig: func(cfg *e2eTestConfig) {
+				framework.Logf("Creating BYO security group for NLB")
+
+				securityGroupName := cfg.svc.Namespace + "-" + cfg.svc.Name + "-nlb-byo-sg"
+				var err error
+				cfg.byoSecurityGroupID, err = createSecurityGroup(cfg.ctx, cfg, securityGroupName, fmt.Sprintf("BYO Security Group for NLB e2e test service %s/%s", cfg.svc.Namespace, cfg.svc.Name))
+				framework.ExpectNoError(err, "Failed to create BYO security group")
+				framework.Logf("Created BYO security group: %s", cfg.byoSecurityGroupID)
+
+				DeferCleanup(func(ctx context.Context) {
+					if cfg.byoSecurityGroupID != "" {
+						framework.Logf("Cleaning up BYO security group: %s", cfg.byoSecurityGroupID)
+						framework.Logf("Waiting 30s for ENIs to be detached from security group...")
+						time.Sleep(30 * time.Second)
+						err := deleteSecurityGroup(ctx, cfg.byoSecurityGroupID)
+						framework.ExpectNoError(err, "Failed to delete BYO security group")
+						framework.Logf("✓ Deleted BYO security group: %s", cfg.byoSecurityGroupID)
+					}
+				})
+
+				framework.ExpectNoError(authorizeSecurityGroupToPorts(cfg.ctx, cfg.byoSecurityGroupID, cfg.svc.Spec.Ports), "Failed to authorize BYO security group to service ports")
+
+				cfg.svc.Annotations[annotationLBSecurityGroups] = cfg.byoSecurityGroupID
+				framework.Logf("Added BYO SG annotation: %s=%s", annotationLBSecurityGroups, cfg.byoSecurityGroupID)
+			},
+			hookPreTest: func(cfg *e2eTestConfig) {
+				framework.Logf("Verifying NLB has only BYO SG attached")
+
+				if len(cfg.svc.Status.LoadBalancer.Ingress) == 0 {
+					framework.Failf("No ingress found in LoadBalancer status for service %s/%s", cfg.svc.Namespace, cfg.svc.Name)
+				}
+				lbDNS := cfg.svc.Status.LoadBalancer.Ingress[0].Hostname
+				framework.Logf("NLB DNS: %s", lbDNS)
+
+				attachedSGs, err := getLoadBalancerSecurityGroups(cfg.ctx, lbDNS)
+				framework.ExpectNoError(err, "Failed to get NLB security groups")
+				framework.Logf("NLB %s has security groups: %+v", lbDNS, attachedSGs)
+
+				if len(attachedSGs) != 1 {
+					framework.Failf("Expected NLB to have exactly 1 security group (BYO SG), got %d: %v", len(attachedSGs), attachedSGs)
+				}
+				if attachedSGs[0] != cfg.byoSecurityGroupID {
+					framework.Failf("Expected NLB to have BYO SG %q, got %q", cfg.byoSecurityGroupID, attachedSGs[0])
+				}
+				framework.Logf("✓ Verified: NLB has only the BYO SG attached: %s", cfg.byoSecurityGroupID)
+			},
+		},
+		// Test transition of NLB from Managed Security Group to Bring Your Own (BYO) Security Group (SG)
+		// This test validates:
+		// - NLB created with managed (cluster-owned) SG
+		// - After annotation is added to use BYO SG the NLB should transition to
+		// have BYO SG attached and managed SG deleted
+		// - NLB is reachable
+		{
+			name:           "NLB should transition from Managed SG to BYO Security Group",
+			resourceSuffix: "nlb-m2b",
+			listenerCount:  1,
+			extraAnnotations: map[string]string{
+				annotationLBType: "nlb",
+			},
+			hookPostServiceConfig: func(cfg *e2eTestConfig) {
+				framework.Logf("Creating BYO security group for later transition")
+
+				securityGroupName := cfg.svc.Namespace + "-" + cfg.svc.Name + "-nlb-byo-sg"
+				var err error
+				cfg.byoSecurityGroupID, err = createSecurityGroup(cfg.ctx, cfg, securityGroupName, fmt.Sprintf("BYO Security Group for NLB e2e test service %s/%s", cfg.svc.Namespace, cfg.svc.Name))
+				framework.ExpectNoError(err, "Failed to create BYO security group")
+				framework.Logf("Created BYO security group: %s", cfg.byoSecurityGroupID)
+
+				DeferCleanup(func(ctx context.Context) {
+					if cfg.byoSecurityGroupID != "" {
+						framework.Logf("Cleaning up BYO security group: %s", cfg.byoSecurityGroupID)
+						framework.Logf("Waiting 30s for ENIs to be detached from security group...")
+						time.Sleep(30 * time.Second)
+						err := deleteSecurityGroup(ctx, cfg.byoSecurityGroupID)
+						framework.ExpectNoError(err, "Failed to delete BYO security group")
+						framework.Logf("✓ Deleted BYO security group: %s", cfg.byoSecurityGroupID)
+					}
+				})
+
+				framework.ExpectNoError(authorizeSecurityGroupToPorts(cfg.ctx, cfg.byoSecurityGroupID, cfg.svc.Spec.Ports), "Failed to authorize BYO security group to service ports")
+			},
+			hookPreTest: func(cfg *e2eTestConfig) {
+				framework.Logf("Transitioning from managed SG to BYO SG")
+				lbDNS := cfg.svc.Status.LoadBalancer.Ingress[0].Hostname
+
+				// Step 1: Verify NLB has managed SG
+				framework.Logf("Step 1: Verifying NLB has managed security group")
+				managedSGs, err := getLoadBalancerSecurityGroups(cfg.ctx, lbDNS)
+				framework.ExpectNoError(err, "Failed to get load balancer security groups")
+				framework.Logf("NLB %s has security groups: %+v", lbDNS, managedSGs)
+
+				if len(managedSGs) != 1 {
+					framework.Failf("Expected NLB to have 1 managed security group, got %d", len(managedSGs))
+				}
+				managedSGID := managedSGs[0]
+				framework.Logf("Managed SG ID: %s", managedSGID)
+
+				// Step 2: Add BYO SG annotation
+				framework.Logf("Step 2: Adding BYO SG annotation to service")
+				cfg.svc.Annotations[annotationLBSecurityGroups] = cfg.byoSecurityGroupID
+				newSvc, err := cfg.kubeClient.CoreV1().Services(cfg.LBJig.Namespace).Update(cfg.ctx, cfg.svc, metav1.UpdateOptions{})
+				framework.ExpectNoError(err, "Failed to update Kubernetes Service with BYO SG annotation")
+				cfg.svc = newSvc
+				framework.Logf("Updated service with BYO SG annotation: %s=%s", annotationLBSecurityGroups, cfg.byoSecurityGroupID)
+
+				// Wait for controller to process the update
+				time.Sleep(15 * time.Second)
+
+				// Step 3: Verify NLB now has BYO SG and managed SG is deleted
+				framework.Logf("Step 3: Verifying NLB now has BYO SG and managed SG is deleted")
+				byoSGs, err := getLoadBalancerSecurityGroups(cfg.ctx, lbDNS)
+				framework.ExpectNoError(err, "Failed to get load balancer security groups after BYO annotation")
+				framework.Logf("NLB %s has security groups after BYO annotation: %+v", lbDNS, byoSGs)
+
+				if len(byoSGs) != 1 {
+					framework.Failf("Expected NLB to have exactly 1 security group (BYO SG), got %d: %v", len(byoSGs), byoSGs)
+				}
+				if byoSGs[0] != cfg.byoSecurityGroupID {
+					framework.Failf("Expected NLB to have BYO SG %q, got %q", cfg.byoSecurityGroupID, byoSGs[0])
+				}
+				framework.Logf("✓ Verified: NLB has only the BYO SG attached: %s", cfg.byoSecurityGroupID)
+
+				// Verify managed SG was deleted
+				framework.Logf("Verifying managed SG %s was deleted", managedSGID)
+				_, err = getSecurityGroup(cfg.ctx, managedSGID)
+				if err == nil {
+					framework.Failf("Expected managed SG %s to be deleted, but it still exists", managedSGID)
+				}
+				if !strings.Contains(err.Error(), "InvalidGroup.NotFound") {
+					framework.Failf("Error checking if managed SG was deleted: %v", err)
+				}
+				framework.Logf("✓ Verified: Managed SG %s was deleted", managedSGID)
+			},
+		},
+		// Test transition of NLB from BYO Security Group to managed Security Group (SG)
+		// This test validates:
+		// - NLB created with BYO SG
+		// - After annotation for BYO SG is removed the NLB should transition to
+		// have a new managed SG attached and the BYO SG deassociated (but not deleted)
+		// - NLB is reachable
+		{
+			name:           "NLB should transition from BYO SG to Managed Security Group",
+			resourceSuffix: "nlb-b2m",
+			listenerCount:  1,
+			extraAnnotations: map[string]string{
+				annotationLBType: "nlb",
+			},
+			hookPostServiceConfig: func(cfg *e2eTestConfig) {
+				framework.Logf("running hook post-service-config to create BYO security group before service creation")
+
+				// Create BYO security group
+				securityGroupName := cfg.svc.Namespace + "-" + cfg.svc.Name + "-nlb-byo-sg"
+				var err error
+				cfg.byoSecurityGroupID, err = createSecurityGroup(cfg.ctx, cfg, securityGroupName, fmt.Sprintf("BYO Security Group for NLB e2e test service %s/%s", cfg.svc.Namespace, cfg.svc.Name))
+				framework.ExpectNoError(err, "Failed to create BYO security group")
+				framework.Logf("Created BYO security group: %s", cfg.byoSecurityGroupID)
+
+				DeferCleanup(func(ctx context.Context) {
+					if cfg.byoSecurityGroupID != "" {
+						framework.Logf("Cleaning up BYO security group: %s", cfg.byoSecurityGroupID)
+						framework.Logf("Waiting 30s for ENIs to be detached from security group...")
+						time.Sleep(30 * time.Second)
+						err := deleteSecurityGroup(ctx, cfg.byoSecurityGroupID)
+						framework.ExpectNoError(err, "Failed to delete BYO security group")
+						framework.Logf("✓ Deleted BYO security group: %s", cfg.byoSecurityGroupID)
+					}
+				})
+
+				framework.ExpectNoError(authorizeSecurityGroupToPorts(cfg.ctx, cfg.byoSecurityGroupID, cfg.svc.Spec.Ports), "Failed to authorize BYO security group to service ports")
+
+				cfg.svc.Annotations[annotationLBSecurityGroups] = cfg.byoSecurityGroupID
+				framework.Logf("Added BYO SG annotation: %s=%s", annotationLBSecurityGroups, cfg.byoSecurityGroupID)
+			},
+			hookPreTest: func(cfg *e2eTestConfig) {
+				framework.Logf("running hook pre-test to transition from BYO SG to managed SG")
+				lbDNS := cfg.svc.Status.LoadBalancer.Ingress[0].Hostname
+
+				// Step 1: Verify NLB has BYO SG
+				framework.Logf("Step 1: Verifying NLB has BYO security group")
+				byoSGs, err := getLoadBalancerSecurityGroups(cfg.ctx, lbDNS)
+				framework.ExpectNoError(err, "Failed to get load balancer security groups")
+				framework.Logf("NLB %s has security groups: %+v", lbDNS, byoSGs)
+
+				if len(byoSGs) != 1 {
+					framework.Failf("Expected NLB to have exactly 1 security group (BYO SG), got %d: %v", len(byoSGs), byoSGs)
+				}
+				if byoSGs[0] != cfg.byoSecurityGroupID {
+					framework.Failf("Expected NLB to have BYO SG %q, got %q", cfg.byoSecurityGroupID, byoSGs[0])
+				}
+				framework.Logf("✓ Verified: NLB has BYO SG attached: %s", cfg.byoSecurityGroupID)
+
+				// Step 2: Remove BYO SG annotation
+				framework.Logf("Step 2: Removing BYO SG annotation from service")
+				delete(cfg.svc.Annotations, annotationLBSecurityGroups)
+				newSvc, err := cfg.kubeClient.CoreV1().Services(cfg.LBJig.Namespace).Update(cfg.ctx, cfg.svc, metav1.UpdateOptions{})
+				framework.ExpectNoError(err, "Failed to update Kubernetes Service to remove BYO SG annotation")
+				cfg.svc = newSvc
+				framework.Logf("Removed BYO SG annotation from service")
+
+				// Wait for controller to process the update
+				time.Sleep(15 * time.Second)
+
+				// Step 3: Verify NLB now has new managed SG and BYO SG is deassociated but still exists
+				framework.Logf("Step 3: Verifying NLB has new managed SG and BYO SG is deassociated")
+				managedSGs, err := getLoadBalancerSecurityGroups(cfg.ctx, lbDNS)
+				framework.ExpectNoError(err, "Failed to get load balancer security groups after removing BYO annotation")
+				framework.Logf("NLB %s has security groups after removing BYO annotation: %+v", lbDNS, managedSGs)
+
+				if len(managedSGs) == 0 {
+					framework.Failf("Expected NLB to have at least 1 new managed security group, got 0")
+				}
+				managedSGID := managedSGs[0]
+				if managedSGID == cfg.byoSecurityGroupID {
+					framework.Failf("Expected NLB to have a new managed SG, but it still has the BYO SG: %s", cfg.byoSecurityGroupID)
+				}
+				framework.Logf("✓ Verified: NLB has new managed SG: %s", managedSGID)
+
+				// Verify BYO SG still exists but is not attached
+				framework.Logf("Verifying BYO SG %s still exists", cfg.byoSecurityGroupID)
+				byoSG, err := getSecurityGroup(cfg.ctx, cfg.byoSecurityGroupID)
+				framework.ExpectNoError(err, "Failed to get BYO security group")
+				if byoSG == nil {
+					framework.Failf("Expected BYO SG %s to still exist, but it was deleted", cfg.byoSecurityGroupID)
+				}
+				framework.Logf("✓ Verified: BYO SG %s still exists and was not deleted", cfg.byoSecurityGroupID)
+			},
+		},
 	}
 
 	serviceNameBase := "lbconfig-test"
@@ -416,6 +659,7 @@ type e2eTestConfig struct {
 	cfgPodProtocol        v1.Protocol
 	cfgDefaultAnnotations map[string]string
 	LBJig                 *e2eservice.TestJig
+	byoSecurityGroupID    string
 
 	// service instance
 	svc *v1.Service
@@ -997,4 +1241,154 @@ func gatherEventosOnFailure(ctx context.Context, cs clientset.Interface, namespa
 	gatherAllEvents(ctx, cs, namespace, resourceName)
 	gatherControllerLogs(ctx, cs, namespace, resourceName)
 	gatherServiceStatus(ctx, cs, namespace, resourceName)
+}
+
+// getAWSClientEC2 creates an EC2 client for AWS operations
+func getAWSClientEC2(ctx context.Context) (*ec2.Client, error) {
+	cfg, err := config.LoadDefaultConfig(ctx,
+		config.WithRetryer(func() aws.Retryer {
+			return retry.AddWithMaxAttempts(retry.NewStandard(), 10)
+		}),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to load AWS config: %w", err)
+	}
+	return ec2.NewFromConfig(cfg), nil
+}
+
+// createSecurityGroup creates a security group for testing
+func createSecurityGroup(ctx context.Context, cfg *e2eTestConfig, name, description string) (string, error) {
+	ec2Client, err := getAWSClientEC2(ctx)
+	if err != nil {
+		return "", err
+	}
+
+	// Get VPC ID from any node in the cluster
+	nodes, err := cfg.kubeClient.CoreV1().Nodes().List(ctx, metav1.ListOptions{})
+	if err != nil {
+		return "", fmt.Errorf("failed to list nodes: %w", err)
+	}
+	if len(nodes.Items) == 0 {
+		return "", fmt.Errorf("no nodes found in cluster")
+	}
+
+	// Extract VPC ID from node's provider ID
+	// Provider ID format: aws:///us-west-2a/i-0123456789abcdef0
+	providerID := nodes.Items[0].Spec.ProviderID
+	if providerID == "" {
+		return "", fmt.Errorf("node %s has no provider ID", nodes.Items[0].Name)
+	}
+
+	// Get instance details to find VPC ID
+	instanceID := providerID[strings.LastIndex(providerID, "/")+1:]
+	describeResult, err := ec2Client.DescribeInstances(ctx, &ec2.DescribeInstancesInput{
+		InstanceIds: []string{instanceID},
+	})
+	if err != nil {
+		return "", fmt.Errorf("failed to describe instance: %w", err)
+	}
+	if len(describeResult.Reservations) == 0 || len(describeResult.Reservations[0].Instances) == 0 {
+		return "", fmt.Errorf("instance not found: %s", instanceID)
+	}
+
+	vpcID := describeResult.Reservations[0].Instances[0].VpcId
+	if vpcID == nil {
+		return "", fmt.Errorf("instance has no VPC ID")
+	}
+
+	// Create security group
+	result, err := ec2Client.CreateSecurityGroup(ctx, &ec2.CreateSecurityGroupInput{
+		GroupName:   aws.String(name),
+		Description: aws.String(description),
+		VpcId:       vpcID,
+	})
+	if err != nil {
+		return "", fmt.Errorf("failed to create security group: %w", err)
+	}
+
+	return aws.ToString(result.GroupId), nil
+}
+
+// authorizeSecurityGroupToPorts adds ingress rules for the given service ports
+func authorizeSecurityGroupToPorts(ctx context.Context, securityGroupID string, ports []v1.ServicePort) error {
+	ec2Client, err := getAWSClientEC2(ctx)
+	if err != nil {
+		return err
+	}
+
+	permissions := make([]ec2types.IpPermission, 0, len(ports))
+	for _, port := range ports {
+		protocol := strings.ToLower(string(port.Protocol))
+		permissions = append(permissions, ec2types.IpPermission{
+			IpProtocol: aws.String(protocol),
+			FromPort:   aws.Int32(port.Port),
+			ToPort:     aws.Int32(port.Port),
+			IpRanges: []ec2types.IpRange{
+				{CidrIp: aws.String("0.0.0.0/0")},
+			},
+		})
+	}
+
+	_, err = ec2Client.AuthorizeSecurityGroupIngress(ctx, &ec2.AuthorizeSecurityGroupIngressInput{
+		GroupId:       aws.String(securityGroupID),
+		IpPermissions: permissions,
+	})
+	if err != nil {
+		return fmt.Errorf("failed to authorize security group ingress: %w", err)
+	}
+
+	return nil
+}
+
+// getLoadBalancerSecurityGroups retrieves security groups attached to a load balancer
+func getLoadBalancerSecurityGroups(ctx context.Context, lbDNS string) ([]string, error) {
+	elbClient, err := getAWSClientLoadBalancer(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	lb, err := getAWSLoadBalancerFromDNSName(ctx, elbClient, lbDNS)
+	if err != nil {
+		return nil, err
+	}
+
+	return lb.SecurityGroups, nil
+}
+
+// deleteSecurityGroup deletes a security group
+func deleteSecurityGroup(ctx context.Context, securityGroupID string) error {
+	ec2Client, err := getAWSClientEC2(ctx)
+	if err != nil {
+		return err
+	}
+
+	_, err = ec2Client.DeleteSecurityGroup(ctx, &ec2.DeleteSecurityGroupInput{
+		GroupId: aws.String(securityGroupID),
+	})
+	if err != nil {
+		return fmt.Errorf("failed to delete security group %s: %w", securityGroupID, err)
+	}
+
+	return nil
+}
+
+// getSecurityGroup retrieves a security group by ID
+func getSecurityGroup(ctx context.Context, securityGroupID string) (*ec2types.SecurityGroup, error) {
+	ec2Client, err := getAWSClientEC2(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	result, err := ec2Client.DescribeSecurityGroups(ctx, &ec2.DescribeSecurityGroupsInput{
+		GroupIds: []string{securityGroupID},
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to describe security group: %w", err)
+	}
+
+	if len(result.SecurityGroups) == 0 {
+		return nil, fmt.Errorf("security group not found: %s", securityGroupID)
+	}
+
+	return &result.SecurityGroups[0], nil
 }
