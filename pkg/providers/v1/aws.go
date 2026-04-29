@@ -2323,7 +2323,12 @@ func (c *Cloud) ensureNLBSecurityGroup(ctx context.Context, clusterName string, 
 		return existingSGs, nil
 	}
 
-	// Managed mode disabled & new NLB: don't create any SGs.
+	// Managed mode disabled & new NLB: don't create or associate any SGs.
+	// Note: if managed mode is disabled BYO SGs are not supported
+	// either due to the limitation that a AWS NLB with a security group
+	// must always have at least one associated, which means that if the
+	// BYO SG is removed the controller must be able to replace it with
+	// a managed, cluster-owned, one.
 	if !isManaged && !lbExists {
 		return &nlbSecurityGroups{}, nil
 	}
