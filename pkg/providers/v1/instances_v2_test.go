@@ -506,6 +506,42 @@ func TestDescribeInstanceBatchingWithBatchedRequestFail(t *testing.T) {
 	mockedEC2API.AssertNumberOfCalls(t, "DescribeInstances", 3)
 }
 
+// TestDescribeInstanceBatchingWithMultipleInstanceIDs verifies that an input
+// containing multiple instance IDs is fanned out through the batcher and
+// returns aggregated results. Regression test for #1351.
+func TestDescribeInstanceBatchingWithMultipleInstanceIDs(t *testing.T) {
+	mockedEC2API := newMockedEC2API()
+	batcher := newdescribeInstanceBatcher(context.Background(), &awsSdkEC2{ec2: mockedEC2API})
+
+	mockedEC2API.On("DescribeInstances", mock.Anything).Return(&ec2.DescribeInstancesOutput{
+		Reservations: []ec2types.Reservation{
+			{
+				Instances: []ec2types.Instance{
+					{InstanceId: aws.String("Test-1")},
+					{InstanceId: aws.String("Test-2")},
+					{InstanceId: aws.String("Test-3")},
+				},
+			},
+		},
+	}, nil)
+
+	res, err := batcher.DescribeInstances(context.Background(), &ec2.DescribeInstancesInput{
+		InstanceIds: []string{"Test-1", "Test-2", "Test-3"},
+	})
+	assert.NoError(t, err)
+	assert.Len(t, res, 3)
+
+	gotIDs := map[string]bool{}
+	for _, instance := range res {
+		gotIDs[aws.ToString(instance.InstanceId)] = true
+	}
+	assert.True(t, gotIDs["Test-1"])
+	assert.True(t, gotIDs["Test-2"])
+	assert.True(t, gotIDs["Test-3"])
+
+	mockedEC2API.AssertNumberOfCalls(t, "DescribeInstances", 1)
+}
+
 func getCloudWithMockedDescribeInstances(instanceExists bool, instanceState ec2types.InstanceStateName, instanceID string) *Cloud {
 	mockedEC2API := newMockedEC2API()
 	c := &Cloud{ec2: &awsSdkEC2{ec2: mockedEC2API}, describeInstanceBatcher: newdescribeInstanceBatcher(context.Background(), &awsSdkEC2{ec2: mockedEC2API})}
