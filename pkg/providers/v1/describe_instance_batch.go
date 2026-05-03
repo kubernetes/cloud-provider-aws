@@ -18,6 +18,7 @@ package aws
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sync"
 	"time"
@@ -51,16 +52,50 @@ func newdescribeInstanceBatcher(ctx context.Context, ec2api iface.EC2) *describe
 	return &describeInstanceBatcher{batcher: batcher.NewBatcher(ctx, options)}
 }
 
-// DescribeInstances adds describe instances input to batcher
+// DescribeInstances adds describe instances input to batcher. Inputs with
+// multiple instance IDs are split into one batcher submission per ID so the
+// batcher can coalesce them with other in-flight requests; a single
+// aggregated slice (and joined error, if any) is returned to the caller.
 func (b *describeInstanceBatcher) DescribeInstances(ctx context.Context, input *ec2.DescribeInstancesInput) ([]*ec2types.Instance, error) {
-	if len(input.InstanceIds) != 1 {
-		return nil, fmt.Errorf("expected to receive a single instance only, found %d", len(input.InstanceIds))
+	if len(input.InstanceIds) == 0 {
+		return nil, fmt.Errorf("expected at least one instance ID, found 0")
 	}
-	result := b.batcher.Add(ctx, input)
-	if result.Output == nil {
-		return nil, result.Err
+	if len(input.InstanceIds) == 1 {
+		result := b.batcher.Add(ctx, input)
+		if result.Output == nil {
+			return nil, result.Err
+		}
+		return []*ec2types.Instance{result.Output}, result.Err
 	}
-	return []*ec2types.Instance{result.Output}, result.Err
+
+	var (
+		mu        sync.Mutex
+		wg        sync.WaitGroup
+		instances []*ec2types.Instance
+		errs      []error
+	)
+	for _, id := range input.InstanceIds {
+		wg.Add(1)
+		go func(id string) {
+			defer wg.Done()
+			subInput := *input
+			subInput.InstanceIds = []string{id}
+			result := b.batcher.Add(ctx, &subInput)
+			mu.Lock()
+			defer mu.Unlock()
+			if result.Err != nil {
+				errs = append(errs, result.Err)
+			}
+			if result.Output != nil {
+				instances = append(instances, result.Output)
+			}
+		}(id)
+	}
+	wg.Wait()
+	if len(errs) > 0 {
+		return instances, errors.Join(errs...)
+	}
+	return instances, nil
 }
 
 // DescribeInstanceHasher generates hash for different describe instances inputs
