@@ -99,6 +99,11 @@ const TagNameSubnetPublicELB = "kubernetes.io/role/elb"
 // value is "nlb"
 const ServiceAnnotationLoadBalancerType = "service.beta.kubernetes.io/aws-load-balancer-type"
 
+// ServiceAnnotationLoadBalancerALPNPolicy is the annotation used on the service
+// to specify an ALPN policy for an NLB TLS listener. Valid values are HTTP1Only,
+// HTTP2Only, HTTP2Optional, HTTP2Preferred, and None.
+const ServiceAnnotationLoadBalancerALPNPolicy = "service.beta.kubernetes.io/aws-load-balancer-alpn-policy"
+
 // ServiceAnnotationLoadBalancerInternal is the annotation used on the service
 // to indicate that we want an internal ELB.
 const ServiceAnnotationLoadBalancerInternal = "service.beta.kubernetes.io/aws-load-balancer-internal"
@@ -2391,7 +2396,7 @@ func (c *Cloud) EnsureLoadBalancer(ctx context.Context, clusterName string, apiS
 				portMapping.FrontendProtocol = elbv2types.ProtocolEnumTls
 				portMapping.SSLCertificateARN = certificateARN
 				portMapping.SSLPolicy = annotations[ServiceAnnotationLoadBalancerSSLNegotiationPolicy]
-
+				portMapping.ALPNPolicy = annotations[ServiceAnnotationLoadBalancerALPNPolicy]
 				if backendProtocol := annotations[ServiceAnnotationLoadBalancerBEProtocol]; backendProtocol == "ssl" {
 					portMapping.TrafficProtocol = elbv2types.ProtocolEnumTls
 				}
