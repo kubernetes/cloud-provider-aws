@@ -114,6 +114,7 @@ type nlbPortMapping struct {
 
 	SSLCertificateARN string
 	SSLPolicy         string
+	ALPNPolicy        string
 	HealthCheckConfig healthCheckConfig
 }
 
@@ -275,6 +276,19 @@ func (c *Cloud) ensureLoadBalancerv2(ctx context.Context, namespacedName types.N
 							if len(listener.Certificates) == 0 || aws.ToString(listener.Certificates[0].CertificateArn) != mapping.SSLCertificateARN {
 								listenerNeedsModification = true
 							}
+
+							currentALPN := ""
+							if len(listener.AlpnPolicy) != 0 {
+								currentALPN = listener.AlpnPolicy[0]
+							}
+							// annotation removed, explicitly send "None" to reset the listener's ALPN policy
+							if mapping.ALPNPolicy == "" && currentALPN != "" {
+								mapping.ALPNPolicy = "None"
+							}
+							if currentALPN != mapping.ALPNPolicy {
+								listenerNeedsModification = true
+							}
+
 						}
 					case elbv2types.ProtocolEnumTcp:
 						{
@@ -332,6 +346,9 @@ func (c *Cloud) ensureLoadBalancerv2(ctx context.Context, namespacedName types.N
 								{
 									CertificateArn: aws.String(mapping.SSLCertificateARN),
 								},
+							}
+							if mapping.ALPNPolicy != "" {
+								modifyListenerInput.AlpnPolicy = []string{mapping.ALPNPolicy}
 							}
 						}
 						if _, err := c.elbv2.ModifyListener(ctx, modifyListenerInput); err != nil {
@@ -720,6 +737,9 @@ func (c *Cloud) createListenerV2(ctx context.Context, loadBalancerArn *string, m
 	if mapping.FrontendProtocol == "TLS" {
 		if mapping.SSLPolicy != "" {
 			createListernerInput.SslPolicy = aws.String(mapping.SSLPolicy)
+		}
+		if mapping.ALPNPolicy != "" {
+			createListernerInput.AlpnPolicy = []string{mapping.ALPNPolicy}
 		}
 		createListernerInput.Certificates = []elbv2types.Certificate{
 			{
