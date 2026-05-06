@@ -564,3 +564,228 @@ func TestValidateServiceAnnotations(t *testing.T) {
 		})
 	}
 }
+
+func TestCanFallbackToIPv4(t *testing.T) {
+	singleStack := v1.IPFamilyPolicySingleStack
+	preferDualStack := v1.IPFamilyPolicyPreferDualStack
+	requireDualStack := v1.IPFamilyPolicyRequireDualStack
+
+	tests := []struct {
+		name    string
+		service *v1.Service
+		want    bool
+	}{
+		// nil service
+		{
+			name:    "nil service",
+			service: nil,
+			want:    true,
+		},
+
+		// nil policy (implicit SingleStack)
+		{
+			name:    "nil policy, no families",
+			service: &v1.Service{Spec: v1.ServiceSpec{}},
+			want:    true,
+		},
+		{
+			name:    "nil policy, IPv4 only",
+			service: &v1.Service{Spec: v1.ServiceSpec{IPFamilies: []v1.IPFamily{v1.IPv4Protocol}}},
+			want:    true,
+		},
+		{
+			name:    "nil policy, IPv6 only",
+			service: &v1.Service{Spec: v1.ServiceSpec{IPFamilies: []v1.IPFamily{v1.IPv6Protocol}}},
+			want:    false,
+		},
+		{
+			name:    "nil policy, IPv4 then IPv6",
+			service: &v1.Service{Spec: v1.ServiceSpec{IPFamilies: []v1.IPFamily{v1.IPv4Protocol, v1.IPv6Protocol}}},
+			want:    false,
+		},
+		{
+			name:    "nil policy, IPv6 then IPv4",
+			service: &v1.Service{Spec: v1.ServiceSpec{IPFamilies: []v1.IPFamily{v1.IPv6Protocol, v1.IPv4Protocol}}},
+			want:    false,
+		},
+
+		// SingleStack
+		{
+			name:    "SingleStack, no families",
+			service: &v1.Service{Spec: v1.ServiceSpec{IPFamilyPolicy: &singleStack}},
+			want:    true,
+		},
+		{
+			name:    "SingleStack, IPv4 only",
+			service: &v1.Service{Spec: v1.ServiceSpec{IPFamilyPolicy: &singleStack, IPFamilies: []v1.IPFamily{v1.IPv4Protocol}}},
+			want:    true,
+		},
+		{
+			name:    "SingleStack, IPv6 only",
+			service: &v1.Service{Spec: v1.ServiceSpec{IPFamilyPolicy: &singleStack, IPFamilies: []v1.IPFamily{v1.IPv6Protocol}}},
+			want:    false,
+		},
+		{
+			name:    "SingleStack, IPv4 then IPv6",
+			service: &v1.Service{Spec: v1.ServiceSpec{IPFamilyPolicy: &singleStack, IPFamilies: []v1.IPFamily{v1.IPv4Protocol, v1.IPv6Protocol}}},
+			want:    false,
+		},
+		{
+			name:    "SingleStack, IPv6 then IPv4",
+			service: &v1.Service{Spec: v1.ServiceSpec{IPFamilyPolicy: &singleStack, IPFamilies: []v1.IPFamily{v1.IPv6Protocol, v1.IPv4Protocol}}},
+			want:    false,
+		},
+
+		// PreferDualStack
+		{
+			name:    "PreferDualStack, no families",
+			service: &v1.Service{Spec: v1.ServiceSpec{IPFamilyPolicy: &preferDualStack}},
+			want:    true,
+		},
+		{
+			name:    "PreferDualStack, IPv4 only",
+			service: &v1.Service{Spec: v1.ServiceSpec{IPFamilyPolicy: &preferDualStack, IPFamilies: []v1.IPFamily{v1.IPv4Protocol}}},
+			want:    true,
+		},
+		{
+			name:    "PreferDualStack, IPv6 only",
+			service: &v1.Service{Spec: v1.ServiceSpec{IPFamilyPolicy: &preferDualStack, IPFamilies: []v1.IPFamily{v1.IPv6Protocol}}},
+			want:    true,
+		},
+		{
+			name:    "PreferDualStack, IPv4 then IPv6",
+			service: &v1.Service{Spec: v1.ServiceSpec{IPFamilyPolicy: &preferDualStack, IPFamilies: []v1.IPFamily{v1.IPv4Protocol, v1.IPv6Protocol}}},
+			want:    true,
+		},
+		{
+			name:    "PreferDualStack, IPv6 then IPv4",
+			service: &v1.Service{Spec: v1.ServiceSpec{IPFamilyPolicy: &preferDualStack, IPFamilies: []v1.IPFamily{v1.IPv6Protocol, v1.IPv4Protocol}}},
+			want:    true,
+		},
+
+		// RequireDualStack
+		{
+			name:    "RequireDualStack, no families",
+			service: &v1.Service{Spec: v1.ServiceSpec{IPFamilyPolicy: &requireDualStack}},
+			want:    false,
+		},
+		{
+			name:    "RequireDualStack, IPv4 only",
+			service: &v1.Service{Spec: v1.ServiceSpec{IPFamilyPolicy: &requireDualStack, IPFamilies: []v1.IPFamily{v1.IPv4Protocol}}},
+			want:    false,
+		},
+		{
+			name:    "RequireDualStack, IPv6 only",
+			service: &v1.Service{Spec: v1.ServiceSpec{IPFamilyPolicy: &requireDualStack, IPFamilies: []v1.IPFamily{v1.IPv6Protocol}}},
+			want:    false,
+		},
+		{
+			name:    "RequireDualStack, IPv4 then IPv6",
+			service: &v1.Service{Spec: v1.ServiceSpec{IPFamilyPolicy: &requireDualStack, IPFamilies: []v1.IPFamily{v1.IPv4Protocol, v1.IPv6Protocol}}},
+			want:    false,
+		},
+		{
+			name:    "RequireDualStack, IPv6 then IPv4",
+			service: &v1.Service{Spec: v1.ServiceSpec{IPFamilyPolicy: &requireDualStack, IPFamilies: []v1.IPFamily{v1.IPv6Protocol, v1.IPv4Protocol}}},
+			want:    false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := canFallbackToIPv4(tt.service)
+			assert.Equal(t, tt.want, got, "canFallbackToIPv4 mismatch for test case: %s", tt.name)
+		})
+	}
+}
+
+func TestValidateIPFamilyInfo(t *testing.T) {
+	tests := []struct {
+		name           string
+		ipFamilyPolicy v1.IPFamilyPolicy
+		ipFamilies     []v1.IPFamily
+		expectedError  string
+	}{
+		{
+			name:           "SingleStack IPv6 errors",
+			ipFamilyPolicy: v1.IPFamilyPolicySingleStack,
+			ipFamilies:     []v1.IPFamily{v1.IPv6Protocol},
+			expectedError:  "single stack IPv6 is not supported for network load balancers",
+		},
+		{
+			name:           "SingleStack IPv4 works",
+			ipFamilyPolicy: v1.IPFamilyPolicySingleStack,
+			ipFamilies:     []v1.IPFamily{v1.IPv4Protocol},
+			expectedError:  "",
+		},
+		{
+			name:           "RequireDualStack with one family errors",
+			ipFamilyPolicy: v1.IPFamilyPolicyRequireDualStack,
+			ipFamilies:     []v1.IPFamily{v1.IPv6Protocol},
+			expectedError:  "policy RequireDualStack requires 2 entries in the ipFamilies field. got 1",
+		},
+		{
+			name:           "PreferDualStack with too many entries errors",
+			ipFamilyPolicy: v1.IPFamilyPolicyPreferDualStack,
+			ipFamilies:     []v1.IPFamily{v1.IPv6Protocol, v1.IPv4Protocol, v1.IPv4Protocol},
+			expectedError:  "ipFamilies requires 1 or 2 entries. got 3",
+		},
+		{
+			name:           "PreferDualStack with one entry works",
+			ipFamilyPolicy: v1.IPFamilyPolicyPreferDualStack,
+			ipFamilies:     []v1.IPFamily{v1.IPv6Protocol},
+			expectedError:  "",
+		},
+		{
+			name:           "PreferDualStack with two entries works",
+			ipFamilyPolicy: v1.IPFamilyPolicyPreferDualStack,
+			ipFamilies:     []v1.IPFamily{v1.IPv6Protocol, v1.IPv4Protocol},
+			expectedError:  "",
+		},
+		{
+			name:           "PreferDualStack with two entries works",
+			ipFamilyPolicy: v1.IPFamilyPolicyPreferDualStack,
+			ipFamilies:     []v1.IPFamily{v1.IPv6Protocol, v1.IPv4Protocol},
+			expectedError:  "",
+		},
+		{
+			name:           "RequireDualStack with two entries works",
+			ipFamilyPolicy: v1.IPFamilyPolicyPreferDualStack,
+			ipFamilies:     []v1.IPFamily{v1.IPv6Protocol, v1.IPv4Protocol},
+			expectedError:  "",
+		},
+		{
+			name:           "RequireDualStack with two entries works",
+			ipFamilyPolicy: v1.IPFamilyPolicyPreferDualStack,
+			ipFamilies:     []v1.IPFamily{v1.IPv6Protocol, v1.IPv4Protocol},
+			expectedError:  "",
+		},
+		{
+			name:           "IPFamily fields empty works (backwards compat, implies SingleStack IPv4)",
+			ipFamilyPolicy: "",
+			ipFamilies:     []v1.IPFamily{},
+			expectedError:  "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			s := &v1.Service{
+				Spec: v1.ServiceSpec{
+					IPFamilyPolicy: &tt.ipFamilyPolicy,
+					IPFamilies:     tt.ipFamilies,
+				},
+			}
+
+			err := validateIPFamilyInfo(s, serviceRequestsIPv6(s))
+
+			if tt.expectedError == "" {
+				assert.NoError(t, err, "Expected no error for test case: %s", tt.name)
+			} else {
+				assert.Error(t, err, "Expected error for test case: %s", tt.name)
+				assert.Equal(t, err.Error(), tt.expectedError, "Expected error for test case: %s", tt.name)
+				assert.Contains(t, err.Error(), tt.expectedError, "Error message should contain expected text for test case: %s", tt.name)
+			}
+		})
+	}
+}
