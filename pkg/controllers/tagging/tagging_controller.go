@@ -340,6 +340,12 @@ func (tc *Controller) tagEc2Instance(ctx context.Context, node *v1.Node) error {
 			klog.Infof("Skip tagging since EC2 instance %s for node %s does not exist", instanceID, node.GetName())
 			return nil
 		}
+		if awsv1.IsAWSErrorInvalidInstanceID(err) {
+			// The instance ID format is not valid for AWS (e.g. KWOK/virtual nodes with fake instance IDs).
+			// Tagging will never succeed, and the event should not be re-queued.
+			klog.Infof("Skip tagging since EC2 instance %s for node %s has an invalid instance ID", instanceID, node.GetName())
+			return nil
+		}
 		klog.Errorf("Error in tagging EC2 instance %s for node %s, error: %v", instanceID, node.GetName(), err)
 		return err
 	}
@@ -389,6 +395,10 @@ func (tc *Controller) untagEc2Instance(ctx context.Context, node *taggingControl
 	}
 
 	if err != nil {
+		if awsv1.IsAWSErrorInvalidInstanceID(err) {
+			klog.Infof("Skip untagging since EC2 instance %s for node %s has an invalid instance ID", instanceID, node.name)
+			return nil
+		}
 		klog.Errorf("Error in untagging EC2 instance %s for node %s, error: %v", instanceID, node.name, err)
 		return err
 	}

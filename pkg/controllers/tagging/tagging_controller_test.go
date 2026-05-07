@@ -193,6 +193,34 @@ func Test_NodesJoiningAndLeaving(t *testing.T) {
 			toBeTagged:       true,
 			expectedMessages: []string{"Skip tagging since EC2 instance i-not-found for node node0 does not exist"},
 		},
+		{
+			name: "node with invalid instance ID (e.g. KWOK node) joins the cluster, skip tagging",
+			currNode: &v1.Node{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:              "kwok-node0",
+					CreationTimestamp: metav1.Date(2012, 1, 1, 0, 0, 0, 0, time.UTC),
+				},
+				Spec: v1.NodeSpec{
+					ProviderID: "i-invalid-id-kwok-0001",
+				},
+			},
+			toBeTagged:       true,
+			expectedMessages: []string{"Skip tagging since EC2 instance i-invalid-id-kwok-0001 for node kwok-node0 has an invalid instance ID"},
+		},
+		{
+			name: "node with invalid instance ID (e.g. KWOK node) leaves the cluster, skip untagging",
+			currNode: &v1.Node{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:              "kwok-node0",
+					CreationTimestamp: metav1.Date(2012, 1, 1, 0, 0, 0, 0, time.UTC),
+				},
+				Spec: v1.NodeSpec{
+					ProviderID: "i-invalid-id-kwok-0001",
+				},
+			},
+			toBeTagged:       false,
+			expectedMessages: []string{"Skip untagging since EC2 instance i-invalid-id-kwok-0001 for node kwok-node0 has an invalid instance ID"},
+		},
 	}
 
 	awsServices := awsv1.NewFakeAWSServices(TestClusterID)
