@@ -2,11 +2,11 @@
 options:
   dynamic_substitutions: true
   substitution_option: ALLOW_LOOSE
-  machineType: 'N1_HIGHCPU_8'
+  machineType: 'E2_HIGHCPU_32'
 steps:
   - name: gcr.io/cloud-builders/git
     args: ['fetch', '--tags']
-  - name: 'gcr.io/k8s-staging-test-infra/gcb-docker-gcloud:v20221214-1b4dd4d69a'
+  - name: 'gcr.io/k8s-staging-test-infra/gcb-docker-gcloud:v20260205-38cfa9523f'
     entrypoint: /buildx-entrypoint
     args:
       - build
@@ -30,4 +30,4 @@ substitutions:
   # Remove date prefix (first 10 characters) to create valid semver version:
   # v20220510-v1.24.0-alpha.0-15-g09bd268 => v1.24.0-alpha.0-15-g09bd268
   _SHORT_TAG: '${_GIT_TAG:10}'
-timeout: 1200s
+timeout: 3600s
