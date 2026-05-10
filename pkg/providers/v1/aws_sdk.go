@@ -20,10 +20,12 @@ import (
 	"context"
 	"fmt"
 	"sync"
+	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/aws/middleware"
 	"github.com/aws/aws-sdk-go-v2/aws/retry"
+	awshttp "github.com/aws/aws-sdk-go-v2/aws/transport/http"
 	awsConfig "github.com/aws/aws-sdk-go-v2/config"
 	stscredsv2 "github.com/aws/aws-sdk-go-v2/credentials/stscreds"
 	"github.com/aws/aws-sdk-go-v2/feature/ec2/imds"
@@ -39,6 +41,12 @@ import (
 	"k8s.io/cloud-provider-aws/pkg/providers/v1/iface"
 	"k8s.io/klog/v2"
 )
+
+// defaultHTTPClient is shared across all AWS SDK clients to enforce an explicit
+// HTTP request timeout and reuse connection pools. Without a timeout, a single
+// slow response can trigger the Go SDK's clock skew overcorrection and break all
+// subsequent API calls.
+var defaultHTTPClient = awshttp.NewBuildableClient().WithTimeout(30 * time.Second)
 
 type awsSDKProvider struct {
 	creds aws.CredentialsProvider
@@ -77,6 +85,13 @@ func (p *awsSDKProvider) AddMiddleware(ctx context.Context, regionName string, c
 	}
 
 	p.addAPILoggingMiddleware(cfg)
+
+	// Record AWS API response status codes and error codes as metrics.
+	cfg.APIOptions = append(cfg.APIOptions,
+		func(stack *smithymiddleware.Stack) error {
+			return stack.Deserialize.Add(awsAPIMetricsMiddleware(), smithymiddleware.After)
+		},
+	)
 }
 
 // Adds logging middleware for AWS SDK Go V2 clients
@@ -114,6 +129,7 @@ func (p *awsSDKProvider) getCrossRequestRetryDelay(regionName string) *CrossRequ
 func (p *awsSDKProvider) Compute(ctx context.Context, regionName string, assumeRoleProvider *stscredsv2.AssumeRoleProvider) (iface.EC2, error) {
 	cfg, err := awsConfig.LoadDefaultConfig(ctx, awsConfig.WithDefaultsMode(aws.DefaultsModeInRegion),
 		awsConfig.WithRegion(regionName),
+		awsConfig.WithHTTPClient(defaultHTTPClient),
 	)
 	if assumeRoleProvider != nil {
 		cfg.Credentials = aws.NewCredentialsCache(assumeRoleProvider)
@@ -142,6 +158,7 @@ func (p *awsSDKProvider) Compute(ctx context.Context, regionName string, assumeR
 func (p *awsSDKProvider) LoadBalancing(ctx context.Context, regionName string, assumeRoleProvider *stscredsv2.AssumeRoleProvider) (ELB, error) {
 	cfg, err := awsConfig.LoadDefaultConfig(ctx, awsConfig.WithDefaultsMode(aws.DefaultsModeInRegion),
 		awsConfig.WithRegion(regionName),
+		awsConfig.WithHTTPClient(defaultHTTPClient),
 	)
 	if assumeRoleProvider != nil {
 		cfg.Credentials = aws.NewCredentialsCache(assumeRoleProvider)
@@ -167,6 +184,7 @@ func (p *awsSDKProvider) LoadBalancing(ctx context.Context, regionName string, a
 func (p *awsSDKProvider) LoadBalancingV2(ctx context.Context, regionName string, assumeRoleProvider *stscredsv2.AssumeRoleProvider) (ELBV2, error) {
 	cfg, err := awsConfig.LoadDefaultConfig(ctx, awsConfig.WithDefaultsMode(aws.DefaultsModeInRegion),
 		awsConfig.WithRegion(regionName),
+		awsConfig.WithHTTPClient(defaultHTTPClient),
 	)
 	if assumeRoleProvider != nil {
 		cfg.Credentials = aws.NewCredentialsCache(assumeRoleProvider)
@@ -190,7 +208,9 @@ func (p *awsSDKProvider) LoadBalancingV2(ctx context.Context, regionName string,
 }
 
 func (p *awsSDKProvider) Metadata(ctx context.Context) (config.EC2Metadata, error) {
-	cfg, err := awsConfig.LoadDefaultConfig(context.TODO(), awsConfig.WithDefaultsMode(aws.DefaultsModeInRegion))
+	cfg, err := awsConfig.LoadDefaultConfig(context.TODO(), awsConfig.WithDefaultsMode(aws.DefaultsModeInRegion),
+		awsConfig.WithHTTPClient(defaultHTTPClient),
+	)
 	if err != nil {
 		return nil, fmt.Errorf("unable to initialize AWS config: %v", err)
 	}
@@ -226,6 +246,7 @@ func (p *awsSDKProvider) Metadata(ctx context.Context) (config.EC2Metadata, erro
 func (p *awsSDKProvider) KeyManagement(ctx context.Context, regionName string, assumeRoleProvider *stscredsv2.AssumeRoleProvider) (KMS, error) {
 	cfg, err := awsConfig.LoadDefaultConfig(ctx, awsConfig.WithDefaultsMode(aws.DefaultsModeInRegion),
 		awsConfig.WithRegion(regionName),
+		awsConfig.WithHTTPClient(defaultHTTPClient),
 	)
 	if assumeRoleProvider != nil {
 		cfg.Credentials = aws.NewCredentialsCache(assumeRoleProvider)
