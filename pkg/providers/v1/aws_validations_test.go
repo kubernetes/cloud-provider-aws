@@ -564,3 +564,63 @@ func TestValidateServiceAnnotations(t *testing.T) {
 		})
 	}
 }
+
+func TestValidateServiceAnnotationAdditionalTags(t *testing.T) {
+	tests := []struct {
+		name          string
+		annotations   map[string]string
+		expectedError string
+	}{
+		{
+			name:          "no annotation",
+			annotations:   map[string]string{},
+			expectedError: "",
+		},
+		{
+			name: "valid custom tags",
+			annotations: map[string]string{
+				ServiceAnnotationLoadBalancerAdditionalTags: "env=prod,team=platform",
+			},
+			expectedError: "",
+		},
+		{
+			name: "cluster prefix tag is blocked",
+			annotations: map[string]string{
+				ServiceAnnotationLoadBalancerAdditionalTags: "kubernetes.io/cluster/my-cluster=owned",
+			},
+			expectedError: "kubernetes.io/cluster/my-cluster\" is managed by the controller",
+		},
+		{
+			name: "legacy cluster tag is blocked",
+			annotations: map[string]string{
+				ServiceAnnotationLoadBalancerAdditionalTags: "KubernetesCluster=my-cluster",
+			},
+			expectedError: "\"KubernetesCluster\" is managed by the controller",
+		},
+		{
+			name: "service name tag is blocked",
+			annotations: map[string]string{
+				ServiceAnnotationLoadBalancerAdditionalTags: "kubernetes.io/service-name=ns/svc",
+			},
+			expectedError: "\"kubernetes.io/service-name\" is managed by the controller",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			input := &awsValidationInput{
+				apiService:  &v1.Service{},
+				annotations: tt.annotations,
+			}
+
+			err := validateServiceAnnotationAdditionalTags(input)
+
+			if tt.expectedError == "" {
+				assert.NoError(t, err, "Expected no error for test case: %s", tt.name)
+			} else {
+				assert.Error(t, err, "Expected error for test case: %s", tt.name)
+				assert.Contains(t, err.Error(), tt.expectedError, "Error message should contain expected text for test case: %s", tt.name)
+			}
+		})
+	}
+}

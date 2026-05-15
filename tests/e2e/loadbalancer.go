@@ -45,6 +45,7 @@ const (
 	annotationLBInternal              = "service.beta.kubernetes.io/aws-load-balancer-internal"
 	annotationLBTargetNodeLabels      = "service.beta.kubernetes.io/aws-load-balancer-target-node-labels"
 	annotationLBTargetGroupAttributes = "service.beta.kubernetes.io/aws-load-balancer-target-group-attributes"
+	annotationLBAdditionalTags        = "service.beta.kubernetes.io/aws-load-balancer-additional-resource-tags"
 )
 
 var (
@@ -126,6 +127,40 @@ var _ = Describe("[cloud-provider-aws-e2e] loadbalancer", func() {
 				}
 				lbDNS := cfg.svc.Status.LoadBalancer.Ingress[0].Hostname
 				framework.ExpectNoError(getLBTargetCount(cfg.ctx, lbDNS, cfg.nodeCount), "AWS LB target count validation failed")
+			},
+		},
+		{
+			name:           "NLB should propagate additional tags on creation and update",
+			resourceSuffix: "nlb-tags",
+			extraAnnotations: map[string]string{
+				annotationLBType:           "nlb",
+				annotationLBAdditionalTags: "e2e-tag=one",
+			},
+			hookPreTest: func(cfg *e2eTestConfig) {
+				lbDNS := cfg.svc.Status.LoadBalancer.Ingress[0].Hostname
+				elbClient, err := getAWSClientLoadBalancer(cfg.ctx)
+				framework.ExpectNoError(err)
+
+				foundLB, err := getAWSLoadBalancerFromDNSName(cfg.ctx, elbClient, lbDNS)
+				framework.ExpectNoError(err)
+				lbARN := aws.ToString(foundLB.LoadBalancerArn)
+
+				listenerARNs, err := getLBListenerARNs(cfg.ctx, elbClient, lbARN)
+				framework.ExpectNoError(err)
+				arns := append([]string{lbARN}, listenerARNs...)
+
+				framework.Logf("verifying initial tag e2e-tag=one on LB and listeners")
+				framework.ExpectNoError(verifyResourceTags(cfg.ctx, elbClient, arns, map[string]string{"e2e-tag": "one"}))
+
+				framework.Logf("updating annotation to e2e-tag=two")
+				updated, err := cfg.LBJig.UpdateService(cfg.ctx, func(s *v1.Service) {
+					s.Annotations[annotationLBAdditionalTags] = "e2e-tag=two"
+				})
+				framework.ExpectNoError(err)
+				cfg.svc = updated
+
+				framework.Logf("verifying updated tag e2e-tag=two on LB and listeners")
+				framework.ExpectNoError(verifyResourceTags(cfg.ctx, elbClient, arns, map[string]string{"e2e-tag": "two"}))
 			},
 		},
 		// Hairpining traffic test for CLB.
@@ -997,4 +1032,44 @@ func gatherEventosOnFailure(ctx context.Context, cs clientset.Interface, namespa
 	gatherAllEvents(ctx, cs, namespace, resourceName)
 	gatherControllerLogs(ctx, cs, namespace, resourceName)
 	gatherServiceStatus(ctx, cs, namespace, resourceName)
+}
+
+func getLBListenerARNs(ctx context.Context, elbClient *elbv2.Client, lbARN string) ([]string, error) {
+	out, err := elbClient.DescribeListeners(ctx, &elbv2.DescribeListenersInput{
+		LoadBalancerArn: aws.String(lbARN),
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to describe listeners for LB %s: %v", lbARN, err)
+	}
+	arns := make([]string, 0, len(out.Listeners))
+	for _, l := range out.Listeners {
+		arns = append(arns, aws.ToString(l.ListenerArn))
+	}
+	return arns, nil
+}
+
+func verifyResourceTags(ctx context.Context, elbClient *elbv2.Client, arns []string, expectedTags map[string]string) error {
+	return wait.PollUntilContextTimeout(ctx, 10*time.Second, 3*time.Minute, true, func(ctx context.Context) (bool, error) {
+		// MaxLimit = 20 Resources
+		out, err := elbClient.DescribeTags(ctx, &elbv2.DescribeTagsInput{
+			ResourceArns: arns,
+		})
+		if err != nil {
+			framework.Logf("DescribeTags transient error: %v", err)
+			return false, nil
+		}
+		for _, desc := range out.TagDescriptions {
+			actual := map[string]string{}
+			for _, t := range desc.Tags {
+				actual[aws.ToString(t.Key)] = aws.ToString(t.Value)
+			}
+			for k, v := range expectedTags {
+				if actual[k] != v {
+					framework.Logf("tag %s on %s: want %q got %q", k, aws.ToString(desc.ResourceArn), v, actual[k])
+					return false, nil
+				}
+			}
+		}
+		return true, nil
+	})
 }

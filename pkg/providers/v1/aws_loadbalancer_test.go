@@ -2503,3 +2503,150 @@ func TestCloud_ensureTargetGroupTargets(t *testing.T) {
 		})
 	}
 }
+
+// mockELBV2WithDelete extends MockedFakeELBV2 with a working DeleteListener.
+type mockELBV2WithDelete struct {
+	*MockedFakeELBV2
+}
+
+func (m *mockELBV2WithDelete) DeleteListener(ctx context.Context, input *elbv2.DeleteListenerInput, optFns ...func(*elbv2.Options)) (*elbv2.DeleteListenerOutput, error) {
+	kept := m.Listeners[:0]
+	for _, l := range m.Listeners {
+		if aws.ToString(l.ListenerArn) != aws.ToString(input.ListenerArn) {
+			kept = append(kept, l)
+		}
+	}
+	m.Listeners = kept
+	return &elbv2.DeleteListenerOutput{}, nil
+}
+
+func TestEnsureLoadBalancerv2_TaggingLifecycle(t *testing.T) {
+	hasTag := func(tags []elbv2types.Tag, key, val string) bool {
+		for _, tag := range tags {
+			if aws.ToString(tag.Key) == key && aws.ToString(tag.Value) == val {
+				return true
+			}
+		}
+		return false
+	}
+
+	newServices := func(t *testing.T, elbv2Client ELBV2) (*Cloud, *FakeAWSServices) {
+		t.Helper()
+		awsServices := newMockedFakeAWSServices(TestClusterID)
+		awsServices.elbv2 = elbv2Client
+		c, _ := newAWSCloud(config.CloudConfig{}, awsServices)
+		awsServices.ec2.(*MockedFakeEC2).Subnets = []ec2types.Subnet{
+			{
+				AvailabilityZone: aws.String("us-west-2a"),
+				SubnetId:         aws.String("subnet-abc123de"),
+				Tags:             []ec2types.Tag{{Key: aws.String(c.tagging.clusterTagKey()), Value: aws.String("owned")}},
+			},
+		}
+		awsServices.ec2.(*MockedFakeEC2).RouteTables = []ec2types.RouteTable{
+			{
+				Associations: []ec2types.RouteTableAssociation{{
+					Main:                    aws.Bool(true),
+					RouteTableAssociationId: aws.String("rtbassoc-abc123def456abc78"),
+					RouteTableId:            aws.String("rtb-abc123def456abc78"),
+					SubnetId:                aws.String("subnet-abc123de"),
+				}},
+				RouteTableId: aws.String("rtb-abc123def456abc78"),
+				Routes: []ec2types.Route{{
+					DestinationCidrBlock: aws.String("0.0.0.0/0"),
+					GatewayId:            aws.String("igw-abc123def456abc78"),
+					State:                ec2types.RouteStateActive,
+				}},
+			},
+		}
+		awsServices.ec2.(*MockedFakeEC2).maybeExpectDescribeSecurityGroups(TestClusterID, "k8s-elb-aid")
+		return c, awsServices
+	}
+
+	t.Run("create and modify tags", func(t *testing.T) {
+		mock := &MockedFakeELBV2{
+			Tags:                   make(map[string][]elbv2types.Tag),
+			RegisteredInstances:    make(map[string][]string),
+			LoadBalancerAttributes: make(map[string]map[string]string),
+		}
+		c, awsServices := newServices(t, mock)
+		nodes := []*v1.Node{makeNamedNode(awsServices, 0, "a")}
+		svc := &v1.Service{
+			ObjectMeta: metav1.ObjectMeta{
+				Name: "myservice", UID: "id", Namespace: "default",
+				Annotations: map[string]string{"service.beta.kubernetes.io/aws-load-balancer-type": "nlb"},
+			},
+			Spec: v1.ServiceSpec{
+				Ports:           []v1.ServicePort{{Name: "http", Port: 8080, NodePort: 31173, Protocol: v1.ProtocolTCP}},
+				SessionAffinity: v1.ServiceAffinityNone,
+			},
+		}
+
+		// Create.
+		_, err := c.EnsureLoadBalancer(context.TODO(), TestClusterName, svc, nodes)
+		require.NoError(t, err)
+		lbARN := aws.ToString(mock.LoadBalancers[0].LoadBalancerArn)
+		listenerARN := aws.ToString(mock.Listeners[0].ListenerArn)
+
+		// Modify: annotation tag added.
+		svc.Annotations[ServiceAnnotationLoadBalancerAdditionalTags] = "mykey=myval"
+		_, err = c.EnsureLoadBalancer(context.TODO(), TestClusterName, svc, nodes)
+		require.NoError(t, err)
+		assert.True(t, hasTag(mock.Tags[lbARN], "mykey", "myval"), "LB missing annotation tag")
+		assert.True(t, hasTag(mock.Tags[listenerARN], "mykey", "myval"), "listener missing annotation tag")
+	})
+
+	t.Run("multi-listener modify and delete", func(t *testing.T) {
+		base := &MockedFakeELBV2{
+			Tags:                   make(map[string][]elbv2types.Tag),
+			RegisteredInstances:    make(map[string][]string),
+			LoadBalancerAttributes: make(map[string]map[string]string),
+		}
+		ext := &mockELBV2WithDelete{MockedFakeELBV2: base}
+		c, awsServices := newServices(t, ext)
+		nodes := []*v1.Node{makeNamedNode(awsServices, 0, "a")}
+		svc := &v1.Service{
+			ObjectMeta: metav1.ObjectMeta{
+				Name: "myservice", UID: "id", Namespace: "default",
+				Annotations: map[string]string{"service.beta.kubernetes.io/aws-load-balancer-type": "nlb"},
+			},
+			Spec: v1.ServiceSpec{
+				Ports: []v1.ServicePort{
+					{Name: "http", Port: 80, NodePort: 31173, Protocol: v1.ProtocolTCP},
+					{Name: "alt", Port: 8080, NodePort: 31174, Protocol: v1.ProtocolTCP},
+				},
+				SessionAffinity: v1.ServiceAffinityNone,
+			},
+		}
+		arnByPort := func(port int32) string {
+			for _, l := range base.Listeners {
+				if aws.ToInt32(l.Port) == port {
+					return aws.ToString(l.ListenerArn)
+				}
+			}
+			return ""
+		}
+
+		// Create: two listeners provisioned.
+		_, err := c.EnsureLoadBalancer(context.TODO(), TestClusterName, svc, nodes)
+		require.NoError(t, err)
+		require.Len(t, base.Listeners, 2)
+		lbARN := aws.ToString(base.LoadBalancers[0].LoadBalancerArn)
+
+		// Modify: tag applied to LB and both listeners.
+		svc.Annotations[ServiceAnnotationLoadBalancerAdditionalTags] = "env=staging"
+		_, err = c.EnsureLoadBalancer(context.TODO(), TestClusterName, svc, nodes)
+		require.NoError(t, err)
+		l80, l8080 := arnByPort(80), arnByPort(8080)
+		assert.True(t, hasTag(base.Tags[lbARN], "env", "staging"), "LB missing tag")
+		assert.True(t, hasTag(base.Tags[l80], "env", "staging"), "port 80 missing tag")
+		assert.True(t, hasTag(base.Tags[l8080], "env", "staging"), "port 8080 missing tag")
+
+		// Modify + delete: remove port 80; listener deleted, port 8080 and LB survive tagged.
+		svc.Spec.Ports = []v1.ServicePort{{Name: "alt", Port: 8080, NodePort: 31174, Protocol: v1.ProtocolTCP}}
+		_, err = c.EnsureLoadBalancer(context.TODO(), TestClusterName, svc, nodes)
+		require.NoError(t, err)
+		assert.Empty(t, arnByPort(80), "port 80 listener should be deleted")
+		assert.True(t, hasTag(base.Tags[arnByPort(8080)], "env", "staging"), "port 8080 missing tag after delete")
+		assert.True(t, hasTag(base.Tags[lbARN], "env", "staging"), "LB missing tag after delete")
+	})
+}
