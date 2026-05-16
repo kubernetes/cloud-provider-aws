@@ -1219,6 +1219,27 @@ func (c *Cloud) describeLoadBalancerv2(ctx context.Context, name string) (*elbv2
 	return nil, fmt.Errorf("NLB '%s' could not be found", name)
 }
 
+// addLoadBalancerTagsv2 tags a single ELBv2 resource (LB, listener, target group, etc.).
+// https://github.com/aws/aws-sdk-go-v2/blob/dc2d13fa6f1db25f1c6d804567e1ecfcdff4f040/service/elasticloadbalancingv2/api_op_AddTags.go#L14
+func (c *Cloud) addLoadBalancerTagsv2(ctx context.Context, resourceARN string, requested map[string]string) error {
+	var tags []elbv2types.Tag
+	for k, v := range requested {
+		tags = append(tags, elbv2types.Tag{
+			Key:   aws.String(k),
+			Value: aws.String(v),
+		})
+	}
+
+	_, err := c.elbv2.AddTags(ctx, &elbv2.AddTagsInput{
+		ResourceArns: []string{resourceARN},
+		Tags:         tags,
+	})
+	if err != nil {
+		return fmt.Errorf("error adding tags: %v", err)
+	}
+	return nil
+}
+
 // Retrieves instance's vpc id from metadata
 func (c *Cloud) findVPCID(ctx context.Context) (string, error) {
 	macsMetadata, err := c.metadata.GetMetadata(ctx, &imds.GetMetadataInput{Path: "network/interfaces/macs/"})

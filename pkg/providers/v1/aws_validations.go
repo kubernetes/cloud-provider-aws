@@ -98,6 +98,13 @@ func validateServiceAnnotations(v *awsValidationInput) error {
 			return err
 		}
 	}
+
+	// ServiceAnnotationLoadBalancerAdditionalTags
+	if _, present := v.annotations[ServiceAnnotationLoadBalancerAdditionalTags]; present {
+		if err := validateServiceAnnotationAdditionalTags(v); err != nil {
+			return err
+		}
+	}
 	return nil
 }
 
@@ -145,6 +152,32 @@ func validateServiceAnnotationTargetGroupAttributes(v *awsValidationInput) error
 
 		default:
 			return fmt.Errorf("%s: the attribute %q is not supported by the controller or is invalid", errPrefix, attrKey)
+		}
+	}
+
+	return nil
+}
+
+// validateServiceAnnotationAdditionalTags validates that additional tags do not override controller-managed tags.
+// Annotation: service.beta.kubernetes.io/aws-load-balancer-additional-resource-tags
+//
+// input:
+// v: awsValidationInput containing the required configuration to validate the Service object.
+//
+// returns:
+// - error: validation errors.
+func validateServiceAnnotationAdditionalTags(v *awsValidationInput) error {
+	errPrefix := "error validating load balancer additional tags"
+
+	// tags are in format key=value separated by comma.
+	annotationAdditionalTags := getKeyValuePropertiesFromAnnotation(v.annotations, ServiceAnnotationLoadBalancerAdditionalTags)
+
+	for key := range annotationAdditionalTags {
+		if strings.HasPrefix(key, TagNameKubernetesClusterPrefix) {
+			return fmt.Errorf("%s: tag with prefix %q is managed by the controller and cannot be overridden", errPrefix, key)
+		}
+		if key == TagNameKubernetesClusterLegacy || key == TagNameKubernetesService {
+			return fmt.Errorf("%s: tag %q is managed by the controller and cannot be overridden", errPrefix, key)
 		}
 	}
 

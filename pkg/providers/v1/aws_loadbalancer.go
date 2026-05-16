@@ -392,6 +392,23 @@ func (c *Cloud) ensureLoadBalancerv2(ctx context.Context, namespacedName types.N
 					}
 				}
 			}
+
+			// Tag all surviving listeners. Newly created listeners are already
+			// tagged at creation time via createListenerV2.
+			for port, protocols := range actual {
+				for protocol, listener := range protocols {
+					if _, ok := frontEndPorts[port][protocol]; ok {
+						err := c.addLoadBalancerTagsv2(ctx, aws.ToString(listener.ListenerArn), tags)
+						if err != nil {
+							return nil, err
+						}
+					}
+				}
+			}
+
+			if err := c.addLoadBalancerTagsv2(ctx, aws.ToString(loadBalancer.LoadBalancerArn), tags); err != nil {
+				return nil, err
+			}
 		}
 		if err := c.reconcileLBAttributes(ctx, aws.ToString(loadBalancer.LoadBalancerArn), annotations); err != nil {
 			return nil, err
