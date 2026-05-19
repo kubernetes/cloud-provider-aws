@@ -4896,7 +4896,7 @@ func TestEnsureNLBSecurityGroup(t *testing.T) {
 				return
 			}
 
-			securityGroupIDs, _, err := c.ensureNLBSecurityGroup(context.TODO(), TestClusterID, svc, existingLB, tc.annotations)
+			securityGroupIDs, _, err := c.ensureNLBSecurityGroup(context.TODO(), TestClusterID, svc, existingLB)
 
 			// Verify results
 			if tc.expectedError != "" {

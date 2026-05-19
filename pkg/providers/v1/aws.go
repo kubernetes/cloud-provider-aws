@@ -2251,8 +2251,9 @@ func (c *Cloud) buildNLBHealthCheckConfiguration(svc *v1.Service) (healthCheckCo
 //   - []string: Security group IDs to attach to the NLB.
 //   - bool: true if SGs are managed (need rules), false if BYO (don't modify).
 //   - error: An error if any issue occurs.
-func (c *Cloud) ensureNLBSecurityGroup(ctx context.Context, clusterName string, svc *v1.Service, existingLB *elbv2types.LoadBalancer, annotations map[string]string) ([]string, bool, error) {
+func (c *Cloud) ensureNLBSecurityGroup(ctx context.Context, clusterName string, svc *v1.Service, existingLB *elbv2types.LoadBalancer) ([]string, bool, error) {
 	serviceName := types.NamespacedName{Namespace: svc.Namespace, Name: svc.Name}
+	annotations := svc.Annotations
 
 	// Determine NLB Security Group Mode
 	isManaged, err := c.cfg.IsNLBSecurityGroupModeManaged()
@@ -2263,6 +2264,10 @@ func (c *Cloud) ensureNLBSecurityGroup(ctx context.Context, clusterName string, 
 	// Managed mode disabled: keep existing SGs (if LB exists) or return empty
 	if !isManaged {
 		if existingLB != nil {
+			// Return empty slice if SecurityGroups is nil to maintain consistent return type
+			if existingLB.SecurityGroups == nil {
+				return []string{}, false, nil
+			}
 			return existingLB.SecurityGroups, false, nil
 		}
 		return []string{}, false, nil
@@ -2287,6 +2292,7 @@ func (c *Cloud) ensureNLBSecurityGroup(ctx context.Context, clusterName string, 
 	sgDescription := "[k8s] Managed SecurityGroup for LoadBalancer"
 	additionalTags := getKeyValuePropertiesFromAnnotation(annotations, ServiceAnnotationLoadBalancerAdditionalTags)
 
+	klog.Infof("Creating security group %q for NLB service %q", sgName, serviceName)
 	// createSecurityGroup will ensure the creation of the managed SG
 	// or return the existing one if it already exists.
 	securityGroupID, err := c.createSecurityGroup(ctx, sgName, sgDescription, additionalTags)
@@ -2311,17 +2317,6 @@ func (c *Cloud) ensureNLBSecurityGroup(ctx context.Context, clusterName string, 
 //   - error: An error if any issue occurs while ensuring the NLB security group rules.
 func (c *Cloud) ensureNLBSecurityGroupRules(ctx context.Context, securityGroupID string, ec2SourceRanges []ec2types.IpRange, v2Mappings []nlbPortMapping) error {
 	if securityGroupID == "" {
-		return nil
-	}
-
-	// Check if managed mode is enabled
-	isManaged, err := c.cfg.IsNLBSecurityGroupModeManaged()
-	if err != nil {
-		return fmt.Errorf("error checking NLB security group mode: %w", err)
-	}
-
-	// Don't manage rules when managed mode is disabled
-	if !isManaged {
 		return nil
 	}
 
@@ -2470,7 +2465,7 @@ func (c *Cloud) EnsureLoadBalancer(ctx context.Context, clusterName string, apiS
 		}
 
 		// Create/retrieve the Security Groups to be used with the NLB (aligned with CLB pattern)
-		securityGroupIDs, isManagedSg, err := c.ensureNLBSecurityGroup(ctx, clusterName, apiService, existingLB, annotations)
+		securityGroupIDs, isManagedSg, err := c.ensureNLBSecurityGroup(ctx, clusterName, apiService, existingLB)
 		if err != nil {
 			return nil, fmt.Errorf("error ensuring NLB security group: %w", err)
 		}
