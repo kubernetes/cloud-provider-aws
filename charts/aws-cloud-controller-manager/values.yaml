@@ -149,6 +149,9 @@ roleBindingName: cloud-controller-manager:apiserver-authentication-reader
 
 serviceAccountName: cloud-controller-manager
 
+serviceAccount:
+  annotations: {}
+
 roleName: extension-apiserver-authentication-reader
 
 extraVolumes: []
