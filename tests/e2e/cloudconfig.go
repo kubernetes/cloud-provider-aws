@@ -145,7 +145,7 @@ func (m *cloudConfigManager) setCloudConfig(ctx context.Context, cs clientset.In
 }
 
 // restoreCloudConfig restores the original CCM cloud configuration as saved by setCloudConfig.
-// This restores the hostPath volume and deletes the temporary ConfigMap.
+// This restores the hostPath volume created by kops and deletes the temporary ConfigMap injected.
 func (m *cloudConfigManager) restoreCloudConfig(ctx context.Context, cs clientset.Interface) error {
 	framework.Logf("=== Restoring original CCM configuration ===")
 

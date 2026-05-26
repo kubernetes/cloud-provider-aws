@@ -682,7 +682,7 @@ var _ = Describe("[cloud-provider-aws-e2e]", func() {
 		cloudConfigMgr := newCloudConfigManager(withRestartTimeout(3 * time.Minute))
 
 		BeforeAll(func(ctx context.Context) {
-			// Disable NLB managed security group mode by setting an empty config
+			// Disable NLB managed security group mode by setting an empty config (default CCM configuration)
 			err := cloudConfigMgr.setCloudConfig(ctx, cs, "")
 			framework.ExpectNoError(err, "Failed to disable NLB managed security group mode")
 		})

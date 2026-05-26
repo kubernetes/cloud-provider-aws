@@ -2292,13 +2292,14 @@ func (c *Cloud) ensureNLBSecurityGroup(ctx context.Context, clusterName string, 
 	sgDescription := "[k8s] Managed SecurityGroup for LoadBalancer"
 	additionalTags := getKeyValuePropertiesFromAnnotation(annotations, ServiceAnnotationLoadBalancerAdditionalTags)
 
-	klog.Infof("Creating security group %q for NLB service %q", sgName, serviceName)
+	klog.Infof("Ensuring security group %q for NLB service %q", sgName, serviceName)
 	// createSecurityGroup will ensure the creation of the managed SG
 	// or return the existing one if it already exists.
 	securityGroupID, err := c.createSecurityGroup(ctx, sgName, sgDescription, additionalTags)
 	if err != nil {
 		return nil, false, fmt.Errorf("unable to create security group for NLB: %w", err)
 	}
+	klog.Infof("Ensured security group %q for NLB service %q", sgName, serviceName)
 
 	return []string{securityGroupID}, true, nil // Managed SG: attach rules
 }
