@@ -36,6 +36,8 @@ import (
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/aws/retry"
 	"github.com/aws/aws-sdk-go-v2/config"
+	"github.com/aws/aws-sdk-go-v2/service/ec2"
+	ec2types "github.com/aws/aws-sdk-go-v2/service/ec2/types"
 	elbv2 "github.com/aws/aws-sdk-go-v2/service/elasticloadbalancingv2"
 	elbv2types "github.com/aws/aws-sdk-go-v2/service/elasticloadbalancingv2/types"
 )
@@ -45,6 +47,7 @@ const (
 	annotationLBInternal              = "service.beta.kubernetes.io/aws-load-balancer-internal"
 	annotationLBTargetNodeLabels      = "service.beta.kubernetes.io/aws-load-balancer-target-node-labels"
 	annotationLBTargetGroupAttributes = "service.beta.kubernetes.io/aws-load-balancer-target-group-attributes"
+	annotationLBSecurityGroups        = "service.beta.kubernetes.io/aws-load-balancer-security-groups"
 )
 
 var (
@@ -56,8 +59,583 @@ var (
 	}
 )
 
-// loadbalancer tests
-var _ = Describe("[cloud-provider-aws-e2e] loadbalancer", func() {
+// loadBalancerTestCases defines the structure for different load balancer test scenarios,
+// including configuration, hooks for dynamic behavior, and test verification controls.
+type loadBalancerTestCases struct {
+	// Overall test case configuration.
+	name             string
+	resourceSuffix   string
+	extraAnnotations map[string]string
+	listenerCount    int
+
+	// Hooks
+	// HookPostServiceConfig hook runs after the service manifest is created, and before the service is created.
+	hookPostServiceConfig func(cfg *e2eTestConfig)
+	// HookPostServiceCreate hook runs after the test is run.
+	hookPostServiceCreate func(cfg *e2eTestConfig)
+	// HookPreTest hook runs before the test is run.
+	hookPreTest func(cfg *e2eTestConfig)
+
+	// Flags to override default test behavior.
+	overrideTestRunInClusterReachableHTTP bool
+	requireAffinity                       bool
+
+	// Test verification
+	skipTestFailure bool
+}
+
+// runTestCase is a helper function that executes a load balancer test case
+func runTestCase(ctx context.Context, tc loadBalancerTestCases, cs clientset.Interface, ns *v1.Namespace) {
+	By("setting up test environment and discovering worker nodes")
+	e2e := newE2eTestConfig(cs)
+	e2e.discoverClusterWorkerNode()
+	framework.Logf("[SETUP] Test case: %s", tc.name)
+	framework.Logf("[SETUP] Worker nodes discovered: %d nodes, selector: %s, sample node: %s", e2e.nodeCount, e2e.nodeSelector, e2e.nodeSingleSample)
+
+	loadBalancerCreateTimeout := e2eservice.GetServiceLoadBalancerCreationTimeout(ctx, cs)
+	framework.Logf("[CONFIG] AWS load balancer timeout: %s", loadBalancerCreateTimeout)
+
+	By("building service configuration with annotations")
+
+	serviceName := "lbconfig-test"
+	if len(tc.resourceSuffix) > 0 {
+		serviceName = serviceName + "-" + tc.resourceSuffix
+	}
+	framework.Logf("[CONFIG] Service name: %s, namespace: %s", serviceName, ns.Name)
+	e2e.LBJig = e2eservice.NewTestJig(cs, ns.Name, serviceName)
+
+	// Hook annotations to support dynamic config
+	e2e.svc = e2e.buildService(tc.listenerCount, tc.extraAnnotations)
+	framework.Logf("[CONFIG] Service ports: %d, extra annotations: %v", len(e2e.svc.Spec.Ports), tc.extraAnnotations)
+
+	if tc.hookPostServiceConfig != nil {
+		By("executing hook post-service-config: applying service configuration")
+		framework.Logf("[HOOK] Executing post-service-config hook")
+		tc.hookPostServiceConfig(e2e)
+		framework.Logf("[HOOK] Final service annotations: %v", e2e.svc.Annotations)
+	}
+
+	By("creating LoadBalancer service in Kubernetes")
+	if _, err := e2e.LBJig.Client.CoreV1().Services(e2e.LBJig.Namespace).Create(context.TODO(), e2e.svc, metav1.CreateOptions{}); err != nil {
+		framework.ExpectNoError(fmt.Errorf("failed to create LoadBalancer Service %q: %v", e2e.svc.Name, err))
+	}
+	framework.Logf("[K8S] LoadBalancer service created successfully")
+
+	By("waiting for AWS load balancer provisioning")
+	var err error
+	e2e.svc, err = e2e.LBJig.WaitForLoadBalancer(ctx, loadBalancerCreateTimeout)
+	// Collect comprehensive debugging information when LoadBalancer provisioning fails
+	if err != nil {
+		serviceName := e2e.LBJig.Name
+		if e2e.svc != nil {
+			serviceName = e2e.svc.Name
+		}
+		framework.Logf("ERROR: LoadBalancer provisioning failed for service %q: %v", serviceName, err)
+		framework.Logf("ERROR: LoadBalancer provisioning timeout reached after %v", loadBalancerCreateTimeout)
+
+		// Ensure we have detailed debugging information before failing
+		framework.Logf("=== LoadBalancer Provisioning Failure Debug Information ===")
+		gatherEventosOnFailure(e2e.ctx, e2e.kubeClient, e2e.LBJig.Namespace, e2e.LBJig.Name)
+		framework.Logf("=== End of LoadBalancer Provisioning Failure Debug Information ===")
+
+		// Fail the test immediately to prevent further execution
+		framework.ExpectNoError(err, "LoadBalancer provisioning failed - check debug information above")
+	}
+	framework.Logf("[AWS] Load balancer provisioned successfully")
+
+	By("creating backend server pods")
+	_, err = e2e.LBJig.Run(ctx, e2e.buildDeployment(tc.requireAffinity))
+	if err != nil {
+		serviceName := e2e.LBJig.Name
+		if e2e.svc != nil {
+			serviceName = e2e.svc.Name
+		}
+		framework.Logf("ERROR: LoadBalancer provisioning failed for service %q: %v", serviceName, err)
+		framework.Logf("ERROR: LoadBalancer provisioning timeout reached after %v", loadBalancerCreateTimeout)
+
+		// Ensure we have detailed debugging information before failing
+		framework.Logf("=== LoadBalancer Provisioning Failure Debug Information ===")
+		gatherEventosOnFailure(e2e.ctx, e2e.kubeClient, e2e.LBJig.Namespace, e2e.LBJig.Name)
+		framework.Logf("=== End of LoadBalancer Provisioning Failure Debug Information ===")
+
+		// Fail the test immediately to prevent further execution
+		framework.ExpectNoError(err, "LoadBalancer provisioning failed - check debug information above")
+	}
+
+	framework.Logf("[K8S] Backend pods created, affinity required: %t", tc.requireAffinity)
+
+	if tc.hookPostServiceCreate != nil {
+		By("executing hook post-service-create: applying service configuration")
+		tc.hookPostServiceCreate(e2e)
+	}
+
+	By("collecting service and load balancer information")
+	if e2e.svc == nil {
+		framework.Logf("=== Service Validation Error Debug Information ===")
+		gatherEventosOnFailure(e2e.ctx, e2e.kubeClient, e2e.LBJig.Namespace, e2e.LBJig.Name)
+		framework.Logf("=== End of Service Validation Error Debug Information ===")
+		framework.Failf("Service is nil after LoadBalancer provisioning for service %s", e2e.LBJig.Name)
+	}
+	if len(e2e.svc.Spec.Ports) == 0 {
+		framework.Logf("=== Service Ports Error Debug Information ===")
+		framework.Logf("Service spec: %+v", e2e.svc.Spec)
+		gatherEventosOnFailure(e2e.ctx, e2e.kubeClient, e2e.LBJig.Namespace, e2e.LBJig.Name)
+		framework.Logf("=== End of Service Ports Error Debug Information ===")
+		framework.Failf("No ports found in service spec for service %s/%s", e2e.svc.Namespace, e2e.svc.Name)
+	}
+	if len(e2e.svc.Status.LoadBalancer.Ingress) == 0 {
+		framework.Logf("=== LoadBalancer Ingress Error Debug Information ===")
+		framework.Logf("Service status: %+v", e2e.svc.Status)
+		gatherEventosOnFailure(e2e.ctx, e2e.kubeClient, e2e.LBJig.Namespace, e2e.LBJig.Name)
+		framework.Logf("=== End of LoadBalancer Ingress Error Debug Information ===")
+		framework.Failf("No ingress found in LoadBalancer status for service %s/%s", e2e.svc.Namespace, e2e.svc.Name)
+	}
+
+	svcPort := int(e2e.svc.Spec.Ports[0].Port)
+	ingressAddress := e2eservice.GetIngressPoint(&e2e.svc.Status.LoadBalancer.Ingress[0])
+	framework.Logf("[LB-INFO] Ingress address: %s, port: %d", ingressAddress, svcPort)
+
+	if ingressAddress == "" {
+		framework.Logf("=== Empty Ingress Address Debug Information ===")
+		framework.Logf("LoadBalancer ingress[0]: %+v", e2e.svc.Status.LoadBalancer.Ingress[0])
+		gatherEventosOnFailure(e2e.ctx, e2e.kubeClient, e2e.LBJig.Namespace, e2e.LBJig.Name)
+		framework.Logf("=== End of Empty Ingress Address Debug Information ===")
+		framework.Failf("LoadBalancer ingress address is empty for service %s/%s", e2e.svc.Namespace, e2e.svc.Name)
+	}
+
+	if tc.hookPreTest != nil {
+		By("executing pre-test hook")
+		tc.hookPreTest(e2e)
+	}
+
+	// overrideTestRunInClusterReachableHTTP changes the default test function to run the client in the cluster.
+	if tc.overrideTestRunInClusterReachableHTTP {
+		By("testing HTTP connectivity for internal load balancer")
+		framework.Logf("[TEST] Running internal connectivity test from node: %s", e2e.nodeSingleSample)
+		err := inClusterTestReachableHTTP(cs, ns.Name, e2e.nodeSingleSample, ingressAddress, svcPort)
+		if err != nil && tc.skipTestFailure {
+			Skip(err.Error())
+		}
+		framework.ExpectNoError(err)
+	} else {
+		By("testing HTTP connectivity for external/internet-facing load balancer")
+		framework.Logf("[TEST] Running external connectivity test to %s:%d", ingressAddress, svcPort)
+		e2eservice.TestReachableHTTP(ctx, ingressAddress, svcPort, e2eservice.LoadBalancerLagTimeoutAWS)
+	}
+	framework.Logf("[TEST] HTTP connectivity test completed successfully")
+
+	// Update the service to cluster IP
+	By("cleaning up: converting service to ClusterIP")
+	_, err = e2e.LBJig.UpdateService(ctx, func(s *v1.Service) {
+		s.Spec.Type = v1.ServiceTypeClusterIP
+	})
+	framework.ExpectNoError(err)
+
+	// Wait for the load balancer to be destroyed asynchronously
+	By("cleaning up: waiting for load balancer destruction")
+	framework.Logf("[CLEANUP] Waiting for load balancer destruction")
+	_, err = e2e.LBJig.WaitForLoadBalancerDestroy(ctx, ingressAddress, svcPort, loadBalancerCreateTimeout)
+	framework.ExpectNoError(err)
+	framework.Logf("[CLEANUP] Load balancer destroyed successfully")
+}
+
+// clbTests: Tests related to CLB load balancers
+var clbTests = []loadBalancerTestCases{
+	{
+		name:             "CLB should be reachable with default configurations",
+		resourceSuffix:   "",
+		extraAnnotations: map[string]string{},
+	},
+	// Hairpining traffic test for CLB.
+	{
+		name:           "CLB internal should be reachable with hairpinning traffic",
+		resourceSuffix: "hp-clb-int",
+		extraAnnotations: map[string]string{
+			annotationLBInternal: "true",
+		},
+		hookPostServiceConfig: func(cfg *e2eTestConfig) {
+			framework.Logf("running hook post-service-config patching service annotations to enforce LB pins/selects target to a single node: kubernetes.io/hostname=%s", cfg.nodeSingleSample)
+			if cfg.svc.Annotations == nil {
+				cfg.svc.Annotations = map[string]string{}
+			}
+			cfg.svc.Annotations[annotationLBTargetNodeLabels] = fmt.Sprintf("kubernetes.io/hostname=%s", cfg.nodeSingleSample)
+		},
+		overrideTestRunInClusterReachableHTTP: true,
+		requireAffinity:                       true,
+	},
+}
+
+// nlbTests: Generic NLB tests that test NLB functionality and are not specific to a security group configuration layout
+var nlbTests = []loadBalancerTestCases{
+	{
+		name:             "NLB should be reachable with default configurations",
+		resourceSuffix:   "nlb",
+		extraAnnotations: map[string]string{annotationLBType: "nlb"},
+	},
+	{
+		name:             "NLB should be reachable with target-node-labels",
+		resourceSuffix:   "sg-nd",
+		extraAnnotations: map[string]string{annotationLBType: "nlb"},
+		hookPostServiceConfig: func(cfg *e2eTestConfig) {
+			framework.Logf("running hook post-service-config patching service annotations to test node label selector")
+			if cfg.svc.Annotations == nil {
+				cfg.svc.Annotations = map[string]string{}
+			}
+			cfg.svc.Annotations[annotationLBTargetNodeLabels] = cfg.nodeSelector
+		},
+		hookPostServiceCreate: func(cfg *e2eTestConfig) {
+			framework.Logf("running hook post-service-create to validate the number of targets in the load balancer selected")
+			if len(cfg.svc.Status.LoadBalancer.Ingress) == 0 {
+				framework.Failf("No ingress found in LoadBalancer status for service %s/%s", cfg.svc.Namespace, cfg.svc.Name)
+			}
+			lbDNS := cfg.svc.Status.LoadBalancer.Ingress[0].Hostname
+			framework.ExpectNoError(getLBTargetCount(cfg.ctx, lbDNS, cfg.nodeCount), "AWS LB target count validation failed")
+		},
+	},
+	// Hairpining traffic test for NLB.
+	// The target type instance (default) sets the preserve client IP attribute to true,
+	// the NLB target group attributes are set to preserve_client_ip.enabled=false to allow hairpining traffic.
+	// The test also validates the target group attributes are set correctly to AWS resource.
+	{
+		name:           "NLB internal should be reachable with hairpinning traffic",
+		resourceSuffix: "hp-nlb-int",
+		extraAnnotations: map[string]string{
+			annotationLBType:                  "nlb",
+			annotationLBInternal:              "true",
+			annotationLBTargetGroupAttributes: "preserve_client_ip.enabled=false",
+		},
+		listenerCount:                         1,
+		overrideTestRunInClusterReachableHTTP: true,
+		requireAffinity:                       true,
+		hookPostServiceConfig: func(cfg *e2eTestConfig) {
+			framework.Logf("running hook post-service-config patching service annotations to enforce LB pins/selects target to a single node: kubernetes.io/hostname=%s", cfg.nodeSingleSample)
+			if cfg.svc.Annotations == nil {
+				cfg.svc.Annotations = map[string]string{}
+			}
+			cfg.svc.Annotations[annotationLBTargetNodeLabels] = fmt.Sprintf("kubernetes.io/hostname=%s", cfg.nodeSingleSample)
+		},
+		hookPreTest: func(e2e *e2eTestConfig) {
+			framework.Logf("running hook pre-test: verify target group attributes are set correctly to AWS resource")
+
+			if e2e.svc.Status.LoadBalancer.Ingress[0].Hostname == "" && e2e.svc.Status.LoadBalancer.Ingress[0].IP == "" {
+				framework.Failf("LoadBalancer ingress is empty (no hostname or IP) for service %s/%s", e2e.svc.Namespace, e2e.svc.Name)
+			}
+
+			hostAddr := e2eservice.GetIngressPoint(&e2e.svc.Status.LoadBalancer.Ingress[0])
+			framework.Logf("Load balancer's ingress address: %s", hostAddr)
+
+			if hostAddr == "" {
+				framework.Failf("Unable to get LoadBalancer ingress address for service %s/%s", e2e.svc.Namespace, e2e.svc.Name)
+			}
+
+			elbClient, err := getAWSClientLoadBalancer(e2e.ctx)
+			framework.ExpectNoError(err, "failed to create AWS ELB client")
+
+			// DescribeLoadBalancers API doesn't support filtering by DNS name directly
+			// Use AWS SDK paginator to search through all load balancers
+			foundLB, err := getAWSLoadBalancerFromDNSName(e2e.ctx, elbClient, hostAddr)
+			framework.ExpectNoError(err, "failed to find load balancer with DNS name %s", hostAddr)
+			if foundLB == nil {
+				framework.Failf("Found load balancer is nil for DNS name %s", hostAddr)
+			}
+
+			lbARN := aws.ToString(foundLB.LoadBalancerArn)
+			if lbARN == "" {
+				framework.Failf("Load balancer ARN is empty for DNS name %s", hostAddr)
+			}
+			framework.Logf("Found load balancer: %s with ARN: %s", aws.ToString(foundLB.LoadBalancerName), lbARN)
+
+			// lookup target group ARN from load balancer ARN
+			targetGroups, err := elbClient.DescribeTargetGroups(e2e.ctx, &elbv2.DescribeTargetGroupsInput{
+				LoadBalancerArn: aws.String(lbARN),
+			})
+			framework.ExpectNoError(err, "failed to describe target groups")
+			gomega.Expect(len(targetGroups.TargetGroups)).To(gomega.Equal(1))
+
+			targetGroupAttributes, err := elbClient.DescribeTargetGroupAttributes(e2e.ctx, &elbv2.DescribeTargetGroupAttributesInput{
+				TargetGroupArn: aws.String(aws.ToString(targetGroups.TargetGroups[0].TargetGroupArn)),
+			})
+			framework.ExpectNoError(err, "failed to describe target group attributes")
+
+			// verify if the target group attributes are set correctly
+
+			annotationToDict := map[string]string{}
+			for _, v := range strings.Split(e2e.svc.Annotations[annotationLBTargetGroupAttributes], ",") {
+				parts := strings.Split(v, "=")
+				annotationToDict[parts[0]] = parts[1]
+			}
+			framework.Logf("TG attribute Annotation to dict: %v", annotationToDict)
+
+			framework.Logf("=== All Target Group Attributes from AWS ===")
+			for _, attr := range targetGroupAttributes.Attributes {
+				framework.Logf("  %s=%s", aws.ToString(attr.Key), aws.ToString(attr.Value))
+			}
+
+			framework.Logf("=== Expected Target Group Attributes from Annotation ===")
+			for key, value := range annotationToDict {
+				framework.Logf("  %s=%s", key, value)
+			}
+
+			// Check if our expected attributes are present and match
+			framework.Logf("=== Verifying Target Group Attributes ===")
+			for _, attr := range targetGroupAttributes.Attributes {
+				if expectedValue, ok := annotationToDict[aws.ToString(attr.Key)]; ok {
+					actualValue := aws.ToString(attr.Value)
+					framework.Logf("Checking attribute: %s", aws.ToString(attr.Key))
+					framework.Logf("  Expected: %s", expectedValue)
+					framework.Logf("  Actual:   %s", actualValue)
+
+					if actualValue != expectedValue {
+						framework.Failf("Target group attribute mismatch for %s: expected %s, got %s", aws.ToString(attr.Key), expectedValue, actualValue)
+					} else {
+						framework.Logf("✓ Target group attribute %s matches expected value %s", aws.ToString(attr.Key), expectedValue)
+					}
+				}
+			}
+		},
+	},
+}
+
+// managedSgModeNLBTests: NLB tests related to managed/BYO security groups, requiring NLBSecurityGroupMode=Managed in the cloud config
+var managedSgModeNLBTests = []loadBalancerTestCases{
+	// Test creation of NLB with Bring Your Own (BYO) Security Group from the start.
+	// This test validates:
+	// - NLB can be created with BYO SG annotation from the start
+	// - NLB has ONLY the BYO SG attached (no managed SG)
+	// - NLB is reachable with BYO SG
+	{
+		name:           "NLB created with BYO Security Group should have BYO Security Group associated",
+		resourceSuffix: "nlb-byo",
+		listenerCount:  1,
+		extraAnnotations: map[string]string{
+			annotationLBType: "nlb",
+		},
+		hookPostServiceConfig: func(cfg *e2eTestConfig) {
+			framework.Logf("Creating BYO security group for NLB")
+
+			securityGroupName := cfg.svc.Namespace + "-" + cfg.svc.Name + "-nlb-byo-sg"
+			var err error
+			cfg.byoSecurityGroupID, err = createSecurityGroup(cfg.ctx, cfg, securityGroupName, fmt.Sprintf("BYO Security Group for NLB e2e test service %s/%s", cfg.svc.Namespace, cfg.svc.Name))
+			framework.ExpectNoError(err, "Failed to create BYO security group")
+			framework.Logf("Created BYO security group: %s", cfg.byoSecurityGroupID)
+
+			DeferCleanup(func(ctx context.Context) {
+				if cfg.byoSecurityGroupID != "" {
+					framework.Logf("Cleaning up BYO security group: %s", cfg.byoSecurityGroupID)
+					framework.Logf("Waiting for ENIs to be detached from security group...")
+					gomega.Eventually(ctx, func() error {
+						return deleteSecurityGroup(ctx, cfg.byoSecurityGroupID)
+					}, 2*time.Minute, 5*time.Second).Should(gomega.Succeed(), "Failed to delete BYO security group")
+					framework.Logf("✓ Deleted BYO security group: %s", cfg.byoSecurityGroupID)
+				}
+			})
+
+			framework.ExpectNoError(authorizeSecurityGroupToPorts(cfg.ctx, cfg.byoSecurityGroupID, cfg.svc.Spec.Ports), "Failed to authorize BYO security group to service ports")
+
+			cfg.svc.Annotations[annotationLBSecurityGroups] = cfg.byoSecurityGroupID
+			framework.Logf("Added BYO SG annotation: %s=%s", annotationLBSecurityGroups, cfg.byoSecurityGroupID)
+		},
+		hookPreTest: func(cfg *e2eTestConfig) {
+			framework.Logf("Verifying NLB has only BYO SG attached")
+
+			if len(cfg.svc.Status.LoadBalancer.Ingress) == 0 {
+				framework.Failf("No ingress found in LoadBalancer status for service %s/%s", cfg.svc.Namespace, cfg.svc.Name)
+			}
+			lbDNS := cfg.svc.Status.LoadBalancer.Ingress[0].Hostname
+			framework.Logf("NLB DNS: %s", lbDNS)
+
+			attachedSGs, err := getLoadBalancerSecurityGroups(cfg.ctx, lbDNS)
+			framework.ExpectNoError(err, "Failed to get NLB security groups")
+			framework.Logf("NLB %s has security groups: %+v", lbDNS, attachedSGs)
+
+			if len(attachedSGs) != 1 {
+				framework.Failf("Expected NLB to have exactly 1 security group (BYO SG), got %d: %v", len(attachedSGs), attachedSGs)
+			}
+			if attachedSGs[0] != cfg.byoSecurityGroupID {
+				framework.Failf("Expected NLB to have BYO SG %q, got %q", cfg.byoSecurityGroupID, attachedSGs[0])
+			}
+			framework.Logf("✓ Verified: NLB has only the BYO SG attached: %s", cfg.byoSecurityGroupID)
+		},
+	},
+	// Test transition of NLB from Managed Security Group to Bring Your Own (BYO) Security Group (SG)
+	// This test validates:
+	// - NLB created with managed (cluster-owned) SG
+	// - After annotation is added to use BYO SG the NLB should transition to
+	// have BYO SG attached and managed SG deleted
+	// - NLB is reachable
+	{
+		name:           "NLB should transition from Managed SG to BYO Security Group",
+		resourceSuffix: "nlb-m2b",
+		listenerCount:  1,
+		extraAnnotations: map[string]string{
+			annotationLBType: "nlb",
+		},
+		hookPostServiceConfig: func(cfg *e2eTestConfig) {
+			framework.Logf("Creating BYO security group for later transition")
+
+			securityGroupName := cfg.svc.Namespace + "-" + cfg.svc.Name + "-nlb-byo-sg"
+			var err error
+			cfg.byoSecurityGroupID, err = createSecurityGroup(cfg.ctx, cfg, securityGroupName, fmt.Sprintf("BYO Security Group for NLB e2e test service %s/%s", cfg.svc.Namespace, cfg.svc.Name))
+			framework.ExpectNoError(err, "Failed to create BYO security group")
+			framework.Logf("Created BYO security group: %s", cfg.byoSecurityGroupID)
+
+			DeferCleanup(func(ctx context.Context) {
+				if cfg.byoSecurityGroupID != "" {
+					framework.Logf("Cleaning up BYO security group: %s", cfg.byoSecurityGroupID)
+					framework.Logf("Waiting for ENIs to be detached from security group...")
+					gomega.Eventually(ctx, func() error {
+						return deleteSecurityGroup(ctx, cfg.byoSecurityGroupID)
+					}, 2*time.Minute, 5*time.Second).Should(gomega.Succeed(), "Failed to delete BYO security group after waiting for ENI detachment")
+					framework.Logf("✓ Deleted BYO security group: %s", cfg.byoSecurityGroupID)
+				}
+			})
+
+			framework.ExpectNoError(authorizeSecurityGroupToPorts(cfg.ctx, cfg.byoSecurityGroupID, cfg.svc.Spec.Ports), "Failed to authorize BYO security group to service ports")
+		},
+		hookPreTest: func(cfg *e2eTestConfig) {
+			framework.Logf("Transitioning from managed SG to BYO SG")
+			lbDNS := cfg.svc.Status.LoadBalancer.Ingress[0].Hostname
+
+			// Step 1: Verify NLB has managed SG
+			framework.Logf("Step 1: Verifying NLB has managed security group")
+			managedSGs, err := getLoadBalancerSecurityGroups(cfg.ctx, lbDNS)
+			framework.ExpectNoError(err, "Failed to get load balancer security groups")
+			framework.Logf("NLB %s has security groups: %+v", lbDNS, managedSGs)
+
+			if len(managedSGs) != 1 {
+				framework.Failf("Expected NLB to have 1 managed security group, got %d", len(managedSGs))
+			}
+			managedSGID := managedSGs[0]
+			framework.Logf("Managed SG ID: %s", managedSGID)
+
+			// Step 2: Add BYO SG annotation
+			framework.Logf("Step 2: Adding BYO SG annotation to service")
+			cfg.svc.Annotations[annotationLBSecurityGroups] = cfg.byoSecurityGroupID
+			newSvc, err := cfg.kubeClient.CoreV1().Services(cfg.LBJig.Namespace).Update(cfg.ctx, cfg.svc, metav1.UpdateOptions{})
+			framework.ExpectNoError(err, "Failed to update Kubernetes Service with BYO SG annotation")
+			cfg.svc = newSvc
+			framework.Logf("Updated service with BYO SG annotation: %s=%s", annotationLBSecurityGroups, cfg.byoSecurityGroupID)
+
+			// Step 3: Wait for controller to process the update and verify NLB now has BYO SG
+			framework.Logf("Step 3: Waiting for controller to update NLB security groups and verifying BYO SG is attached")
+			gomega.Eventually(cfg.ctx, func() ([]string, error) {
+				return getLoadBalancerSecurityGroups(cfg.ctx, lbDNS)
+			}, 2*time.Minute, 5*time.Second).Should(gomega.And(
+				gomega.HaveLen(1),
+				gomega.ContainElement(cfg.byoSecurityGroupID),
+			), "NLB should have exactly 1 security group (BYO SG) after annotation update")
+			framework.Logf("✓ Verified: NLB has only the BYO SG attached: %s", cfg.byoSecurityGroupID)
+
+			// Verify managed SG was deleted
+			framework.Logf("Verifying managed SG %s was deleted", managedSGID)
+			gomega.Eventually(cfg.ctx, func() error {
+				_, err := getSecurityGroup(cfg.ctx, managedSGID)
+				return err
+			}, 2*time.Minute, 5*time.Second).Should(gomega.And(
+				gomega.HaveOccurred(),
+				gomega.MatchError(gomega.ContainSubstring("InvalidGroup.NotFound")),
+			), "Managed SG should be deleted after transition to BYO SG")
+			framework.Logf("✓ Verified: Managed SG %s was deleted", managedSGID)
+		},
+	},
+	// Test transition of NLB from BYO Security Group to managed Security Group (SG)
+	// This test validates:
+	// - NLB created with BYO SG
+	// - After annotation for BYO SG is removed the NLB should transition to
+	// have a new managed SG attached and the BYO SG deassociated (but not deleted)
+	// - NLB is reachable
+	{
+		name:           "NLB should transition from BYO SG to Managed Security Group",
+		resourceSuffix: "nlb-b2m",
+		listenerCount:  1,
+		extraAnnotations: map[string]string{
+			annotationLBType: "nlb",
+		},
+		hookPostServiceConfig: func(cfg *e2eTestConfig) {
+			framework.Logf("running hook post-service-config to create BYO security group before service creation")
+
+			// Create BYO security group
+			securityGroupName := cfg.svc.Namespace + "-" + cfg.svc.Name + "-nlb-byo-sg"
+			var err error
+			cfg.byoSecurityGroupID, err = createSecurityGroup(cfg.ctx, cfg, securityGroupName, fmt.Sprintf("BYO Security Group for NLB e2e test service %s/%s", cfg.svc.Namespace, cfg.svc.Name))
+			framework.ExpectNoError(err, "Failed to create BYO security group")
+			framework.Logf("Created BYO security group: %s", cfg.byoSecurityGroupID)
+
+			DeferCleanup(func(ctx context.Context) {
+				if cfg.byoSecurityGroupID != "" {
+					framework.Logf("Cleaning up BYO security group: %s", cfg.byoSecurityGroupID)
+					framework.Logf("Waiting for ENIs to be detached from security group...")
+					gomega.Eventually(ctx, func() error {
+						return deleteSecurityGroup(ctx, cfg.byoSecurityGroupID)
+					}, 2*time.Minute, 5*time.Second).Should(gomega.Succeed(), "Failed to delete BYO security group after waiting for ENI detachment")
+					framework.Logf("✓ Deleted BYO security group: %s", cfg.byoSecurityGroupID)
+				}
+			})
+
+			framework.ExpectNoError(authorizeSecurityGroupToPorts(cfg.ctx, cfg.byoSecurityGroupID, cfg.svc.Spec.Ports), "Failed to authorize BYO security group to service ports")
+
+			cfg.svc.Annotations[annotationLBSecurityGroups] = cfg.byoSecurityGroupID
+			framework.Logf("Added BYO SG annotation: %s=%s", annotationLBSecurityGroups, cfg.byoSecurityGroupID)
+		},
+		hookPreTest: func(cfg *e2eTestConfig) {
+			framework.Logf("running hook pre-test to transition from BYO SG to managed SG")
+			lbDNS := cfg.svc.Status.LoadBalancer.Ingress[0].Hostname
+
+			// Step 1: Verify NLB has BYO SG
+			framework.Logf("Step 1: Verifying NLB has BYO security group")
+			byoSGs, err := getLoadBalancerSecurityGroups(cfg.ctx, lbDNS)
+			framework.ExpectNoError(err, "Failed to get load balancer security groups")
+			framework.Logf("NLB %s has security groups: %+v", lbDNS, byoSGs)
+
+			if len(byoSGs) != 1 {
+				framework.Failf("Expected NLB to have exactly 1 security group (BYO SG), got %d: %v", len(byoSGs), byoSGs)
+			}
+			if byoSGs[0] != cfg.byoSecurityGroupID {
+				framework.Failf("Expected NLB to have BYO SG %q, got %q", cfg.byoSecurityGroupID, byoSGs[0])
+			}
+			framework.Logf("✓ Verified: NLB has BYO SG attached: %s", cfg.byoSecurityGroupID)
+
+			// Step 2: Remove BYO SG annotation
+			framework.Logf("Step 2: Removing BYO SG annotation from service")
+			delete(cfg.svc.Annotations, annotationLBSecurityGroups)
+			newSvc, err := cfg.kubeClient.CoreV1().Services(cfg.LBJig.Namespace).Update(cfg.ctx, cfg.svc, metav1.UpdateOptions{})
+			framework.ExpectNoError(err, "Failed to update Kubernetes Service to remove BYO SG annotation")
+			cfg.svc = newSvc
+			framework.Logf("Removed BYO SG annotation from service")
+
+			// Step 3: Wait for controller to process the update and verify NLB has new managed SG
+			framework.Logf("Step 3: Waiting for controller to update NLB security groups and verifying new managed SG is attached")
+			err = wait.PollUntilContextTimeout(cfg.ctx, 5*time.Second, 2*time.Minute, true, func(ctx context.Context) (bool, error) {
+				managedSGs, err := getLoadBalancerSecurityGroups(cfg.ctx, lbDNS)
+				if err != nil {
+					framework.Logf("Failed to get load balancer security groups: %v", err)
+					return false, nil
+				}
+				if len(managedSGs) == 0 {
+					framework.Logf("No security groups attached yet")
+					return false, nil
+				}
+				if managedSGs[0] == cfg.byoSecurityGroupID {
+					framework.Logf("Still has BYO SG attached")
+					return false, nil
+				}
+				framework.Logf("NLB %s has security groups after removing BYO annotation: %+v", lbDNS, managedSGs)
+				return true, nil
+			})
+			framework.ExpectNoError(err, "Failed waiting for NLB to get new managed SG")
+
+			// Verify BYO SG still exists but is not attached
+			framework.Logf("Verifying BYO SG %s still exists", cfg.byoSecurityGroupID)
+			byoSG, err := getSecurityGroup(cfg.ctx, cfg.byoSecurityGroupID)
+			framework.ExpectNoError(err, "Failed to get BYO security group")
+			gomega.Expect(byoSG).ToNot(gomega.BeNil(), "BYO SG should still exist after transition to managed SG")
+			framework.Logf("✓ Verified: BYO SG %s still exists and was not deleted", cfg.byoSecurityGroupID)
+		},
+	},
+}
+
+// execute load balancer tests
+var _ = Describe("[cloud-provider-aws-e2e]", func() {
 	f := framework.NewDefaultFramework("cloud-provider-aws")
 	f.NamespacePodSecurityEnforceLevel = admissionapi.LevelPrivileged
 
@@ -75,335 +653,53 @@ var _ = Describe("[cloud-provider-aws-e2e] loadbalancer", func() {
 		// After each test
 	})
 
-	type loadBalancerTestCases struct {
-		// Overall test case configuration.
-		name             string
-		resourceSuffix   string
-		extraAnnotations map[string]string
-		listenerCount    int
-
-		// Hooks
-		// HookPostServiceConfig hook runs after the service manifest is created, and before the service is created.
-		hookPostServiceConfig func(cfg *e2eTestConfig)
-		// HookPostServiceCreate hook runs after the test is run.
-		hookPostServiceCreate func(cfg *e2eTestConfig)
-		// HookPreTest hook runs before the test is run.
-		hookPreTest func(cfg *e2eTestConfig)
-
-		// Flags to override default test behavior.
-		overrideTestRunInClusterReachableHTTP bool
-		requireAffinity                       bool
-
-		// Test verification
-		skipTestFailure bool
-	}
-	cases := []loadBalancerTestCases{
-		{
-			name:             "CLB should be reachable with default configurations",
-			resourceSuffix:   "",
-			extraAnnotations: map[string]string{},
-		},
-		{
-			name:             "NLB should be reachable with default configurations",
-			resourceSuffix:   "nlb",
-			extraAnnotations: map[string]string{annotationLBType: "nlb"},
-		},
-		{
-			name:             "NLB should be reachable with target-node-labels",
-			resourceSuffix:   "sg-nd",
-			extraAnnotations: map[string]string{annotationLBType: "nlb"},
-			hookPostServiceConfig: func(cfg *e2eTestConfig) {
-				framework.Logf("running hook post-service-config patching service annotations to test node label selector")
-				if cfg.svc.Annotations == nil {
-					cfg.svc.Annotations = map[string]string{}
-				}
-				cfg.svc.Annotations[annotationLBTargetNodeLabels] = cfg.nodeSelector
-			},
-			hookPostServiceCreate: func(cfg *e2eTestConfig) {
-				framework.Logf("running hook post-service-create to validate the number of targets in the load balancer selected")
-				if len(cfg.svc.Status.LoadBalancer.Ingress) == 0 {
-					framework.Failf("No ingress found in LoadBalancer status for service %s/%s", cfg.svc.Namespace, cfg.svc.Name)
-				}
-				lbDNS := cfg.svc.Status.LoadBalancer.Ingress[0].Hostname
-				framework.ExpectNoError(getLBTargetCount(cfg.ctx, lbDNS, cfg.nodeCount), "AWS LB target count validation failed")
-			},
-		},
-		// Hairpining traffic test for CLB.
-		{
-			name:           "CLB internal should be reachable with hairpinning traffic",
-			resourceSuffix: "hp-clb-int",
-			extraAnnotations: map[string]string{
-				annotationLBInternal: "true",
-			},
-			hookPostServiceConfig: func(cfg *e2eTestConfig) {
-				framework.Logf("running hook post-service-config patching service annotations to enforce LB pins/selects target to a single node: kubernetes.io/hostname=%s", cfg.nodeSingleSample)
-				if cfg.svc.Annotations == nil {
-					cfg.svc.Annotations = map[string]string{}
-				}
-				cfg.svc.Annotations[annotationLBTargetNodeLabels] = fmt.Sprintf("kubernetes.io/hostname=%s", cfg.nodeSingleSample)
-			},
-			overrideTestRunInClusterReachableHTTP: true,
-			requireAffinity:                       true,
-		},
-		// Hairpining traffic test for NLB.
-		// The target type instance (default) sets the preserve client IP attribute to true,
-		// the NLB target group attributes are set to preserve_client_ip.enabled=false to allow hairpining traffic.
-		// The test also validates the target group attributes are set correctly to AWS resource.
-		{
-			name:           "NLB internal should be reachable with hairpinning traffic",
-			resourceSuffix: "hp-nlb-int",
-			extraAnnotations: map[string]string{
-				annotationLBType:                  "nlb",
-				annotationLBInternal:              "true",
-				annotationLBTargetGroupAttributes: "preserve_client_ip.enabled=false",
-			},
-			listenerCount:                         1,
-			overrideTestRunInClusterReachableHTTP: true,
-			requireAffinity:                       true,
-			hookPostServiceConfig: func(cfg *e2eTestConfig) {
-				framework.Logf("running hook post-service-config patching service annotations to enforce LB pins/selects target to a single node: kubernetes.io/hostname=%s", cfg.nodeSingleSample)
-				if cfg.svc.Annotations == nil {
-					cfg.svc.Annotations = map[string]string{}
-				}
-				cfg.svc.Annotations[annotationLBTargetNodeLabels] = fmt.Sprintf("kubernetes.io/hostname=%s", cfg.nodeSingleSample)
-			},
-			hookPreTest: func(e2e *e2eTestConfig) {
-				framework.Logf("running hook pre-test: verify target group attributes are set correctly to AWS resource")
-
-				if e2e.svc.Status.LoadBalancer.Ingress[0].Hostname == "" && e2e.svc.Status.LoadBalancer.Ingress[0].IP == "" {
-					framework.Failf("LoadBalancer ingress is empty (no hostname or IP) for service %s/%s", e2e.svc.Namespace, e2e.svc.Name)
-				}
-
-				hostAddr := e2eservice.GetIngressPoint(&e2e.svc.Status.LoadBalancer.Ingress[0])
-				framework.Logf("Load balancer's ingress address: %s", hostAddr)
-
-				if hostAddr == "" {
-					framework.Failf("Unable to get LoadBalancer ingress address for service %s/%s", e2e.svc.Namespace, e2e.svc.Name)
-				}
-
-				elbClient, err := getAWSClientLoadBalancer(e2e.ctx)
-				framework.ExpectNoError(err, "failed to create AWS ELB client")
-
-				// DescribeLoadBalancers API doesn't support filtering by DNS name directly
-				// Use AWS SDK paginator to search through all load balancers
-				foundLB, err := getAWSLoadBalancerFromDNSName(e2e.ctx, elbClient, hostAddr)
-				framework.ExpectNoError(err, "failed to find load balancer with DNS name %s", hostAddr)
-				if foundLB == nil {
-					framework.Failf("Found load balancer is nil for DNS name %s", hostAddr)
-				}
-
-				lbARN := aws.ToString(foundLB.LoadBalancerArn)
-				if lbARN == "" {
-					framework.Failf("Load balancer ARN is empty for DNS name %s", hostAddr)
-				}
-				framework.Logf("Found load balancer: %s with ARN: %s", aws.ToString(foundLB.LoadBalancerName), lbARN)
-
-				// lookup target group ARN from load balancer ARN
-				targetGroups, err := elbClient.DescribeTargetGroups(e2e.ctx, &elbv2.DescribeTargetGroupsInput{
-					LoadBalancerArn: aws.String(lbARN),
-				})
-				framework.ExpectNoError(err, "failed to describe target groups")
-				gomega.Expect(len(targetGroups.TargetGroups)).To(gomega.Equal(1))
-
-				targetGroupAttributes, err := elbClient.DescribeTargetGroupAttributes(e2e.ctx, &elbv2.DescribeTargetGroupAttributesInput{
-					TargetGroupArn: aws.String(aws.ToString(targetGroups.TargetGroups[0].TargetGroupArn)),
-				})
-				framework.ExpectNoError(err, "failed to describe target group attributes")
-
-				// verify if the target group attributes are set correctly
-
-				annotationToDict := map[string]string{}
-				for _, v := range strings.Split(e2e.svc.Annotations[annotationLBTargetGroupAttributes], ",") {
-					parts := strings.Split(v, "=")
-					annotationToDict[parts[0]] = parts[1]
-				}
-				framework.Logf("TG attribute Annotation to dict: %v", annotationToDict)
-
-				framework.Logf("=== All Target Group Attributes from AWS ===")
-				for _, attr := range targetGroupAttributes.Attributes {
-					framework.Logf("  %s=%s", aws.ToString(attr.Key), aws.ToString(attr.Value))
-				}
-
-				framework.Logf("=== Expected Target Group Attributes from Annotation ===")
-				for key, value := range annotationToDict {
-					framework.Logf("  %s=%s", key, value)
-				}
-
-				// Check if our expected attributes are present and match
-				framework.Logf("=== Verifying Target Group Attributes ===")
-				for _, attr := range targetGroupAttributes.Attributes {
-					if expectedValue, ok := annotationToDict[aws.ToString(attr.Key)]; ok {
-						actualValue := aws.ToString(attr.Value)
-						framework.Logf("Checking attribute: %s", aws.ToString(attr.Key))
-						framework.Logf("  Expected: %s", expectedValue)
-						framework.Logf("  Actual:   %s", actualValue)
-
-						if actualValue != expectedValue {
-							framework.Failf("Target group attribute mismatch for %s: expected %s, got %s", aws.ToString(attr.Key), expectedValue, actualValue)
-						} else {
-							framework.Logf("✓ Target group attribute %s matches expected value %s", aws.ToString(attr.Key), expectedValue)
-						}
-					}
-				}
-			},
-		},
-	}
-
-	serviceNameBase := "lbconfig-test"
-	for _, tc := range cases {
-		It(tc.name, func(ctx context.Context) {
-			By("setting up test environment and discovering worker nodes")
-			e2e := newE2eTestConfig(cs)
-			e2e.discoverClusterWorkerNode()
-			framework.Logf("[SETUP] Test case: %s", tc.name)
-			framework.Logf("[SETUP] Worker nodes discovered: %d nodes, selector: %s, sample node: %s", e2e.nodeCount, e2e.nodeSelector, e2e.nodeSingleSample)
-
-			loadBalancerCreateTimeout := e2eservice.GetServiceLoadBalancerCreationTimeout(ctx, cs)
-			framework.Logf("[CONFIG] AWS load balancer timeout: %s", loadBalancerCreateTimeout)
-
-			By("building service configuration with annotations")
-			serviceName := serviceNameBase
-			if len(tc.resourceSuffix) > 0 {
-				serviceName = serviceName + "-" + tc.resourceSuffix
-			}
-			framework.Logf("[CONFIG] Service name: %s, namespace: %s", serviceName, ns.Name)
-			e2e.LBJig = e2eservice.NewTestJig(cs, ns.Name, serviceName)
-
-			// Hook annotations to support dynamic config
-			e2e.svc = e2e.buildService(tc.listenerCount, tc.extraAnnotations)
-			framework.Logf("[CONFIG] Service ports: %d, extra annotations: %v", len(e2e.svc.Spec.Ports), tc.extraAnnotations)
-
-			if tc.hookPostServiceConfig != nil {
-				By("executing hook post-service-config: applying service configuration")
-				framework.Logf("[HOOK] Executing post-service-config hook")
-				tc.hookPostServiceConfig(e2e)
-				framework.Logf("[HOOK] Final service annotations: %v", e2e.svc.Annotations)
-			}
-
-			By("creating LoadBalancer service in Kubernetes")
-			if _, err := e2e.LBJig.Client.CoreV1().Services(e2e.LBJig.Namespace).Create(context.TODO(), e2e.svc, metav1.CreateOptions{}); err != nil {
-				framework.ExpectNoError(fmt.Errorf("failed to create LoadBalancer Service %q: %v", e2e.svc.Name, err))
-			}
-			framework.Logf("[K8S] LoadBalancer service created successfully")
-
-			By("waiting for AWS load balancer provisioning")
-			var err error
-			e2e.svc, err = e2e.LBJig.WaitForLoadBalancer(ctx, loadBalancerCreateTimeout)
-			// Collect comprehensive debugging information when LoadBalancer provisioning fails
-			if err != nil {
-				serviceName := e2e.LBJig.Name
-				if e2e.svc != nil {
-					serviceName = e2e.svc.Name
-				}
-				framework.Logf("ERROR: LoadBalancer provisioning failed for service %q: %v", serviceName, err)
-				framework.Logf("ERROR: LoadBalancer provisioning timeout reached after %v", loadBalancerCreateTimeout)
-
-				// Ensure we have detailed debugging information before failing
-				framework.Logf("=== LoadBalancer Provisioning Failure Debug Information ===")
-				gatherEventosOnFailure(e2e.ctx, e2e.kubeClient, e2e.LBJig.Namespace, e2e.LBJig.Name)
-				framework.Logf("=== End of LoadBalancer Provisioning Failure Debug Information ===")
-
-				// Fail the test immediately to prevent further execution
-				framework.ExpectNoError(err, "LoadBalancer provisioning failed - check debug information above")
-			}
-			framework.Logf("[AWS] Load balancer provisioned successfully")
-
-			By("creating backend server pods")
-			_, err = e2e.LBJig.Run(ctx, e2e.buildDeployment(tc.requireAffinity))
-			if err != nil {
-				serviceName := e2e.LBJig.Name
-				if e2e.svc != nil {
-					serviceName = e2e.svc.Name
-				}
-				framework.Logf("ERROR: LoadBalancer provisioning failed for service %q: %v", serviceName, err)
-				framework.Logf("ERROR: LoadBalancer provisioning timeout reached after %v", loadBalancerCreateTimeout)
-
-				// Ensure we have detailed debugging information before failing
-				framework.Logf("=== LoadBalancer Provisioning Failure Debug Information ===")
-				gatherEventosOnFailure(e2e.ctx, e2e.kubeClient, e2e.LBJig.Namespace, e2e.LBJig.Name)
-				framework.Logf("=== End of LoadBalancer Provisioning Failure Debug Information ===")
-
-				// Fail the test immediately to prevent further execution
-				framework.ExpectNoError(err, "LoadBalancer provisioning failed - check debug information above")
-			}
-
-			framework.Logf("[K8S] Backend pods created, affinity required: %t", tc.requireAffinity)
-
-			if tc.hookPostServiceCreate != nil {
-				By("executing hook post-service-create: applying service configuration")
-				tc.hookPostServiceCreate(e2e)
-			}
-
-			By("collecting service and load balancer information")
-			if e2e.svc == nil {
-				framework.Logf("=== Service Validation Error Debug Information ===")
-				gatherEventosOnFailure(e2e.ctx, e2e.kubeClient, e2e.LBJig.Namespace, e2e.LBJig.Name)
-				framework.Logf("=== End of Service Validation Error Debug Information ===")
-				framework.Failf("Service is nil after LoadBalancer provisioning for service %s", e2e.LBJig.Name)
-			}
-			if len(e2e.svc.Spec.Ports) == 0 {
-				framework.Logf("=== Service Ports Error Debug Information ===")
-				framework.Logf("Service spec: %+v", e2e.svc.Spec)
-				gatherEventosOnFailure(e2e.ctx, e2e.kubeClient, e2e.LBJig.Namespace, e2e.LBJig.Name)
-				framework.Logf("=== End of Service Ports Error Debug Information ===")
-				framework.Failf("No ports found in service spec for service %s/%s", e2e.svc.Namespace, e2e.svc.Name)
-			}
-			if len(e2e.svc.Status.LoadBalancer.Ingress) == 0 {
-				framework.Logf("=== LoadBalancer Ingress Error Debug Information ===")
-				framework.Logf("Service status: %+v", e2e.svc.Status)
-				gatherEventosOnFailure(e2e.ctx, e2e.kubeClient, e2e.LBJig.Namespace, e2e.LBJig.Name)
-				framework.Logf("=== End of LoadBalancer Ingress Error Debug Information ===")
-				framework.Failf("No ingress found in LoadBalancer status for service %s/%s", e2e.svc.Namespace, e2e.svc.Name)
-			}
-
-			svcPort := int(e2e.svc.Spec.Ports[0].Port)
-			ingressAddress := e2eservice.GetIngressPoint(&e2e.svc.Status.LoadBalancer.Ingress[0])
-			framework.Logf("[LB-INFO] Ingress address: %s, port: %d", ingressAddress, svcPort)
-
-			if ingressAddress == "" {
-				framework.Logf("=== Empty Ingress Address Debug Information ===")
-				framework.Logf("LoadBalancer ingress[0]: %+v", e2e.svc.Status.LoadBalancer.Ingress[0])
-				gatherEventosOnFailure(e2e.ctx, e2e.kubeClient, e2e.LBJig.Namespace, e2e.LBJig.Name)
-				framework.Logf("=== End of Empty Ingress Address Debug Information ===")
-				framework.Failf("LoadBalancer ingress address is empty for service %s/%s", e2e.svc.Namespace, e2e.svc.Name)
-			}
-
-			if tc.hookPreTest != nil {
-				By("executing pre-test hook")
-				tc.hookPreTest(e2e)
-			}
-
-			// overrideTestRunInClusterReachableHTTP changes the default test function to run the client in the cluster.
-			if tc.overrideTestRunInClusterReachableHTTP {
-				By("testing HTTP connectivity for internal load balancer")
-				framework.Logf("[TEST] Running internal connectivity test from node: %s", e2e.nodeSingleSample)
-				err := inClusterTestReachableHTTP(cs, ns.Name, e2e.nodeSingleSample, ingressAddress, svcPort)
-				if err != nil && tc.skipTestFailure {
-					Skip(err.Error())
-				}
-				framework.ExpectNoError(err)
-			} else {
-				By("testing HTTP connectivity for external/internet-facing load balancer")
-				framework.Logf("[TEST] Running external connectivity test to %s:%d", ingressAddress, svcPort)
-				e2eservice.TestReachableHTTP(ctx, ingressAddress, svcPort, e2eservice.LoadBalancerLagTimeoutAWS)
-			}
-			framework.Logf("[TEST] HTTP connectivity test completed successfully")
-
-			// Update the service to cluster IP
-			By("cleaning up: converting service to ClusterIP")
-			_, err = e2e.LBJig.UpdateService(ctx, func(s *v1.Service) {
-				s.Spec.Type = v1.ServiceTypeClusterIP
+	// run all load balancer tests with the default configuration
+	Context("loadbalancer", func() {
+		// CLB tests
+		for _, tc := range clbTests {
+			It(tc.name, func(ctx context.Context) {
+				runTestCase(ctx, tc, cs, ns)
 			})
-			framework.ExpectNoError(err)
+		}
 
-			// Wait for the load balancer to be destroyed asynchronously
-			By("cleaning up: waiting for load balancer destruction")
-			framework.Logf("[CLEANUP] Waiting for load balancer destruction")
-			_, err = e2e.LBJig.WaitForLoadBalancerDestroy(ctx, ingressAddress, svcPort, loadBalancerCreateTimeout)
-			framework.ExpectNoError(err)
-			framework.Logf("[CLEANUP] Load balancer destroyed successfully")
+		// Generic NLB tests
+		for _, tc := range nlbTests {
+			It(tc.name, func(ctx context.Context) {
+				runTestCase(ctx, tc, cs, ns)
+			})
+		}
+
+		// NLBSecurityGroupMode=Managed specific tests
+		for _, tc := range managedSgModeNLBTests {
+			It(tc.name, func(ctx context.Context) {
+				runTestCase(ctx, tc, cs, ns)
+			})
+		}
+	})
+
+	// Run relevant NLB tests with NLBSecurityGroupMode disabled via cloud config override
+	Context("[nlb-security-group-mode-disabled] loadbalancer", Serial, Ordered, func() {
+		cloudConfigMgr := newCloudConfigManager(withRestartTimeout(3 * time.Minute))
+
+		BeforeAll(func(ctx context.Context) {
+			// Disable NLB managed security group mode by setting an empty config (default CCM configuration)
+			err := cloudConfigMgr.setCloudConfig(ctx, cs, "")
+			framework.ExpectNoError(err, "Failed to disable NLB managed security group mode")
 		})
-	}
+
+		// Only run nlb tests not tied to NLBSecurityGroupMode=Managed
+		for _, tc := range nlbTests {
+			It(tc.name, func(ctx context.Context) {
+				runTestCase(ctx, tc, cs, ns)
+			})
+		}
+
+		AfterAll(func(ctx context.Context) {
+			// Restore original CCM configuration
+			err := cloudConfigMgr.restoreCloudConfig(ctx, cs)
+			framework.ExpectNoError(err, "Failed to restore original CCM configuration")
+		})
+	})
 })
 
 type e2eTestConfig struct {
@@ -416,6 +712,7 @@ type e2eTestConfig struct {
 	cfgPodProtocol        v1.Protocol
 	cfgDefaultAnnotations map[string]string
 	LBJig                 *e2eservice.TestJig
+	byoSecurityGroupID    string
 
 	// service instance
 	svc *v1.Service
@@ -997,4 +1294,154 @@ func gatherEventosOnFailure(ctx context.Context, cs clientset.Interface, namespa
 	gatherAllEvents(ctx, cs, namespace, resourceName)
 	gatherControllerLogs(ctx, cs, namespace, resourceName)
 	gatherServiceStatus(ctx, cs, namespace, resourceName)
+}
+
+// getAWSClientEC2 creates an EC2 client for AWS operations
+func getAWSClientEC2(ctx context.Context) (*ec2.Client, error) {
+	cfg, err := config.LoadDefaultConfig(ctx,
+		config.WithRetryer(func() aws.Retryer {
+			return retry.AddWithMaxAttempts(retry.NewStandard(), 10)
+		}),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to load AWS config: %w", err)
+	}
+	return ec2.NewFromConfig(cfg), nil
+}
+
+// createSecurityGroup creates a security group for testing
+func createSecurityGroup(ctx context.Context, cfg *e2eTestConfig, name, description string) (string, error) {
+	ec2Client, err := getAWSClientEC2(ctx)
+	if err != nil {
+		return "", err
+	}
+
+	// Get VPC ID from any node in the cluster
+	nodes, err := cfg.kubeClient.CoreV1().Nodes().List(ctx, metav1.ListOptions{})
+	if err != nil {
+		return "", fmt.Errorf("failed to list nodes: %w", err)
+	}
+	if len(nodes.Items) == 0 {
+		return "", fmt.Errorf("no nodes found in cluster")
+	}
+
+	// Extract VPC ID from node's provider ID
+	// Provider ID format: aws:///us-west-2a/i-0123456789abcdef0
+	providerID := nodes.Items[0].Spec.ProviderID
+	if providerID == "" {
+		return "", fmt.Errorf("node %s has no provider ID", nodes.Items[0].Name)
+	}
+
+	// Get instance details to find VPC ID
+	instanceID := providerID[strings.LastIndex(providerID, "/")+1:]
+	describeResult, err := ec2Client.DescribeInstances(ctx, &ec2.DescribeInstancesInput{
+		InstanceIds: []string{instanceID},
+	})
+	if err != nil {
+		return "", fmt.Errorf("failed to describe instance: %w", err)
+	}
+	if len(describeResult.Reservations) == 0 || len(describeResult.Reservations[0].Instances) == 0 {
+		return "", fmt.Errorf("instance not found: %s", instanceID)
+	}
+
+	vpcID := describeResult.Reservations[0].Instances[0].VpcId
+	if vpcID == nil {
+		return "", fmt.Errorf("instance has no VPC ID")
+	}
+
+	// Create security group
+	result, err := ec2Client.CreateSecurityGroup(ctx, &ec2.CreateSecurityGroupInput{
+		GroupName:   aws.String(name),
+		Description: aws.String(description),
+		VpcId:       vpcID,
+	})
+	if err != nil {
+		return "", fmt.Errorf("failed to create security group: %w", err)
+	}
+
+	return aws.ToString(result.GroupId), nil
+}
+
+// authorizeSecurityGroupToPorts adds ingress rules for the given service ports
+func authorizeSecurityGroupToPorts(ctx context.Context, securityGroupID string, ports []v1.ServicePort) error {
+	ec2Client, err := getAWSClientEC2(ctx)
+	if err != nil {
+		return err
+	}
+
+	permissions := make([]ec2types.IpPermission, 0, len(ports))
+	for _, port := range ports {
+		protocol := strings.ToLower(string(port.Protocol))
+		permissions = append(permissions, ec2types.IpPermission{
+			IpProtocol: aws.String(protocol),
+			FromPort:   aws.Int32(port.Port),
+			ToPort:     aws.Int32(port.Port),
+			IpRanges: []ec2types.IpRange{
+				{CidrIp: aws.String("0.0.0.0/0")},
+			},
+		})
+	}
+
+	_, err = ec2Client.AuthorizeSecurityGroupIngress(ctx, &ec2.AuthorizeSecurityGroupIngressInput{
+		GroupId:       aws.String(securityGroupID),
+		IpPermissions: permissions,
+	})
+	if err != nil {
+		return fmt.Errorf("failed to authorize security group ingress: %w", err)
+	}
+
+	return nil
+}
+
+// getLoadBalancerSecurityGroups retrieves security groups attached to a load balancer
+func getLoadBalancerSecurityGroups(ctx context.Context, lbDNS string) ([]string, error) {
+	elbClient, err := getAWSClientLoadBalancer(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	lb, err := getAWSLoadBalancerFromDNSName(ctx, elbClient, lbDNS)
+	if err != nil {
+		return nil, err
+	}
+
+	return lb.SecurityGroups, nil
+}
+
+// deleteSecurityGroup deletes a security group
+func deleteSecurityGroup(ctx context.Context, securityGroupID string) error {
+	ec2Client, err := getAWSClientEC2(ctx)
+	if err != nil {
+		return err
+	}
+
+	_, err = ec2Client.DeleteSecurityGroup(ctx, &ec2.DeleteSecurityGroupInput{
+		GroupId: aws.String(securityGroupID),
+	})
+	if err != nil {
+		return fmt.Errorf("failed to delete security group %s: %w", securityGroupID, err)
+	}
+
+	return nil
+}
+
+// getSecurityGroup retrieves a security group by ID
+func getSecurityGroup(ctx context.Context, securityGroupID string) (*ec2types.SecurityGroup, error) {
+	ec2Client, err := getAWSClientEC2(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	result, err := ec2Client.DescribeSecurityGroups(ctx, &ec2.DescribeSecurityGroupsInput{
+		GroupIds: []string{securityGroupID},
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to describe security group: %w", err)
+	}
+
+	if len(result.SecurityGroups) == 0 {
+		return nil, fmt.Errorf("security group not found: %s", securityGroupID)
+	}
+
+	return &result.SecurityGroups[0], nil
 }
