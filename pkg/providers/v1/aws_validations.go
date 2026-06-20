@@ -104,11 +104,25 @@ func validateServiceAnnotations(v *awsValidationInput) error {
 func validateServiceAnnotationTargetGroupAttributes(v *awsValidationInput) error {
 	errPrefix := "error validating target group attributes"
 
-	// Attributes are in format key=value separated by comma.
-	annotationGroupAttributes := getKeyValuePropertiesFromAnnotation(v.annotations, ServiceAnnotationLoadBalancerTargetGroupAttributes)
-	targetGroupAttributes := make(map[string]string, len(annotationGroupAttributes))
+	annotationValue, ok := v.annotations[ServiceAnnotationLoadBalancerTargetGroupAttributes]
+	if !ok {
+		return nil
+	}
 
-	for attrKey, attrValue := range annotationGroupAttributes {
+	targetGroupAttributes := make(map[string]string)
+	for _, rawAttribute := range strings.Split(strings.TrimSpace(annotationValue), ",") {
+		rawAttribute = strings.TrimSpace(rawAttribute)
+		if rawAttribute == "" {
+			continue
+		}
+
+		attrParts := strings.SplitN(rawAttribute, "=", 2)
+		attrKey := attrParts[0]
+		attrValue := ""
+		if len(attrParts) == 2 {
+			attrValue = attrParts[1]
+		}
+
 		if _, ok := targetGroupAttributes[attrKey]; ok {
 			return fmt.Errorf("%s: %q is set twice in the annotation", errPrefix, attrKey)
 		}

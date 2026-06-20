@@ -100,14 +100,14 @@ func TestValidateServiceAnnotationTargetGroupAttributes(t *testing.T) {
 			expectedError: "",
 		},
 		{
-			name: "duplicate attribute in annotation (last one wins - no error expected)",
+			name: "duplicate attribute in annotation",
 			annotations: map[string]string{
 				ServiceAnnotationLoadBalancerTargetGroupAttributes: "preserve_client_ip.enabled=true,preserve_client_ip.enabled=false",
 			},
 			servicePorts: []v1.ServicePort{
 				{Port: 80, Protocol: v1.ProtocolTCP},
 			},
-			expectedError: "", // getKeyValuePropertiesFromAnnotation overwrites, so no duplicate detection
+			expectedError: "\"preserve_client_ip.enabled\" is set twice in the annotation",
 		},
 		{
 			name: "empty attribute value",
