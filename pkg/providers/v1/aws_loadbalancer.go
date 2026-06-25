@@ -156,6 +156,15 @@ func (c *Cloud) ensureLoadBalancerv2(ctx context.Context, namespacedName types.N
 
 	// Get additional tags set by the user
 	tags := getKeyValuePropertiesFromAnnotation(annotations, ServiceAnnotationLoadBalancerAdditionalTags)
+
+	// Record which keys the controller owns from the annotation,
+	managedTagKeys := sets.List(sets.KeySet(tags))
+
+	// The marker is only set when the user supplies additional tags;
+	if len(managedTagKeys) > 0 {
+		tags[TagNameKubernetesManagedTags] = strings.Join(managedTagKeys, ",")
+	}
+
 	// Add default tags
 	tags[TagNameKubernetesService] = namespacedName.String()
 	tags = c.tagging.buildTags(ResourceLifecycleOwned, tags)
@@ -272,6 +281,10 @@ func (c *Cloud) ensureLoadBalancerv2(ctx context.Context, namespacedName types.N
 				nodePortTargetGroup[*targetGroup.Port] = &targetGroup
 			}
 
+			// resourceARNs collects the pre-existing resources that survive this reconcile, so
+			// their tags can be reconciled below.
+			resourceARNs := []string{aws.ToString(loadBalancer.LoadBalancerArn)}
+
 			// Handle additions/modifications
 			for _, mapping := range mappings {
 				frontendPort := mapping.FrontendPort
@@ -279,6 +292,8 @@ func (c *Cloud) ensureLoadBalancerv2(ctx context.Context, namespacedName types.N
 				nodePort := mapping.TrafficPort
 				// modifications
 				if listener, ok := actual[frontendPort][frontendProtocol]; ok {
+					// Surviving listener: reconcile its tags.
+					resourceARNs = append(resourceARNs, aws.ToString(listener.ListenerArn))
 					listenerNeedsModification := false
 
 					if listener.Protocol != mapping.FrontendProtocol {
@@ -365,6 +380,8 @@ func (c *Cloud) ensureLoadBalancerv2(ctx context.Context, namespacedName types.N
 							return nil, fmt.Errorf("error deleting old target group: %q", err)
 						}
 					} else {
+						// Surviving target group: reconcile its tags.
+						resourceARNs = append(resourceARNs, aws.ToString(targetGroup.TargetGroupArn))
 						// Run ensureTargetGroup to make sure instances in service are up-to-date
 						_, err = c.ensureTargetGroup(ctx,
 							targetGroup,
@@ -409,6 +426,11 @@ func (c *Cloud) ensureLoadBalancerv2(ctx context.Context, namespacedName types.N
 						dirty = true
 					}
 				}
+			}
+
+			// Reconcile tags on the LB and all surviving listeners and target groups collected.
+			if err := c.ensureLoadBalancerResourceTagsV2(ctx, resourceARNs, tags); err != nil {
+				return nil, err
 			}
 		}
 		if err := c.reconcileLBAttributes(ctx, aws.ToString(loadBalancer.LoadBalancerArn), annotations); err != nil {

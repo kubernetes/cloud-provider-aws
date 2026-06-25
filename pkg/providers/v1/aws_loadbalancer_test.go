@@ -2503,3 +2503,303 @@ func TestCloud_ensureTargetGroupTargets(t *testing.T) {
 		})
 	}
 }
+
+// mockELBV2WithDelete extends MockedFakeELBV2 with a working DeleteListener.
+type mockELBV2WithDelete struct {
+	*MockedFakeELBV2
+}
+
+func (m *mockELBV2WithDelete) DeleteListener(ctx context.Context, input *elbv2.DeleteListenerInput, optFns ...func(*elbv2.Options)) (*elbv2.DeleteListenerOutput, error) {
+	kept := m.Listeners[:0]
+	for _, l := range m.Listeners {
+		if aws.ToString(l.ListenerArn) != aws.ToString(input.ListenerArn) {
+			kept = append(kept, l)
+		}
+	}
+	m.Listeners = kept
+	return &elbv2.DeleteListenerOutput{}, nil
+}
+
+func TestEnsureLoadBalancerv2_Annotations(t *testing.T) {
+	hasTag := func(tags []elbv2types.Tag, key, val string) bool {
+		for _, tag := range tags {
+			if aws.ToString(tag.Key) == key && aws.ToString(tag.Value) == val {
+				return true
+			}
+		}
+		return false
+	}
+
+	hasTagKey := func(tags []elbv2types.Tag, key string) bool {
+		for _, tag := range tags {
+			if aws.ToString(tag.Key) == key {
+				return true
+			}
+		}
+		return false
+	}
+
+	tagValue := func(tags []elbv2types.Tag, key string) string {
+		for _, tag := range tags {
+			if aws.ToString(tag.Key) == key {
+				return aws.ToString(tag.Value)
+			}
+		}
+		return ""
+	}
+
+	arnByPort := func(base *MockedFakeELBV2, port int32) string {
+		for _, l := range base.Listeners {
+			if aws.ToInt32(l.Port) == port {
+				return aws.ToString(l.ListenerArn)
+			}
+		}
+		return ""
+	}
+
+	targetGroupARNs := func(base *MockedFakeELBV2) []string {
+		arns := make([]string, 0, len(base.TargetGroups))
+		for _, tg := range base.TargetGroups {
+			arns = append(arns, aws.ToString(tg.TargetGroupArn))
+		}
+		return arns
+	}
+
+	newServices := func(t *testing.T, elbv2Client ELBV2) (*Cloud, *FakeAWSServices) {
+		t.Helper()
+		awsServices := newMockedFakeAWSServices(TestClusterID)
+		awsServices.elbv2 = elbv2Client
+		c, _ := newAWSCloud(config.CloudConfig{}, awsServices)
+		awsServices.ec2.(*MockedFakeEC2).Subnets = []ec2types.Subnet{
+			{
+				AvailabilityZone: aws.String("us-west-2a"),
+				SubnetId:         aws.String("subnet-abc123de"),
+				Tags:             []ec2types.Tag{{Key: aws.String(c.tagging.clusterTagKey()), Value: aws.String("owned")}},
+			},
+		}
+		awsServices.ec2.(*MockedFakeEC2).RouteTables = []ec2types.RouteTable{
+			{
+				Associations: []ec2types.RouteTableAssociation{{
+					Main:                    aws.Bool(true),
+					RouteTableAssociationId: aws.String("rtbassoc-abc123def456abc78"),
+					RouteTableId:            aws.String("rtb-abc123def456abc78"),
+					SubnetId:                aws.String("subnet-abc123de"),
+				}},
+				RouteTableId: aws.String("rtb-abc123def456abc78"),
+				Routes: []ec2types.Route{{
+					DestinationCidrBlock: aws.String("0.0.0.0/0"),
+					GatewayId:            aws.String("igw-abc123def456abc78"),
+					State:                ec2types.RouteStateActive,
+				}},
+			},
+		}
+		awsServices.ec2.(*MockedFakeEC2).maybeExpectDescribeSecurityGroups(TestClusterID, "k8s-elb-aid")
+		return c, awsServices
+	}
+
+	tests := []struct {
+		name        string
+		ports       []v1.ServicePort
+		annotations map[string]string
+
+		// Optional second "update" reconcile. When both are empty, only the
+		// initial create reconcile runs.
+		updatePorts       []v1.ServicePort
+		updateAnnotations map[string]string
+
+		// Optional hook run between the create and update reconciles, e.g. to
+		// simulate tags added out-of-band directly on the AWS resources.
+		beforeUpdate func(t *testing.T, base *MockedFakeELBV2)
+
+		assert func(t *testing.T, base *MockedFakeELBV2)
+	}{
+		{
+			name:  "update existing tag and add new tag on update",
+			ports: []v1.ServicePort{{Name: "http", Port: 8080, NodePort: 31173, Protocol: v1.ProtocolTCP}},
+			annotations: map[string]string{
+				ServiceAnnotationLoadBalancerAdditionalTags: "mykey=oldval",
+			},
+			updateAnnotations: map[string]string{
+				ServiceAnnotationLoadBalancerAdditionalTags: "mykey=newval,env=prod",
+			},
+			assert: func(t *testing.T, base *MockedFakeELBV2) {
+				lbARN := aws.ToString(base.LoadBalancers[0].LoadBalancerArn)
+				listenerARN := aws.ToString(base.Listeners[0].ListenerArn)
+				// Existing tag updated to its new value on both LB and listener.
+				assert.True(t, hasTag(base.Tags[lbARN], "mykey", "newval"), "LB missing updated tag value")
+				assert.True(t, hasTag(base.Tags[listenerARN], "mykey", "newval"), "listener missing updated tag value")
+				// New tag added on both LB and listener.
+				assert.True(t, hasTag(base.Tags[lbARN], "env", "prod"), "LB missing newly added tag")
+				assert.True(t, hasTag(base.Tags[listenerARN], "env", "prod"), "listener missing newly added tag")
+			},
+		},
+		{
+			name: "tag survives listener delete",
+			ports: []v1.ServicePort{
+				{Name: "http", Port: 80, NodePort: 31173, Protocol: v1.ProtocolTCP},
+				{Name: "alt", Port: 8080, NodePort: 31174, Protocol: v1.ProtocolTCP},
+			},
+			annotations: map[string]string{
+				ServiceAnnotationLoadBalancerAdditionalTags: "env=staging",
+			},
+			updatePorts: []v1.ServicePort{{Name: "alt", Port: 8080, NodePort: 31174, Protocol: v1.ProtocolTCP}},
+			assert: func(t *testing.T, base *MockedFakeELBV2) {
+				lbARN := aws.ToString(base.LoadBalancers[0].LoadBalancerArn)
+				assert.Empty(t, arnByPort(base, 80), "port 80 listener should be deleted")
+				assert.True(t, hasTag(base.Tags[arnByPort(base, 8080)], "env", "staging"), "port 8080 missing tag after delete")
+				assert.True(t, hasTag(base.Tags[lbARN], "env", "staging"), "LB missing tag after delete")
+			},
+		},
+		{
+			name:  "additional tags propagate to target groups on update",
+			ports: []v1.ServicePort{{Name: "http", Port: 80, NodePort: 31173, Protocol: v1.ProtocolTCP}},
+			annotations: map[string]string{
+				ServiceAnnotationLoadBalancerAdditionalTags: "team=infra",
+			},
+			updateAnnotations: map[string]string{
+				ServiceAnnotationLoadBalancerAdditionalTags: "team=infra,env=prod",
+			},
+			assert: func(t *testing.T, base *MockedFakeELBV2) {
+				require.NotEmpty(t, base.TargetGroups, "expected at least one target group")
+				for _, tgARN := range targetGroupARNs(base) {
+					assert.True(t, hasTag(base.Tags[tgARN], "team", "infra"), "target group %s missing tag team=infra", tgARN)
+					assert.True(t, hasTag(base.Tags[tgARN], "env", "prod"), "target group %s missing newly added tag env=prod", tgARN)
+				}
+			},
+		},
+		{
+			name:  "removing a tag key removes it from LB, listeners, and target groups",
+			ports: []v1.ServicePort{{Name: "http", Port: 80, NodePort: 31173, Protocol: v1.ProtocolTCP}},
+			annotations: map[string]string{
+				ServiceAnnotationLoadBalancerAdditionalTags: "keep=yes,drop=bye",
+			},
+			beforeUpdate: func(t *testing.T, base *MockedFakeELBV2) {
+				// A tag added directly on the AWS resources, not by the controller.
+				outOfBand := elbv2types.Tag{Key: aws.String("external"), Value: aws.String("keep")}
+				arns := []string{aws.ToString(base.LoadBalancers[0].LoadBalancerArn)}
+				for _, l := range base.Listeners {
+					arns = append(arns, aws.ToString(l.ListenerArn))
+				}
+				arns = append(arns, targetGroupARNs(base)...)
+				for _, arn := range arns {
+					base.Tags[arn] = append(base.Tags[arn], outOfBand)
+				}
+			},
+			updateAnnotations: map[string]string{
+				ServiceAnnotationLoadBalancerAdditionalTags: "keep=yes",
+			},
+			assert: func(t *testing.T, base *MockedFakeELBV2) {
+				arns := []string{aws.ToString(base.LoadBalancers[0].LoadBalancerArn)}
+				for _, l := range base.Listeners {
+					arns = append(arns, aws.ToString(l.ListenerArn))
+				}
+				arns = append(arns, targetGroupARNs(base)...)
+				require.Greater(t, len(arns), 2, "expected LB, listener, and target group ARNs")
+				for _, arn := range arns {
+					assert.False(t, hasTagKey(base.Tags[arn], "drop"), "removed key 'drop' should be gone from %s", arn)
+					assert.True(t, hasTag(base.Tags[arn], "keep", "yes"), "kept tag missing from %s", arn)
+					// Out-of-band tag is preserved.
+					assert.True(t, hasTag(base.Tags[arn], "external", "keep"), "out-of-band tag should survive on %s", arn)
+					// Marker reflects only the still-managed key.
+					assert.Equal(t, "keep", tagValue(base.Tags[arn], TagNameKubernetesManagedTags), "marker mismatch on %s", arn)
+					// Controller/system tags are preserved.
+					assert.True(t, hasTag(base.Tags[arn], TagNameKubernetesService, "default/myservice"), "service tag missing on %s", arn)
+					assert.True(t, hasTag(base.Tags[arn], TagNameKubernetesClusterPrefix+TestClusterID, "owned"), "cluster tag missing on %s", arn)
+				}
+			},
+		},
+		{
+			name:  "clearing all additional tags removes the marker and managed tags",
+			ports: []v1.ServicePort{{Name: "http", Port: 80, NodePort: 31173, Protocol: v1.ProtocolTCP}},
+			annotations: map[string]string{
+				ServiceAnnotationLoadBalancerAdditionalTags: "only=one",
+			},
+			updateAnnotations: map[string]string{
+				ServiceAnnotationLoadBalancerAdditionalTags: "",
+			},
+			assert: func(t *testing.T, base *MockedFakeELBV2) {
+				lbARN := aws.ToString(base.LoadBalancers[0].LoadBalancerArn)
+				assert.False(t, hasTagKey(base.Tags[lbARN], "only"), "managed tag 'only' should be removed")
+				assert.False(t, hasTagKey(base.Tags[lbARN], TagNameKubernetesManagedTags), "marker should be removed when no managed tags remain")
+				// System tags survive.
+				assert.True(t, hasTag(base.Tags[lbARN], TagNameKubernetesService, "default/myservice"), "service tag missing")
+				assert.True(t, hasTag(base.Tags[lbARN], TagNameKubernetesClusterPrefix+TestClusterID, "owned"), "cluster tag missing")
+			},
+		},
+		{
+			name:  "repeated reconcile with no changes is idempotent",
+			ports: []v1.ServicePort{{Name: "http", Port: 80, NodePort: 31173, Protocol: v1.ProtocolTCP}},
+			annotations: map[string]string{
+				ServiceAnnotationLoadBalancerAdditionalTags: "env=prod",
+			},
+			// Re-running with identical ports and annotations must not create extra resources or
+			// churn tags.
+			updatePorts: []v1.ServicePort{{Name: "http", Port: 80, NodePort: 31173, Protocol: v1.ProtocolTCP}},
+			updateAnnotations: map[string]string{
+				ServiceAnnotationLoadBalancerAdditionalTags: "env=prod",
+			},
+			assert: func(t *testing.T, base *MockedFakeELBV2) {
+				require.Len(t, base.Listeners, 1, "no extra listener should be created")
+				require.Len(t, base.TargetGroups, 1, "no extra target group should be created")
+				lbARN := aws.ToString(base.LoadBalancers[0].LoadBalancerArn)
+				listenerARN := aws.ToString(base.Listeners[0].ListenerArn)
+				tgARN := aws.ToString(base.TargetGroups[0].TargetGroupArn)
+				for _, arn := range []string{lbARN, listenerARN, tgARN} {
+					assert.True(t, hasTag(base.Tags[arn], "env", "prod"), "tag env=prod missing on %s", arn)
+					assert.Equal(t, "env", tagValue(base.Tags[arn], TagNameKubernetesManagedTags), "marker mismatch on %s", arn)
+				}
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			base := &MockedFakeELBV2{
+				Tags:                   make(map[string][]elbv2types.Tag),
+				RegisteredInstances:    make(map[string][]string),
+				LoadBalancerAttributes: make(map[string]map[string]string),
+			}
+			c, awsServices := newServices(t, &mockELBV2WithDelete{MockedFakeELBV2: base})
+			nodes := []*v1.Node{makeNamedNode(awsServices, 0, "a")}
+
+			annotations := map[string]string{ServiceAnnotationLoadBalancerType: "nlb"}
+			for k, v := range tt.annotations {
+				annotations[k] = v
+			}
+			svc := &v1.Service{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "myservice", UID: "id", Namespace: "default",
+					Annotations: annotations,
+				},
+				Spec: v1.ServiceSpec{
+					Ports:           tt.ports,
+					SessionAffinity: v1.ServiceAffinityNone,
+				},
+			}
+
+			// Create.
+			_, err := c.EnsureLoadBalancer(t.Context(), TestClusterName, svc, nodes)
+			require.NoError(t, err)
+
+			if tt.beforeUpdate != nil {
+				tt.beforeUpdate(t, base)
+			}
+
+			// Optional update reconcile (annotation and/or port changes).
+			if tt.updatePorts != nil || tt.updateAnnotations != nil {
+				if tt.updatePorts != nil {
+					svc.Spec.Ports = tt.updatePorts
+				}
+				for k, v := range tt.updateAnnotations {
+					svc.Annotations[k] = v
+				}
+				_, err = c.EnsureLoadBalancer(t.Context(), TestClusterName, svc, nodes)
+				require.NoError(t, err)
+			}
+
+			if tt.assert != nil {
+				tt.assert(t, base)
+			}
+		})
+	}
+}
