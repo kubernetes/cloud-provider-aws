@@ -2503,3 +2503,167 @@ func TestCloud_ensureTargetGroupTargets(t *testing.T) {
 		})
 	}
 }
+
+// mockELBV2ForALPN captures CreateListener and ModifyListener calls for ALPN policy assertions.
+type mockELBV2ForALPN struct {
+	*MockedFakeELBV2
+	capturedCreate *elbv2.CreateListenerInput
+	capturedModify *elbv2.ModifyListenerInput
+}
+
+func (m *mockELBV2ForALPN) CreateListener(ctx context.Context, input *elbv2.CreateListenerInput, optFns ...func(*elbv2.Options)) (*elbv2.CreateListenerOutput, error) {
+	m.capturedCreate = input
+	return m.MockedFakeELBV2.CreateListener(ctx, input, optFns...)
+}
+
+func (m *mockELBV2ForALPN) ModifyListener(ctx context.Context, input *elbv2.ModifyListenerInput, optFns ...func(*elbv2.Options)) (*elbv2.ModifyListenerOutput, error) {
+	m.capturedModify = input
+	return m.MockedFakeELBV2.ModifyListener(ctx, input, optFns...)
+}
+
+func newMockELBV2ForALPN() *mockELBV2ForALPN {
+	return &mockELBV2ForALPN{
+		MockedFakeELBV2: &MockedFakeELBV2{
+			LoadBalancers:          []*elbv2types.LoadBalancer{},
+			TargetGroups:           []*elbv2types.TargetGroup{},
+			Listeners:              []*elbv2types.Listener{},
+			LoadBalancerAttributes: make(map[string]map[string]string),
+			Tags:                   make(map[string][]elbv2types.Tag),
+			RegisteredInstances:    make(map[string][]string),
+		},
+	}
+}
+
+func TestCreateListenerV2_ALPNPolicy(t *testing.T) {
+	baseHC := healthCheckConfig{
+		Protocol: elbv2types.ProtocolEnumTcp, Port: "traffic-port",
+		Interval: 10, HealthyThreshold: 3, UnhealthyThreshold: 3,
+	}
+	tests := []struct {
+		name     string
+		protocol elbv2types.ProtocolEnum
+		alpn     string
+		wantAlpn []string
+	}{
+		{
+			name:     "TLS listener passes ALPN policy to API",
+			protocol: elbv2types.ProtocolEnumTls,
+			alpn:     "HTTP2Only",
+			wantAlpn: []string{"HTTP2Only"},
+		},
+		{
+			name:     "TLS listener with no annotation omits AlpnPolicy field",
+			protocol: elbv2types.ProtocolEnumTls,
+			alpn:     "",
+			wantAlpn: nil,
+		},
+		{
+			name:     "non-TLS listener never sets AlpnPolicy even if field is populated",
+			protocol: elbv2types.ProtocolEnumTcp,
+			alpn:     "HTTP2Only",
+			wantAlpn: nil,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			mock := newMockELBV2ForALPN()
+			c := &Cloud{elbv2: mock, tagging: awsTagging{ClusterID: TestClusterID}}
+
+			mapping := nlbPortMapping{
+				FrontendPort: 443, FrontendProtocol: tt.protocol,
+				TrafficPort: 31173, TrafficProtocol: elbv2types.ProtocolEnumTcp,
+				SSLCertificateARN: "arn:aws:acm:us-east-1:123456789012:certificate/test",
+				ALPNPolicy:        tt.alpn, HealthCheckConfig: baseHC,
+			}
+			_, err := c.createListenerV2(context.TODO(),
+				aws.String("arn:aws:elasticloadbalancing:us-west-2:123456789:loadbalancer/net/test/abc"),
+				mapping,
+				types.NamespacedName{Namespace: "default", Name: "test-svc"},
+				[]string{}, "vpc-abc123", map[string]string{})
+
+			assert.NoError(t, err)
+			assert.Equal(t, tt.wantAlpn, mock.capturedCreate.AlpnPolicy)
+		})
+	}
+}
+
+func TestEnsureLoadBalancerV2_ALPNPolicy_Modify(t *testing.T) {
+	const (
+		lbName      = "test-nlb"
+		lbARN       = "arn:aws:elasticloadbalancing:us-west-2:123456789:loadbalancer/net/test-nlb/abcdef"
+		listenerARN = "arn:aws:elasticloadbalancing:us-west-2:123456789:listener/net/test-nlb/abcdef/1234"
+		tgARN       = "arn:aws:elasticloadbalancing:us-west-2:123456789:targetgroup/test-tg/abcdef"
+		certARN     = "arn:aws:acm:us-east-1:123456789012:certificate/test"
+	)
+
+	baseHC := healthCheckConfig{
+		Protocol: elbv2types.ProtocolEnumTcp, Port: "traffic-port",
+		Interval: 10, HealthyThreshold: 3, UnhealthyThreshold: 3,
+	}
+
+	// seed builds a mock pre-loaded with an existing TLS NLB
+	// whose listener has currentAlpn.
+	seed := func(currentAlpn []string) *mockELBV2ForALPN {
+		m := newMockELBV2ForALPN()
+		m.LoadBalancers = []*elbv2types.LoadBalancer{{
+			LoadBalancerArn: aws.String(lbARN), LoadBalancerName: aws.String(lbName),
+			Type: elbv2types.LoadBalancerTypeEnumNetwork, VpcId: aws.String("vpc-abc123"),
+		}}
+		m.Listeners = []*elbv2types.Listener{{
+			ListenerArn: aws.String(listenerARN), LoadBalancerArn: aws.String(lbARN),
+			Port: aws.Int32(443), Protocol: elbv2types.ProtocolEnumTls,
+			AlpnPolicy:   currentAlpn,
+			Certificates: []elbv2types.Certificate{{CertificateArn: aws.String(certARN)}},
+			DefaultActions: []elbv2types.Action{{
+				TargetGroupArn: aws.String(tgARN), Type: elbv2types.ActionTypeEnumForward,
+			}},
+		}}
+		m.TargetGroups = []*elbv2types.TargetGroup{{
+			TargetGroupArn: aws.String(tgARN), LoadBalancerArns: []string{lbARN},
+			Port: aws.Int32(31173), Protocol: elbv2types.ProtocolEnumTcp,
+			HealthCheckProtocol: elbv2types.ProtocolEnumTcp, HealthCheckPort: aws.String("traffic-port"),
+			HealthCheckIntervalSeconds: aws.Int32(10),
+			HealthyThresholdCount:      aws.Int32(3), UnhealthyThresholdCount: aws.Int32(3),
+		}}
+		return m
+	}
+
+	// wantSent == "" means ModifyListener must NOT be called.
+	tests := []struct {
+		name     string
+		current  []string
+		desired  string
+		wantSent string
+	}{
+		{"set policy", []string{}, "HTTP2Only", "HTTP2Only"},
+		{"remove policy -> None", []string{"HTTP2Only"}, "", "None"},
+		{"unchanged -> no modify", []string{"HTTP2Only"}, "HTTP2Only", ""},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			mock := seed(tt.current)
+			c := &Cloud{elbv2: mock, tagging: awsTagging{ClusterID: TestClusterID}}
+
+			_, err := c.ensureLoadBalancerv2(
+				context.TODO(),
+				types.NamespacedName{Namespace: "default", Name: "test-svc"},
+				lbName,
+				[]nlbPortMapping{{
+					FrontendPort: 443, FrontendProtocol: elbv2types.ProtocolEnumTls,
+					TrafficPort: 31173, TrafficProtocol: elbv2types.ProtocolEnumTcp,
+					SSLCertificateARN: certARN, ALPNPolicy: tt.desired, HealthCheckConfig: baseHC,
+				}},
+				[]string{}, []string{"subnet-abc123"}, false, map[string]string{}, []string{},
+			)
+			assert.NoError(t, err)
+
+			if tt.wantSent != "" {
+				assert.Equal(t, []string{tt.wantSent}, mock.capturedModify.AlpnPolicy)
+			} else {
+				assert.Empty(t, mock.capturedModify)
+			}
+		})
+	}
+}
