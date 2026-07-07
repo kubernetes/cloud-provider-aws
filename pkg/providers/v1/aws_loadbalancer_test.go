@@ -2503,3 +2503,461 @@ func TestCloud_ensureTargetGroupTargets(t *testing.T) {
 		})
 	}
 }
+
+func TestCloud_updateInstanceSecurityGroupsForNLB(t *testing.T) {
+	clusterTag := ec2types.Tag{
+		Key:   aws.String("kubernetes.io/cluster/test-cluster"),
+		Value: aws.String("owned"),
+	}
+
+	makeInstance := func(instanceID, sgID string) *ec2types.Instance {
+		return &ec2types.Instance{
+			InstanceId: aws.String(instanceID),
+			SecurityGroups: []ec2types.GroupIdentifier{
+				{GroupId: aws.String(sgID)},
+			},
+		}
+	}
+
+	tests := []struct {
+		name                string
+		lbName              string
+		instances           map[InstanceID]*ec2types.Instance
+		nlbSecurityGroupIDs []string
+		setupMocks          func(*MockedFakeEC2)
+		expectError         bool
+	}{
+		{
+			name:   "NLB with SGs creates SG-to-SG rules on node SGs",
+			lbName: "test-nlb",
+			instances: map[InstanceID]*ec2types.Instance{
+				"i-1": makeInstance("i-1", "sg-node"),
+			},
+			nlbSecurityGroupIDs: []string{"sg-nlb"},
+			setupMocks: func(m *MockedFakeEC2) {
+				// getTaggedSecurityGroups: return the node SG
+				m.On("DescribeSecurityGroups", &ec2.DescribeSecurityGroupsInput{}).Return(
+					[]ec2types.SecurityGroup{
+						{GroupId: aws.String("sg-node"), Tags: []ec2types.Tag{clusterTag}},
+					}, nil)
+
+				// CIDR cleanup: updateInstanceSecurityGroupForNLBTraffic calls removeSecurityGroupIngress
+				// (no existing CIDR rules to remove, so no calls needed)
+
+				// buildSecurityGroupRuleReferences: find existing SG-to-SG refs for sg-nlb
+				m.On("DescribeSecurityGroups", &ec2.DescribeSecurityGroupsInput{
+					Filters: []ec2types.Filter{newEc2Filter("ip-permission.group-id", "sg-nlb")},
+				}).Return([]ec2types.SecurityGroup{}, nil)
+
+				// addSecurityGroupIngress -> findSecurityGroup for sg-node
+				m.On("DescribeSecurityGroups", &ec2.DescribeSecurityGroupsInput{
+					GroupIds: []string{"sg-node"},
+				}).Return([]ec2types.SecurityGroup{
+					{GroupId: aws.String("sg-node"), Tags: []ec2types.Tag{clusterTag}},
+				}, nil)
+
+				// addSecurityGroupIngress -> AuthorizeSecurityGroupIngress
+				m.On("AuthorizeSecurityGroupIngress", mock.MatchedBy(func(input *ec2.AuthorizeSecurityGroupIngressInput) bool {
+					return aws.ToString(input.GroupId) == "sg-node" &&
+						len(input.IpPermissions) == 1 &&
+						aws.ToString(input.IpPermissions[0].IpProtocol) == "-1" &&
+						len(input.IpPermissions[0].UserIdGroupPairs) == 1 &&
+						aws.ToString(input.IpPermissions[0].UserIdGroupPairs[0].GroupId) == "sg-nlb"
+				})).Return(&ec2.AuthorizeSecurityGroupIngressOutput{}, nil)
+			},
+			expectError: false,
+		},
+		{
+			name:                "NLB with SGs delete path revokes SG-to-SG references",
+			lbName:              "test-nlb",
+			instances:           nil,
+			nlbSecurityGroupIDs: []string{"sg-nlb"},
+			setupMocks: func(m *MockedFakeEC2) {
+				// getTaggedSecurityGroups
+				m.On("DescribeSecurityGroups", &ec2.DescribeSecurityGroupsInput{}).Return(
+					[]ec2types.SecurityGroup{
+						{
+							GroupId: aws.String("sg-node"),
+							Tags:    []ec2types.Tag{clusterTag},
+							IpPermissions: []ec2types.IpPermission{
+								{
+									IpProtocol: aws.String("-1"),
+									UserIdGroupPairs: []ec2types.UserIdGroupPair{
+										{GroupId: aws.String("sg-nlb")},
+									},
+								},
+							},
+						},
+					}, nil)
+
+				// findSecurityGroup for sg-node (called by removeSecurityGroupIngress during CIDR cleanup
+				// and by revokeSecurityGroupReferences)
+				m.On("DescribeSecurityGroups", &ec2.DescribeSecurityGroupsInput{
+					GroupIds: []string{"sg-node"},
+				}).Return([]ec2types.SecurityGroup{
+					{
+						GroupId: aws.String("sg-node"),
+						Tags:    []ec2types.Tag{clusterTag},
+						IpPermissions: []ec2types.IpPermission{
+							{
+								IpProtocol: aws.String("-1"),
+								UserIdGroupPairs: []ec2types.UserIdGroupPair{
+									{GroupId: aws.String("sg-nlb")},
+								},
+							},
+						},
+					},
+				}, nil)
+
+				// buildSecurityGroupRuleReferences for revokeSecurityGroupReferences
+				m.On("DescribeSecurityGroups", &ec2.DescribeSecurityGroupsInput{
+					Filters: []ec2types.Filter{newEc2Filter("ip-permission.group-id", "sg-nlb")},
+				}).Return([]ec2types.SecurityGroup{
+					{
+						GroupId: aws.String("sg-node"),
+						Tags:    []ec2types.Tag{clusterTag},
+						IpPermissions: []ec2types.IpPermission{
+							{
+								IpProtocol: aws.String("-1"),
+								UserIdGroupPairs: []ec2types.UserIdGroupPair{
+									{GroupId: aws.String("sg-nlb")},
+								},
+							},
+						},
+					},
+				}, nil)
+
+				// revokeSecurityGroupReferences -> RevokeSecurityGroupIngress
+				m.On("RevokeSecurityGroupIngress", mock.MatchedBy(func(input *ec2.RevokeSecurityGroupIngressInput) bool {
+					return aws.ToString(input.GroupId) == "sg-node"
+				})).Return(&ec2.RevokeSecurityGroupIngressOutput{}, nil)
+			},
+			expectError: false,
+		},
+		{
+			name:   "NLB without SGs falls back to CIDR-based rules",
+			lbName: "test-nlb",
+			instances: map[InstanceID]*ec2types.Instance{
+				"i-1": makeInstance("i-1", "sg-node"),
+			},
+			nlbSecurityGroupIDs: nil,
+			setupMocks: func(m *MockedFakeEC2) {
+				// getTaggedSecurityGroups
+				m.On("DescribeSecurityGroups", &ec2.DescribeSecurityGroupsInput{}).Return(
+					[]ec2types.SecurityGroup{
+						{GroupId: aws.String("sg-node"), Tags: []ec2types.Tag{clusterTag}},
+					}, nil)
+
+				// findSecurityGroup for sg-node (called by addSecurityGroupIngress)
+				m.On("DescribeSecurityGroups", &ec2.DescribeSecurityGroupsInput{
+					GroupIds: []string{"sg-node"},
+				}).Return([]ec2types.SecurityGroup{
+					{GroupId: aws.String("sg-node"), Tags: []ec2types.Tag{clusterTag}},
+				}, nil)
+
+				// AuthorizeSecurityGroupIngress for CIDR-based client rules
+				m.On("AuthorizeSecurityGroupIngress", mock.MatchedBy(func(input *ec2.AuthorizeSecurityGroupIngressInput) bool {
+					if aws.ToString(input.GroupId) != "sg-node" || len(input.IpPermissions) == 0 {
+						return false
+					}
+					// Should be CIDR-based, not SG-based
+					return len(input.IpPermissions[0].IpRanges) > 0 &&
+						len(input.IpPermissions[0].UserIdGroupPairs) == 0
+				})).Return(&ec2.AuthorizeSecurityGroupIngressOutput{}, nil).Maybe()
+			},
+			expectError: false,
+		},
+		{
+			name:   "Transition from CIDR to SG-to-SG cleans up old CIDR rules",
+			lbName: "test-nlb",
+			instances: map[InstanceID]*ec2types.Instance{
+				"i-1": makeInstance("i-1", "sg-node"),
+			},
+			nlbSecurityGroupIDs: []string{"sg-nlb"},
+			setupMocks: func(m *MockedFakeEC2) {
+				// getTaggedSecurityGroups: return sg-node with existing CIDR rules
+				m.On("DescribeSecurityGroups", &ec2.DescribeSecurityGroupsInput{}).Return(
+					[]ec2types.SecurityGroup{
+						{
+							GroupId: aws.String("sg-node"),
+							Tags:    []ec2types.Tag{clusterTag},
+							IpPermissions: []ec2types.IpPermission{
+								{
+									IpProtocol: aws.String("tcp"),
+									FromPort:   aws.Int32(30000),
+									ToPort:     aws.Int32(30000),
+									IpRanges: []ec2types.IpRange{
+										{CidrIp: aws.String("0.0.0.0/0"), Description: aws.String("kubernetes.io/rule/nlb/client=test-nlb")},
+									},
+								},
+								{
+									IpProtocol: aws.String("tcp"),
+									FromPort:   aws.Int32(30000),
+									ToPort:     aws.Int32(30000),
+									IpRanges: []ec2types.IpRange{
+										{CidrIp: aws.String("10.0.1.0/24"), Description: aws.String("kubernetes.io/rule/nlb/health=test-nlb")},
+									},
+								},
+							},
+						},
+					}, nil)
+
+				// removeSecurityGroupIngress -> findSecurityGroup for CIDR cleanup
+				m.On("DescribeSecurityGroups", &ec2.DescribeSecurityGroupsInput{
+					GroupIds: []string{"sg-node"},
+				}).Return([]ec2types.SecurityGroup{
+					{
+						GroupId: aws.String("sg-node"),
+						Tags:    []ec2types.Tag{clusterTag},
+						IpPermissions: []ec2types.IpPermission{
+							{
+								IpProtocol: aws.String("tcp"),
+								FromPort:   aws.Int32(30000),
+								ToPort:     aws.Int32(30000),
+								IpRanges: []ec2types.IpRange{
+									{CidrIp: aws.String("0.0.0.0/0"), Description: aws.String("kubernetes.io/rule/nlb/client=test-nlb")},
+								},
+							},
+							{
+								IpProtocol: aws.String("tcp"),
+								FromPort:   aws.Int32(30000),
+								ToPort:     aws.Int32(30000),
+								IpRanges: []ec2types.IpRange{
+									{CidrIp: aws.String("10.0.1.0/24"), Description: aws.String("kubernetes.io/rule/nlb/health=test-nlb")},
+								},
+							},
+						},
+					},
+				}, nil)
+
+				// RevokeSecurityGroupIngress for old CIDR rules
+				m.On("RevokeSecurityGroupIngress", mock.MatchedBy(func(input *ec2.RevokeSecurityGroupIngressInput) bool {
+					return aws.ToString(input.GroupId) == "sg-node" &&
+						len(input.IpPermissions) > 0 &&
+						len(input.IpPermissions[0].IpRanges) > 0
+				})).Return(&ec2.RevokeSecurityGroupIngressOutput{}, nil)
+
+				// buildSecurityGroupRuleReferences for sg-nlb
+				m.On("DescribeSecurityGroups", &ec2.DescribeSecurityGroupsInput{
+					Filters: []ec2types.Filter{newEc2Filter("ip-permission.group-id", "sg-nlb")},
+				}).Return([]ec2types.SecurityGroup{}, nil)
+
+				// AuthorizeSecurityGroupIngress for new SG-to-SG rule
+				m.On("AuthorizeSecurityGroupIngress", mock.MatchedBy(func(input *ec2.AuthorizeSecurityGroupIngressInput) bool {
+					return aws.ToString(input.GroupId) == "sg-node" &&
+						len(input.IpPermissions) == 1 &&
+						aws.ToString(input.IpPermissions[0].IpProtocol) == "-1" &&
+						len(input.IpPermissions[0].UserIdGroupPairs) == 1 &&
+						aws.ToString(input.IpPermissions[0].UserIdGroupPairs[0].GroupId) == "sg-nlb"
+				})).Return(&ec2.AuthorizeSecurityGroupIngressOutput{}, nil)
+			},
+			expectError: false,
+		},
+		{
+			name:   "Multiple NLB SGs create SG-to-SG rules for each",
+			lbName: "test-nlb",
+			instances: map[InstanceID]*ec2types.Instance{
+				"i-1": makeInstance("i-1", "sg-node"),
+			},
+			nlbSecurityGroupIDs: []string{"sg-byo1", "sg-byo2"},
+			setupMocks: func(m *MockedFakeEC2) {
+				// getTaggedSecurityGroups
+				m.On("DescribeSecurityGroups", &ec2.DescribeSecurityGroupsInput{}).Return(
+					[]ec2types.SecurityGroup{
+						{GroupId: aws.String("sg-node"), Tags: []ec2types.Tag{clusterTag}},
+					}, nil)
+
+				// buildSecurityGroupRuleReferences for each NLB SG
+				for _, sgID := range []string{"sg-byo1", "sg-byo2"} {
+					m.On("DescribeSecurityGroups", &ec2.DescribeSecurityGroupsInput{
+						Filters: []ec2types.Filter{newEc2Filter("ip-permission.group-id", sgID)},
+					}).Return([]ec2types.SecurityGroup{}, nil)
+				}
+
+				// findSecurityGroup for sg-node (called by addSecurityGroupIngress)
+				m.On("DescribeSecurityGroups", &ec2.DescribeSecurityGroupsInput{
+					GroupIds: []string{"sg-node"},
+				}).Return([]ec2types.SecurityGroup{
+					{GroupId: aws.String("sg-node"), Tags: []ec2types.Tag{clusterTag}},
+				}, nil)
+
+				// AuthorizeSecurityGroupIngress for each NLB SG
+				m.On("AuthorizeSecurityGroupIngress", mock.MatchedBy(func(input *ec2.AuthorizeSecurityGroupIngressInput) bool {
+					if aws.ToString(input.GroupId) != "sg-node" || len(input.IpPermissions) != 1 {
+						return false
+					}
+					perm := input.IpPermissions[0]
+					return aws.ToString(perm.IpProtocol) == "-1" &&
+						len(perm.UserIdGroupPairs) == 1 &&
+						(aws.ToString(perm.UserIdGroupPairs[0].GroupId) == "sg-byo1" ||
+							aws.ToString(perm.UserIdGroupPairs[0].GroupId) == "sg-byo2")
+				})).Return(&ec2.AuthorizeSecurityGroupIngressOutput{}, nil)
+			},
+			expectError: false,
+		},
+		{
+			name:   "SG rule limit exceeded falls back to CIDR-based rules",
+			lbName: "test-nlb",
+			instances: map[InstanceID]*ec2types.Instance{
+				"i-1": makeInstance("i-1", "sg-node"),
+			},
+			nlbSecurityGroupIDs: []string{"sg-nlb"},
+			setupMocks: func(m *MockedFakeEC2) {
+				// getTaggedSecurityGroups
+				m.On("DescribeSecurityGroups", &ec2.DescribeSecurityGroupsInput{}).Return(
+					[]ec2types.SecurityGroup{
+						{GroupId: aws.String("sg-node"), Tags: []ec2types.Tag{clusterTag}},
+					}, nil)
+
+				// buildSecurityGroupRuleReferences for sg-nlb
+				m.On("DescribeSecurityGroups", &ec2.DescribeSecurityGroupsInput{
+					Filters: []ec2types.Filter{newEc2Filter("ip-permission.group-id", "sg-nlb")},
+				}).Return([]ec2types.SecurityGroup{}, nil)
+
+				// findSecurityGroup for sg-node (called by addSecurityGroupIngress, then again by CIDR fallback)
+				m.On("DescribeSecurityGroups", &ec2.DescribeSecurityGroupsInput{
+					GroupIds: []string{"sg-node"},
+				}).Return([]ec2types.SecurityGroup{
+					{GroupId: aws.String("sg-node"), Tags: []ec2types.Tag{clusterTag}},
+				}, nil)
+
+				// AuthorizeSecurityGroupIngress fails with RulesPerSecurityGroupLimitExceeded
+				m.On("AuthorizeSecurityGroupIngress", mock.MatchedBy(func(input *ec2.AuthorizeSecurityGroupIngressInput) bool {
+					return aws.ToString(input.GroupId) == "sg-node" &&
+						len(input.IpPermissions) == 1 &&
+						aws.ToString(input.IpPermissions[0].IpProtocol) == "-1"
+				})).Return(&ec2.AuthorizeSecurityGroupIngressOutput{},
+					fmt.Errorf("api error RulesPerSecurityGroupLimitExceeded: The maximum number of rules per security group has been reached"))
+
+				// CIDR fallback: AuthorizeSecurityGroupIngress for CIDR-based rules
+				m.On("AuthorizeSecurityGroupIngress", mock.MatchedBy(func(input *ec2.AuthorizeSecurityGroupIngressInput) bool {
+					if aws.ToString(input.GroupId) != "sg-node" || len(input.IpPermissions) == 0 {
+						return false
+					}
+					return len(input.IpPermissions[0].IpRanges) > 0
+				})).Return(&ec2.AuthorizeSecurityGroupIngressOutput{}, nil).Maybe()
+			},
+			expectError: false,
+		},
+		{
+			name:   "Node removed: SG-to-SG reference revoked from old node SG",
+			lbName: "test-nlb",
+			instances: map[InstanceID]*ec2types.Instance{
+				"i-new": makeInstance("i-new", "sg-node-new"),
+			},
+			nlbSecurityGroupIDs: []string{"sg-nlb"},
+			setupMocks: func(m *MockedFakeEC2) {
+				// getTaggedSecurityGroups: return both old and new SGs
+				m.On("DescribeSecurityGroups", &ec2.DescribeSecurityGroupsInput{}).Return(
+					[]ec2types.SecurityGroup{
+						{GroupId: aws.String("sg-node-new"), Tags: []ec2types.Tag{clusterTag}},
+						{GroupId: aws.String("sg-node-old"), Tags: []ec2types.Tag{clusterTag}},
+					}, nil)
+
+				// buildSecurityGroupRuleReferences: sg-node-old has existing SG-to-SG ref
+				m.On("DescribeSecurityGroups", &ec2.DescribeSecurityGroupsInput{
+					Filters: []ec2types.Filter{newEc2Filter("ip-permission.group-id", "sg-nlb")},
+				}).Return([]ec2types.SecurityGroup{
+					{
+						GroupId: aws.String("sg-node-old"),
+						Tags:    []ec2types.Tag{clusterTag},
+						IpPermissions: []ec2types.IpPermission{
+							{
+								IpProtocol: aws.String("-1"),
+								UserIdGroupPairs: []ec2types.UserIdGroupPair{
+									{GroupId: aws.String("sg-nlb")},
+								},
+							},
+						},
+					},
+				}, nil)
+
+				// findSecurityGroup for sg-node-new (addSecurityGroupIngress)
+				m.On("DescribeSecurityGroups", &ec2.DescribeSecurityGroupsInput{
+					GroupIds: []string{"sg-node-new"},
+				}).Return([]ec2types.SecurityGroup{
+					{GroupId: aws.String("sg-node-new"), Tags: []ec2types.Tag{clusterTag}},
+				}, nil)
+
+				// AuthorizeSecurityGroupIngress for new node SG
+				m.On("AuthorizeSecurityGroupIngress", mock.MatchedBy(func(input *ec2.AuthorizeSecurityGroupIngressInput) bool {
+					return aws.ToString(input.GroupId) == "sg-node-new" &&
+						len(input.IpPermissions) == 1 &&
+						aws.ToString(input.IpPermissions[0].IpProtocol) == "-1" &&
+						len(input.IpPermissions[0].UserIdGroupPairs) == 1 &&
+						aws.ToString(input.IpPermissions[0].UserIdGroupPairs[0].GroupId) == "sg-nlb"
+				})).Return(&ec2.AuthorizeSecurityGroupIngressOutput{}, nil)
+
+				// findSecurityGroup for sg-node-old (removeSecurityGroupIngress)
+				m.On("DescribeSecurityGroups", &ec2.DescribeSecurityGroupsInput{
+					GroupIds: []string{"sg-node-old"},
+				}).Return([]ec2types.SecurityGroup{
+					{
+						GroupId: aws.String("sg-node-old"),
+						Tags:    []ec2types.Tag{clusterTag},
+						IpPermissions: []ec2types.IpPermission{
+							{
+								IpProtocol: aws.String("-1"),
+								UserIdGroupPairs: []ec2types.UserIdGroupPair{
+									{GroupId: aws.String("sg-nlb")},
+								},
+							},
+						},
+					},
+				}, nil)
+
+				// RevokeSecurityGroupIngress for old node SG
+				m.On("RevokeSecurityGroupIngress", mock.MatchedBy(func(input *ec2.RevokeSecurityGroupIngressInput) bool {
+					return aws.ToString(input.GroupId) == "sg-node-old"
+				})).Return(&ec2.RevokeSecurityGroupIngressOutput{}, nil)
+			},
+			expectError: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			mockedEC2 := &MockedFakeEC2{}
+			tt.setupMocks(mockedEC2)
+
+			cloud := &Cloud{
+				ec2: mockedEC2,
+				cfg: &config.CloudConfig{},
+				tagging: awsTagging{
+					ClusterID: "test-cluster",
+				},
+			}
+
+			ctx := context.Background()
+
+			// Provide port mappings and CIDRs when instances are present.
+			// These are used by the CIDR path (either directly or as fallback
+			// when SG-to-SG hits the rule limit).
+			var subnetCIDRs, clientCIDRs []string
+			var portMappings []nlbPortMapping
+			if tt.instances != nil {
+				subnetCIDRs = []string{"10.0.1.0/24"}
+				clientCIDRs = []string{"0.0.0.0/0"}
+				portMappings = []nlbPortMapping{
+					{
+						TrafficPort:     30000,
+						TrafficProtocol: elbv2types.ProtocolEnumTcp,
+						HealthCheckConfig: healthCheckConfig{
+							Port: defaultHealthCheckPort,
+						},
+					},
+				}
+			}
+
+			err := cloud.updateInstanceSecurityGroupsForNLB(ctx, tt.lbName, tt.instances, subnetCIDRs, clientCIDRs, portMappings, tt.nlbSecurityGroupIDs)
+
+			if tt.expectError {
+				assert.Error(t, err)
+			} else {
+				assert.NoError(t, err)
+			}
+
+			mockedEC2.AssertExpectations(t)
+		})
+	}
+}
