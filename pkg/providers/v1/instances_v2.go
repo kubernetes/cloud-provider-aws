@@ -103,7 +103,7 @@ func (c *Cloud) getAdditionalLabels(ctx context.Context, zoneName string, instan
 				additionalLabels[label] = networkNode
 			}
 		} else {
-			klog.Infof("No instance topolopy for instance type %s available.", instanceType)
+			klog.Infof("No instance topology for instance type %s available.", instanceType)
 		}
 	}
 
