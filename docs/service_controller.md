@@ -86,3 +86,46 @@ metadata:
     service.beta.kubernetes.io/aws-load-balancer-target-group-attributes: preserve_client_ip.enabled=false,proxy_protocol_v2.enabled=true
 [...]
 ```
+
+## External Load Balancer Management
+
+The `service.beta.kubernetes.io/aws-load-balancer-type` annotation also supports values that indicate the load balancer should be managed externally rather than by the cloud provider:
+
+- **`nlb-ip`** or **`external`**: Indicates that the load balancer will be managed externally (e.g., by another controller or manually)
+
+When either of these values is set, the cloud provider controller will:
+
+- Skip load balancer creation
+- Skip load balancer updates
+- Skip load balancer deletion
+- Return no load balancer status
+
+### Use Cases
+
+This annotation is useful when transitioning load balancer management away from the cloud provider:
+
+- **Manual Management:** When you prefer to manage load balancers manually through AWS console, CLI, or Terraform, set the annotation to prevent the cloud provider from interfering with your manually managed resources.
+- **Orphaning:** When you need to keep an existing load balancer in AWS but remove it from Kubernetes management, set the annotation before removing the service finalizer and deleting the service.
+
+### Usage Example
+
+The following Service example shows how to configure a Service for external load balancer management:
+
+```yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: my-service
+  namespace: default
+  annotations:
+    service.beta.kubernetes.io/aws-load-balancer-type: external
+spec:
+  selector:
+    app: my-app
+  ports:
+  - port: 80
+    targetPort: 8080
+  type: LoadBalancer
+```
+
+> Note: When using `nlb-ip` or `external`, the cloud provider will not create, update, or delete any AWS resources for services with these annotation values. You must ensure that the load balancer resources are managed through other means (e.g., manually through AWS console/CLI, or through IaC tools like Terraform).
