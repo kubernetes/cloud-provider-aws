@@ -86,6 +86,10 @@ const ProviderName = "aws"
 // services. Used currently for ELBs only.
 const TagNameKubernetesService = "kubernetes.io/service-name"
 
+// TagNameKubernetesManagedTags records the additional-tag keys the controller applied from
+// ServiceAnnotationLoadBalancerAdditionalTags, so removed keys can be reconciled away.
+const TagNameKubernetesManagedTags = "kubernetes.io/cloud-controller/managed-tags"
+
 // TagNameSubnetInternalELB is the tag name used on a subnet to designate that
 // it should be used for internal ELBs
 const TagNameSubnetInternalELB = "kubernetes.io/role/internal-elb"
@@ -354,6 +358,8 @@ type ELB interface {
 // ELBV2 is a simple pass-through of AWS' ELBV2 client interface, which allows for testing
 type ELBV2 interface {
 	AddTags(ctx context.Context, input *elbv2.AddTagsInput, optFns ...func(*elbv2.Options)) (*elbv2.AddTagsOutput, error)
+	RemoveTags(ctx context.Context, input *elbv2.RemoveTagsInput, optFns ...func(*elbv2.Options)) (*elbv2.RemoveTagsOutput, error)
+	DescribeTags(ctx context.Context, input *elbv2.DescribeTagsInput, optFns ...func(*elbv2.Options)) (*elbv2.DescribeTagsOutput, error)
 
 	CreateLoadBalancer(ctx context.Context, input *elbv2.CreateLoadBalancerInput, optFns ...func(*elbv2.Options)) (*elbv2.CreateLoadBalancerOutput, error)
 	DescribeLoadBalancers(ctx context.Context, input *elbv2.DescribeLoadBalancersInput, optFns ...func(*elbv2.Options)) (*elbv2.DescribeLoadBalancersOutput, error)
@@ -1217,6 +1223,131 @@ func (c *Cloud) describeLoadBalancerv2(ctx context.Context, name string) (*elbv2
 	}
 
 	return nil, fmt.Errorf("NLB '%s' could not be found", name)
+}
+
+// addLoadBalancerTagsv2 tags a single ELBv2 resource (LB, listener, target group, etc.).
+func (c *Cloud) addLoadBalancerTagsv2(ctx context.Context, resourceARN string, requested map[string]string) error {
+	var tags []elbv2types.Tag
+	for k, v := range requested {
+		tags = append(tags, elbv2types.Tag{
+			Key:   aws.String(k),
+			Value: aws.String(v),
+		})
+	}
+
+	_, err := c.elbv2.AddTags(ctx, &elbv2.AddTagsInput{
+		ResourceArns: []string{resourceARN},
+		Tags:         tags,
+	})
+	if err != nil {
+		return fmt.Errorf("error adding tags NLB resource %s: %w", resourceARN, err)
+	}
+	return nil
+}
+
+// removeLoadBalancerTagsv2 removes a set of tag keys from a single ELBv2 resource.
+func (c *Cloud) removeLoadBalancerTagsv2(ctx context.Context, resourceARN string, keys []string) error {
+	_, err := c.elbv2.RemoveTags(ctx, &elbv2.RemoveTagsInput{
+		ResourceArns: []string{resourceARN},
+		TagKeys:      keys,
+	})
+	if err != nil {
+		return fmt.Errorf("error removing tags from NLB resource %s: %w", resourceARN, err)
+	}
+	return nil
+}
+
+// parseManagedTagKeys parses the comma-separated list stored in the
+// TagNameKubernetesManagedTags marker tag into a set of keys.
+func parseManagedTagKeys(value string) sets.Set[string] {
+	keys := sets.New[string]()
+	for _, k := range strings.Split(value, ",") {
+		if k != "" {
+			keys.Insert(k)
+		}
+	}
+	return keys
+}
+
+// ensureLoadBalancerResourceTagsV2 makes sure every ELBv2 resource in resourceARNs carries the
+// desired tags. Tags are added or updated to match desired.
+func (c *Cloud) ensureLoadBalancerResourceTagsV2(ctx context.Context, resourceARNs []string, desired map[string]string) error {
+	if len(desired) == 0 || len(resourceARNs) == 0 {
+		return nil
+	}
+
+	// Keys the controller currently owns from the annotation.
+	var currentManaged sets.Set[string]
+	if keys, ok := desired[TagNameKubernetesManagedTags]; ok {
+		currentManaged = parseManagedTagKeys(keys)
+	}
+
+	// DescribeTags accepts at most 20 resource ARNs per call.
+	const describeTagsMaxARNs = 20
+
+	for start := 0; start < len(resourceARNs); start += describeTagsMaxARNs {
+		end := start + describeTagsMaxARNs
+		if end > len(resourceARNs) {
+			end = len(resourceARNs)
+		}
+
+		out, err := c.elbv2.DescribeTags(ctx, &elbv2.DescribeTagsInput{
+			ResourceArns: resourceARNs[start:end],
+		})
+		if err != nil {
+			return fmt.Errorf("error describing tags for NLB resources: %w", err)
+		}
+
+		for _, desc := range out.TagDescriptions {
+			actual := make(map[string]string, len(desc.Tags))
+			for _, t := range desc.Tags {
+				actual[aws.ToString(t.Key)] = aws.ToString(t.Value)
+			}
+
+			// Keep only the desired tags that are absent or have a stale value.
+			missing := map[string]string{}
+			for k, v := range desired {
+				if cur, ok := actual[k]; !ok || cur != v {
+					missing[k] = v
+				}
+			}
+			if len(missing) > 0 {
+				if err := c.addLoadBalancerTagsv2(ctx, aws.ToString(desc.ResourceArn), missing); err != nil {
+					return err
+				}
+			}
+
+			// Remove additional-tag keys the controller previously owned but no longer desires.
+			var previousManaged sets.Set[string]
+			if keys, ok := actual[TagNameKubernetesManagedTags]; ok {
+				previousManaged = parseManagedTagKeys(keys)
+			}
+			var toRemove []string
+			for key := range previousManaged {
+				if currentManaged.Has(key) {
+					continue
+				}
+				// Never remove a still-desired tag.
+				if _, ok := desired[key]; ok {
+					continue
+				}
+				toRemove = append(toRemove, key)
+			}
+			// Drop the marker itself once the user has cleared all additional tags, so no
+			// stale marker is left behind.
+			if currentManaged.Len() == 0 {
+				if _, ok := actual[TagNameKubernetesManagedTags]; ok {
+					toRemove = append(toRemove, TagNameKubernetesManagedTags)
+				}
+			}
+			if len(toRemove) > 0 {
+				if err := c.removeLoadBalancerTagsv2(ctx, aws.ToString(desc.ResourceArn), toRemove); err != nil {
+					return err
+				}
+			}
+		}
+	}
+	return nil
 }
 
 // Retrieves instance's vpc id from metadata
