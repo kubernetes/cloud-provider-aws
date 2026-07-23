@@ -22,6 +22,7 @@ package aws
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"k8s.io/cloud-provider-aws/pkg/providers/v1/variant"
 	"strconv"
@@ -50,6 +51,12 @@ func (c *Cloud) getProviderID(ctx context.Context, node *v1.Node) (string, error
 func (c *Cloud) InstanceExists(ctx context.Context, node *v1.Node) (bool, error) {
 	providerID, err := c.getProviderID(ctx, node)
 	if err != nil {
+		// If the node has no providerID set, getProviderID falls back to looking up
+		// the instance by node name. A deleted instance yields InstanceNotFound, which
+		// means the node no longer exists in the cloud provider.
+		if errors.Is(err, cloudprovider.InstanceNotFound) {
+			return false, nil
+		}
 		return false, err
 	}
 
@@ -61,6 +68,9 @@ func (c *Cloud) InstanceExists(ctx context.Context, node *v1.Node) (bool, error)
 func (c *Cloud) InstanceShutdown(ctx context.Context, node *v1.Node) (bool, error) {
 	providerID, err := c.getProviderID(ctx, node)
 	if err != nil {
+		if errors.Is(err, cloudprovider.InstanceNotFound) {
+			return false, nil
+		}
 		return false, err
 	}
 
