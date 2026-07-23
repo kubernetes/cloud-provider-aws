@@ -3455,6 +3455,11 @@ func (c *Cloud) UpdateLoadBalancer(ctx context.Context, clusterName string, serv
 func (c *Cloud) getInstanceByID(ctx context.Context, instanceID string) (*ec2types.Instance, error) {
 	instances, err := c.getInstancesByIDs(ctx, []string{instanceID})
 	if err != nil {
+		// A DescribeInstances by ID for an instance that no longer exists returns
+		// an InvalidInstanceID.NotFound error rather than an empty result.
+		if IsAWSErrorInstanceNotFound(err) {
+			return nil, cloudprovider.InstanceNotFound
+		}
 		return nil, err
 	}
 

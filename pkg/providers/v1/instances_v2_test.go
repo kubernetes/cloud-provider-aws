@@ -30,6 +30,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	v1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/cloud-provider-aws/pkg/services"
 )
 
@@ -116,6 +117,84 @@ func TestInstanceExists(t *testing.T) {
 			} else {
 				assert.False(t, result)
 			}
+		})
+	}
+}
+
+func TestInstanceExistsNoProviderIDInstanceGone(t *testing.T) {
+	// Only the self-instance exists in the cloud; the node under test has no
+	// providerID and no backing instance, mirroring an instance deleted before
+	// its providerID was ever set. Its name doesn't match any live instance's
+	// private DNS name, so the node-name lookup in getProviderID resolves to
+	// InstanceNotFound.
+	self := makeInstance("i-self", "192.168.0.1", "1.2.3.4", "ip-172-20-0-100.ec2.internal", "", nil, true)
+	c, _ := mockInstancesResp(&self, []*ec2types.Instance{&self})
+
+	node := &v1.Node{
+		ObjectMeta: metav1.ObjectMeta{Name: "ip-172-20-9-9.ec2.internal"},
+		Spec:       v1.NodeSpec{},
+	}
+
+	exists, err := c.InstanceExists(context.TODO(), node)
+	assert.NoError(t, err)
+	assert.False(t, exists)
+
+	shutdown, err := c.InstanceShutdown(context.TODO(), node)
+	assert.NoError(t, err)
+	assert.False(t, shutdown)
+}
+
+func TestInstanceExistsNoProviderIDRBNInstanceGone(t *testing.T) {
+	// The mocked EC2 API returns InvalidInstanceID.NotFound for every describe,
+	// mirroring a purged instance looked up by ID.
+	c := getCloudWithMockedDescribeInstances(false, "", "i-0123456789abcdef0")
+	// InstanceID dereferences selfAWSInstance; set it to a different node so the
+	// lookup falls through to the by-ID path rather than the self short-circuit.
+	c.selfAWSInstance = &awsInstance{nodeName: "i-self"}
+
+	node := &v1.Node{
+		ObjectMeta: metav1.ObjectMeta{Name: "i-0123456789abcdef0"},
+		Spec:       v1.NodeSpec{},
+	}
+
+	exists, err := c.InstanceExists(context.TODO(), node)
+	assert.NoError(t, err)
+	assert.False(t, exists)
+
+	shutdown, err := c.InstanceShutdown(context.TODO(), node)
+	assert.NoError(t, err)
+	assert.False(t, shutdown)
+}
+
+func TestInstanceExistsNoProviderIDInvalidIDNotDeleted(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		apiErr string
+	}{
+		{"malformed instance ID from DescribeInstances", "InvalidInstanceID.Malformed: The specified instance ID is malformed"},
+		{"invalid resource ID", "InvalidID: The ID 'i-kwok-fake' is not valid"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			mockedEC2API := newMockedEC2API()
+			mockedEC2API.On("DescribeInstances", mock.Anything).Return(&ec2.DescribeInstancesOutput{}, errors.New(tc.apiErr))
+			c := &Cloud{
+				ec2:                     &awsSdkEC2{ec2: mockedEC2API},
+				describeInstanceBatcher: newdescribeInstanceBatcher(context.Background(), &awsSdkEC2{ec2: mockedEC2API}),
+				selfAWSInstance:         &awsInstance{nodeName: "i-self"},
+			}
+
+			node := &v1.Node{
+				ObjectMeta: metav1.ObjectMeta{Name: "i-kwok-fake"},
+				Spec:       v1.NodeSpec{},
+			}
+
+			exists, err := c.InstanceExists(context.TODO(), node)
+			assert.Error(t, err)
+			assert.False(t, exists)
+
+			shutdown, err := c.InstanceShutdown(context.TODO(), node)
+			assert.Error(t, err)
+			assert.False(t, shutdown)
 		})
 	}
 }
