@@ -2220,6 +2220,64 @@ func TestCloud_buildSecurityGroupRuleReferences(t *testing.T) {
 			},
 		},
 		{
+			name:          "consolidated permission is narrowed to the matching pair only",
+			targetGroupID: "sg-target",
+			setupMocks: func(mockedEC2 *MockedFakeEC2) {
+				mockedEC2.On("DescribeSecurityGroups", &ec2.DescribeSecurityGroupsInput{
+					Filters: []ec2types.Filter{
+						{
+							Name:   aws.String("ip-permission.group-id"),
+							Values: []string{"sg-target"},
+						},
+					},
+				}).Return([]ec2types.SecurityGroup{
+					{
+						GroupId: aws.String("sg-node"),
+						Tags: []ec2types.Tag{
+							{
+								Key:   aws.String("kubernetes.io/cluster/test-cluster"),
+								Value: aws.String("owned"),
+							},
+						},
+						// A single all-traffic IpPermission that EC2 has consolidated: it
+						// contains both the node SG's own self-reference and the reference to
+						// sg-target. Only the sg-target pair should be selected for revocation;
+						// the self-reference must be preserved.
+						IpPermissions: []ec2types.IpPermission{
+							{
+								IpProtocol: aws.String("-1"),
+								UserIdGroupPairs: []ec2types.UserIdGroupPair{
+									{GroupId: aws.String("sg-node")},
+									{GroupId: aws.String("sg-target")},
+								},
+							},
+						},
+					},
+				}, nil)
+			},
+			expectError:                          false,
+			expectedGroupsWithTagsCount:          1,
+			expectedGroupsLinkedPermissionsCount: 1,
+			additionalAssertions: func(t *testing.T, groupsWithTags map[*ec2types.SecurityGroup]bool, groupsLinkedPermissions map[*ec2types.SecurityGroup]IPPermissionSet) {
+				var foundSG *ec2types.SecurityGroup
+				for sg := range groupsLinkedPermissions {
+					if aws.ToString(sg.GroupId) == "sg-node" {
+						foundSG = sg
+						break
+					}
+				}
+				require.NotNil(t, foundSG)
+
+				linked := groupsLinkedPermissions[foundSG]
+				require.Equal(t, 1, linked.Len())
+				perm := linked.List()[0]
+				// The revoke set must reference ONLY sg-target, never the node SG's
+				// self-reference (which would break intra-cluster traffic if revoked).
+				require.Len(t, perm.UserIdGroupPairs, 1)
+				assert.Equal(t, "sg-target", aws.ToString(perm.UserIdGroupPairs[0].GroupId))
+			},
+		},
+		{
 			name:          "success with non-cluster tagged security group",
 			targetGroupID: "sg-target",
 			setupMocks: func(mockedEC2 *MockedFakeEC2) {
