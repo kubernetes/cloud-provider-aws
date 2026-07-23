@@ -1933,7 +1933,19 @@ func (c *Cloud) buildSecurityGroupRuleReferences(ctx context.Context, sgID strin
 			if rule.UserIdGroupPairs != nil {
 				for _, pair := range rule.UserIdGroupPairs {
 					if pair.GroupId != nil && aws.ToString(pair.GroupId) == sgID {
-						groupsLinkedPermissions[&sg].Insert(rule)
+						// Only revoke the single UserIdGroupPair that references sgID, not the
+						// whole IpPermission. EC2 consolidates rules sharing the same protocol/port
+						// tuple into one IpPermission with multiple UserIdGroupPairs, so a rule that
+						// references sgID may also carry unrelated pairs (e.g. the node SG's own
+						// self-reference that allows intra-cluster traffic). Inserting the whole
+						// rule here would revoke all of them in a single RevokeSecurityGroupIngress
+						// call. Narrow to the matching pair and drop the CIDR/prefix-list dimensions.
+						linkedRule := rule
+						linkedRule.UserIdGroupPairs = []ec2types.UserIdGroupPair{pair}
+						linkedRule.IpRanges = nil
+						linkedRule.Ipv6Ranges = nil
+						linkedRule.PrefixListIds = nil
+						groupsLinkedPermissions[&sg].Insert(linkedRule)
 					}
 				}
 			}
