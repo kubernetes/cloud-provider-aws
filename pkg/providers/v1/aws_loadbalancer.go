@@ -1915,7 +1915,16 @@ func (c *Cloud) buildSecurityGroupRuleReferences(ctx context.Context, sgID strin
 			if rule.UserIdGroupPairs != nil {
 				for _, pair := range rule.UserIdGroupPairs {
 					if pair.GroupId != nil && aws.ToString(pair.GroupId) == sgID {
-						groupsLinkedPermissions[&sg].Insert(rule)
+						// Revoke only the UserIdGroupPair that references sgID. EC2 consolidates rules
+						// with the same protocol/port into one IpPermission with multiple pairs, so the
+						// matched rule may also carry unrelated pairs (e.g. the node SG self-reference).
+						// Build a new permission with just the matching pair so nothing else is revoked.
+						groupsLinkedPermissions[&sg].Insert(ec2types.IpPermission{
+							IpProtocol:       rule.IpProtocol,
+							FromPort:         rule.FromPort,
+							ToPort:           rule.ToPort,
+							UserIdGroupPairs: []ec2types.UserIdGroupPair{pair},
+						})
 					}
 				}
 			}
