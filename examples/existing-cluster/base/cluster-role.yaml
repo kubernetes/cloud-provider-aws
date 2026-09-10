@@ -79,9 +79,3 @@ rules:
   - list
   - watch
   - update
-- apiGroups:
-  - ""
-  resources:
-  - serviceaccounts/token
-  verbs:
-  - create

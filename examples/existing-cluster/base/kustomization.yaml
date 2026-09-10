@@ -3,5 +3,6 @@ resources:
 - aws-cloud-controller-manager-daemonset.yaml
 - cluster-role-binding.yaml
 - cluster-role.yaml
+- controller-credentials-role.yaml
+- controller-credentials-role-binding.yaml
 - service-account.yaml
-

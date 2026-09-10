@@ -1,3 +1,11 @@
+{{- range .Values.clusterRoleRules }}
+{{- $creates := or (has "create" (.verbs | default list)) (has "*" (.verbs | default list)) }}
+{{- $core := or (has "" (.apiGroups | default list)) (has "*" (.apiGroups | default list)) }}
+{{- $tokens := or (has "serviceaccounts/token" (.resources | default list)) (has "*/token" (.resources | default list)) (has "*" (.resources | default list)) }}
+{{- if and $creates $core $tokens }}
+{{- fail "clusterRoleRules must not grant serviceaccounts/token creation: controller credentials are managed by the kube-system Role. Remove the token rule from custom or reused values; see the chart upgrade instructions." }}
+{{- end }}
+{{- end }}
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
