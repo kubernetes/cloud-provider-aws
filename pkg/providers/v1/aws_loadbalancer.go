@@ -986,19 +986,21 @@ func (c *Cloud) updateInstanceSecurityGroupsForNLB(ctx context.Context, lbName s
 	// scan instances for groups we want to open
 	desiredSGIDs := sets.String{}
 	for _, instance := range instances {
-		sg, err := findSecurityGroupForInstance(instance, clusterSGs)
+		sgs, err := findSecurityGroupsForInstance(instance, clusterSGs)
 		if err != nil {
 			return err
 		}
-		if sg == nil {
+		if len(sgs) == 0 {
 			klog.Warningf("Ignoring instance without security group: %s", aws.ToString(instance.InstanceId))
 			continue
 		}
-		desiredSGIDs.Insert(aws.ToString(sg.GroupId))
+		for _, sg := range sgs {
+			desiredSGIDs.Insert(aws.ToString(sg.GroupId))
+		}
 	}
 
 	// TODO(@M00nF1sh): do we really needs to support SG without cluster tag at current version?
-	// findSecurityGroupForInstance might return SG that are not tagged.
+	// findSecurityGroupsForInstance might return SG that are not tagged.
 	{
 		for sgID := range desiredSGIDs.Difference(sets.StringKeySet(clusterSGs)) {
 			sg, err := c.findSecurityGroup(ctx, sgID)
