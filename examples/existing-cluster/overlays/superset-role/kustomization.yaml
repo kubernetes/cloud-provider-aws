@@ -2,5 +2,6 @@ resources:
 - ../../base
 
 patches:
-- cluster-role-patch.yaml
-- aws-cloud-controller-manager-daemonset-patch.yaml
+- path: cluster-role-patch.yaml
+- path: aws-cloud-controller-manager-daemonset-patch.yaml
+- path: controller-credentials-role-patch.yaml
