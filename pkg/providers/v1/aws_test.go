@@ -2497,14 +2497,69 @@ type MockedFakeELBV2 struct {
 	RegisteredInstances    map[string][]string // value is list of instance IDs
 }
 
+// recordTags appends creation-time tags to the in-memory store.
+// Mirrors AWS persisting tags supplied at resource creation.
+func (m *MockedFakeELBV2) recordTags(arn string, tags []elbv2types.Tag) {
+	if len(tags) == 0 {
+		return
+	}
+	if m.Tags == nil {
+		m.Tags = make(map[string][]elbv2types.Tag)
+	}
+	m.Tags[arn] = append(m.Tags[arn], tags...)
+}
+
 func (m *MockedFakeELBV2) AddTags(ctx context.Context, input *elbv2.AddTagsInput, optFns ...func(*elbv2.Options)) (*elbv2.AddTagsOutput, error) {
 	for _, arn := range input.ResourceArns {
 		for _, tag := range input.Tags {
-			m.Tags[arn] = append(m.Tags[arn], tag)
+			// Upsert: replace the value if the key already exists, mirroring the AWS API.
+			replaced := false
+			for i, existing := range m.Tags[arn] {
+				if aws.ToString(existing.Key) == aws.ToString(tag.Key) {
+					m.Tags[arn][i] = tag
+					replaced = true
+					break
+				}
+			}
+			if !replaced {
+				m.Tags[arn] = append(m.Tags[arn], tag)
+			}
 		}
 	}
 
 	return &elbv2.AddTagsOutput{}, nil
+}
+
+func (m *MockedFakeELBV2) RemoveTags(ctx context.Context, input *elbv2.RemoveTagsInput, optFns ...func(*elbv2.Options)) (*elbv2.RemoveTagsOutput, error) {
+	if m.Tags == nil {
+		return &elbv2.RemoveTagsOutput{}, nil
+	}
+	for _, arn := range input.ResourceArns {
+		remove := make(map[string]bool, len(input.TagKeys))
+		for _, key := range input.TagKeys {
+			remove[key] = true
+		}
+		kept := m.Tags[arn][:0]
+		for _, tag := range m.Tags[arn] {
+			if !remove[aws.ToString(tag.Key)] {
+				kept = append(kept, tag)
+			}
+		}
+		m.Tags[arn] = kept
+	}
+
+	return &elbv2.RemoveTagsOutput{}, nil
+}
+
+func (m *MockedFakeELBV2) DescribeTags(ctx context.Context, input *elbv2.DescribeTagsInput, optFns ...func(*elbv2.Options)) (*elbv2.DescribeTagsOutput, error) {
+	descriptions := make([]elbv2types.TagDescription, 0, len(input.ResourceArns))
+	for _, arn := range input.ResourceArns {
+		descriptions = append(descriptions, elbv2types.TagDescription{
+			ResourceArn: aws.String(arn),
+			Tags:        m.Tags[arn],
+		})
+	}
+	return &elbv2.DescribeTagsOutput{TagDescriptions: descriptions}, nil
 }
 
 func (m *MockedFakeELBV2) CreateLoadBalancer(ctx context.Context, input *elbv2.CreateLoadBalancerInput, optFns ...func(*elbv2.Options)) (*elbv2.CreateLoadBalancerOutput, error) {
@@ -2535,6 +2590,7 @@ func (m *MockedFakeELBV2) CreateLoadBalancer(ctx context.Context, input *elbv2.C
 	}
 
 	m.LoadBalancers = append(m.LoadBalancers, &newLB)
+	m.recordTags(arn, input.Tags)
 
 	return &elbv2.CreateLoadBalancerOutput{
 		LoadBalancers: []elbv2types.LoadBalancer{newLB},
@@ -2647,6 +2703,7 @@ func (m *MockedFakeELBV2) CreateTargetGroup(ctx context.Context, input *elbv2.Cr
 	}
 
 	m.TargetGroups = append(m.TargetGroups, &newTG)
+	m.recordTags(arn, input.Tags)
 
 	return &elbv2.CreateTargetGroupOutput{
 		TargetGroups: []elbv2types.TargetGroup{newTG},
@@ -2860,6 +2917,7 @@ func (m *MockedFakeELBV2) CreateListener(ctx context.Context, input *elbv2.Creat
 	}
 
 	m.Listeners = append(m.Listeners, &newListener)
+	m.recordTags(arn, input.Tags)
 
 	for _, tg := range m.TargetGroups {
 		for _, action := range input.DefaultActions {
