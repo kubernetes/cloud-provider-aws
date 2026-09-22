@@ -2316,25 +2316,171 @@ func TestEnsureLoadBalancerHealthCheck(t *testing.T) {
 
 func TestFindSecurityGroupForInstance(t *testing.T) {
 	groups := map[string]*ec2types.SecurityGroup{"sg123": {GroupId: aws.String("sg123")}}
-	id, err := findSecurityGroupForInstance(&ec2types.Instance{SecurityGroups: []ec2types.GroupIdentifier{{GroupId: aws.String("sg123"), GroupName: aws.String("my_group")}}}, groups)
+	ids, err := findSecurityGroupsForInstance(&ec2types.Instance{SecurityGroups: []ec2types.GroupIdentifier{{GroupId: aws.String("sg123"), GroupName: aws.String("my_group")}}}, groups)
 	if err != nil {
 		t.Error()
 	}
-	assert.Equal(t, *id.GroupId, "sg123")
-	assert.Equal(t, *id.GroupName, "my_group")
+	require.Len(t, ids, 1)
+	assert.Equal(t, *ids[0].GroupId, "sg123")
+	assert.Equal(t, *ids[0].GroupName, "my_group")
 }
 
 func TestFindSecurityGroupForInstanceMultipleTagged(t *testing.T) {
-	groups := map[string]*ec2types.SecurityGroup{"sg123": {GroupId: aws.String("sg123")}}
-	_, err := findSecurityGroupForInstance(&ec2types.Instance{
+	groups := map[string]*ec2types.SecurityGroup{
+		"sg123": {GroupId: aws.String("sg123")},
+		"sg456": {GroupId: aws.String("sg456")},
+	}
+	ids, err := findSecurityGroupsForInstance(&ec2types.Instance{
 		SecurityGroups: []ec2types.GroupIdentifier{
 			{GroupId: aws.String("sg123"), GroupName: aws.String("my_group")},
-			{GroupId: aws.String("sg123"), GroupName: aws.String("another_group")},
+			{GroupId: aws.String("sg456"), GroupName: aws.String("another_group")},
 		},
 	}, groups)
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "sg123(my_group)")
-	assert.Contains(t, err.Error(), "sg123(another_group)")
+	require.NoError(t, err)
+	require.Len(t, ids, 2)
+	assert.Equal(t, "sg123", *ids[0].GroupId)
+	assert.Equal(t, "my_group", *ids[0].GroupName)
+	assert.Equal(t, "sg456", *ids[1].GroupId)
+	assert.Equal(t, "another_group", *ids[1].GroupName)
+}
+
+func TestFindSecurityGroupsForInstance(t *testing.T) {
+	taggedGroups := map[string]*ec2types.SecurityGroup{
+		"sg-tagged-1": {GroupId: aws.String("sg-tagged-1")},
+		"sg-tagged-2": {GroupId: aws.String("sg-tagged-2")},
+	}
+	group := func(id string) ec2types.GroupIdentifier {
+		return ec2types.GroupIdentifier{GroupId: aws.String(id), GroupName: aws.String(id + "-name")}
+	}
+
+	testCases := []struct {
+		name           string
+		instanceGroups []ec2types.GroupIdentifier
+		expectedIDs    []string
+		expectedError  string
+	}{
+		{
+			name:           "single tagged group",
+			instanceGroups: []ec2types.GroupIdentifier{group("sg-tagged-1")},
+			expectedIDs:    []string{"sg-tagged-1"},
+		},
+		{
+			name:           "multiple tagged groups are all returned",
+			instanceGroups: []ec2types.GroupIdentifier{group("sg-tagged-1"), group("sg-tagged-2")},
+			expectedIDs:    []string{"sg-tagged-1", "sg-tagged-2"},
+		},
+		{
+			name:           "tagged and untagged groups return only the tagged groups",
+			instanceGroups: []ec2types.GroupIdentifier{group("sg-tagged-1"), group("sg-untagged-1"), group("sg-tagged-2")},
+			expectedIDs:    []string{"sg-tagged-1", "sg-tagged-2"},
+		},
+		{
+			name:           "single untagged group is allowed for back-compat",
+			instanceGroups: []ec2types.GroupIdentifier{group("sg-untagged-1")},
+			expectedIDs:    []string{"sg-untagged-1"},
+		},
+		{
+			name:           "multiple untagged groups without a tagged group is an error",
+			instanceGroups: []ec2types.GroupIdentifier{group("sg-untagged-1"), group("sg-untagged-2")},
+			expectedError:  "Multiple untagged security groups found for instance i-abc",
+		},
+		{
+			name:           "groups without an id are ignored",
+			instanceGroups: []ec2types.GroupIdentifier{{GroupName: aws.String("no-id")}, group("sg-tagged-1")},
+			expectedIDs:    []string{"sg-tagged-1"},
+		},
+		{
+			name:           "no groups",
+			instanceGroups: []ec2types.GroupIdentifier{},
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			groups, err := findSecurityGroupsForInstance(&ec2types.Instance{
+				InstanceId:     aws.String("i-abc"),
+				SecurityGroups: tc.instanceGroups,
+			}, taggedGroups)
+			if tc.expectedError != "" {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), tc.expectedError)
+				assert.Nil(t, groups)
+				return
+			}
+			require.NoError(t, err)
+			var ids []string
+			for _, g := range groups {
+				ids = append(ids, aws.ToString(g.GroupId))
+			}
+			assert.Equal(t, tc.expectedIDs, ids)
+		})
+	}
+}
+
+// recordingAuthorizeEC2 records the security group ids passed to
+// AuthorizeSecurityGroupIngress so tests can assert which node security
+// groups were opened for a load balancer.
+type recordingAuthorizeEC2 struct {
+	*MockedFakeEC2
+	authorizedGroupIDs []string
+}
+
+func (r *recordingAuthorizeEC2) AuthorizeSecurityGroupIngress(ctx context.Context, request *ec2.AuthorizeSecurityGroupIngressInput, optFns ...func(*ec2.Options)) (*ec2.AuthorizeSecurityGroupIngressOutput, error) {
+	r.authorizedGroupIDs = append(r.authorizedGroupIDs, aws.ToString(request.GroupId))
+	return r.MockedFakeEC2.AuthorizeSecurityGroupIngress(ctx, request, optFns...)
+}
+
+func TestUpdateInstanceSecurityGroupsForLoadBalancerMultipleTaggedGroups(t *testing.T) {
+	awsServices := newMockedFakeAWSServices(TestClusterID)
+	ec2Client := &recordingAuthorizeEC2{MockedFakeEC2: awsServices.ec2.(*MockedFakeEC2)}
+	awsServices.ec2 = ec2Client
+	c, err := newAWSCloud(config.CloudConfig{}, awsServices)
+	require.NoError(t, err)
+
+	clusterTags := []ec2types.Tag{
+		{Key: aws.String(TagNameKubernetesClusterLegacy), Value: aws.String(TestClusterID)},
+		{Key: aws.String(fmt.Sprintf("%s%s", TagNameKubernetesClusterPrefix, TestClusterID)), Value: aws.String(ResourceLifecycleOwned)},
+	}
+	const (
+		lbSG       = "sg-lb"
+		nodeSG1    = "sg-node-1"
+		nodeSG2    = "sg-node-2"
+		untaggedSG = "sg-user"
+	)
+	securityGroups := []ec2types.SecurityGroup{
+		{GroupId: aws.String(lbSG), Tags: clusterTags},
+		{GroupId: aws.String(nodeSG1), Tags: clusterTags},
+		{GroupId: aws.String(nodeSG2), Tags: clusterTags},
+		{GroupId: aws.String(untaggedSG)},
+	}
+	// getTaggedSecurityGroups lists every security group
+	ec2Client.On("DescribeSecurityGroups", &ec2.DescribeSecurityGroupsInput{}).Return(securityGroups)
+	// nothing allows ingress from the load balancer security group yet
+	ec2Client.On("DescribeSecurityGroups", &ec2.DescribeSecurityGroupsInput{Filters: []ec2types.Filter{
+		newEc2Filter("ip-permission.group-id", lbSG),
+	}}).Return([]ec2types.SecurityGroup{})
+	// addSecurityGroupIngress looks the instance security group up by id before authorizing
+	for i := range securityGroups {
+		sg := securityGroups[i]
+		ec2Client.On("DescribeSecurityGroups", &ec2.DescribeSecurityGroupsInput{GroupIds: []string{aws.ToString(sg.GroupId)}}).Return([]ec2types.SecurityGroup{sg})
+	}
+
+	instances := map[InstanceID]*ec2types.Instance{
+		"i-multi-sg": {
+			InstanceId: aws.String("i-multi-sg"),
+			SecurityGroups: []ec2types.GroupIdentifier{
+				{GroupId: aws.String(nodeSG1), GroupName: aws.String("node-1")},
+				{GroupId: aws.String(nodeSG2), GroupName: aws.String("node-2")},
+				{GroupId: aws.String(untaggedSG), GroupName: aws.String("user")},
+			},
+		},
+	}
+	lb := &elbtypes.LoadBalancerDescription{LoadBalancerName: aws.String("lb"), SecurityGroups: []string{lbSG}}
+
+	err = c.updateInstanceSecurityGroupsForLoadBalancer(context.TODO(), lb, instances, map[string]string{}, false)
+	require.NoError(t, err)
+	// every cluster-tagged security group on the instance is opened; the untagged one is left alone
+	assert.ElementsMatch(t, []string{nodeSG1, nodeSG2}, ec2Client.authorizedGroupIDs)
 }
 
 const (
