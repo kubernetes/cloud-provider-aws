@@ -329,10 +329,37 @@ func (ec2i *FakeEC2Impl) CreateSubnet(request *ec2types.Subnet) (*ec2.CreateSubn
 	return response, nil
 }
 
-// DescribeSubnets returns fake subnet descriptions
+// DescribeSubnets returns fake subnet descriptions. Only the vpc-id filter is
+// honored, all other filters are ignored.
 func (ec2i *FakeEC2Impl) DescribeSubnets(ctx context.Context, request *ec2.DescribeSubnetsInput, optFns ...func(*ec2.Options)) ([]ec2types.Subnet, error) {
 	ec2i.DescribeSubnetsInput = request
-	return ec2i.Subnets, nil
+	matches := []ec2types.Subnet{}
+	for _, subnet := range ec2i.Subnets {
+		if !subnetMatchesVPCFilter(subnet, request.Filters) {
+			continue
+		}
+		matches = append(matches, subnet)
+	}
+	return matches, nil
+}
+
+func subnetMatchesVPCFilter(subnet ec2types.Subnet, filters []ec2types.Filter) bool {
+	for _, filter := range filters {
+		if aws.ToString(filter.Name) != "vpc-id" {
+			continue
+		}
+		found := false
+		for _, value := range filter.Values {
+			if value == aws.ToString(subnet.VpcId) {
+				found = true
+				break
+			}
+		}
+		if !found {
+			return false
+		}
+	}
+	return true
 }
 
 // RemoveSubnets clears subnets on client

@@ -1837,6 +1837,12 @@ func (c *Cloud) resolveSubnetNameOrIDs(ctx context.Context, subnetNameOrIDs []st
 	if len(subnetIDs) > 0 {
 		req := &ec2.DescribeSubnetsInput{
 			SubnetIds: subnetIDs,
+			Filters: []ec2types.Filter{
+				{
+					Name:   aws.String("vpc-id"),
+					Values: []string{c.vpcID},
+				},
+			},
 		}
 		subnets, err := c.ec2.DescribeSubnets(ctx, req)
 		if err != nil {
