@@ -2912,11 +2912,13 @@ func v2toStatus(lb *elbv2types.LoadBalancer) *v1.LoadBalancerStatus {
 	return status
 }
 
-// Returns the first security group for an instance, or nil
-// We only create instances with one security group, so we don't expect multiple security groups.
-// However, if there are multiple security groups, we will choose the one tagged with our cluster filter.
-// Otherwise we will return an error.
-func findSecurityGroupForInstance(instance *ec2types.Instance, taggedSecurityGroups map[string]*ec2types.SecurityGroup) (*ec2types.GroupIdentifier, error) {
+// Returns the security groups of an instance that load balancer ingress rules should be applied to.
+// All security groups tagged with our cluster tag are returned, so users can attach several
+// cluster-owned security groups to a node and have the load balancer allowed on each of them.
+// For back-compat, if no security group is tagged, a single untagged security group is returned.
+// Multiple untagged security groups (and no tagged one) is an error, because we cannot tell which
+// one is the node security group.
+func findSecurityGroupsForInstance(instance *ec2types.Instance, taggedSecurityGroups map[string]*ec2types.SecurityGroup) ([]ec2types.GroupIdentifier, error) {
 	instanceID := aws.ToString(instance.InstanceId)
 
 	var tagged []ec2types.GroupIdentifier
@@ -2936,16 +2938,8 @@ func findSecurityGroupForInstance(instance *ec2types.Instance, taggedSecurityGro
 	}
 
 	if len(tagged) > 0 {
-		// We create instances with one SG
-		// If users create multiple SGs, they must tag one of them as being k8s owned
-		if len(tagged) != 1 {
-			taggedGroups := ""
-			for _, v := range tagged {
-				taggedGroups += fmt.Sprintf("%s(%s) ", *v.GroupId, *v.GroupName)
-			}
-			return nil, fmt.Errorf("Multiple tagged security groups found for instance %s; ensure only the k8s security group is tagged; the tagged groups were %v", instanceID, taggedGroups)
-		}
-		return &tagged[0], nil
+		// Every SG tagged as owned by the cluster is managed
+		return tagged, nil
 	}
 
 	if len(untagged) > 0 {
@@ -2953,7 +2947,7 @@ func findSecurityGroupForInstance(instance *ec2types.Instance, taggedSecurityGro
 		if len(untagged) != 1 {
 			return nil, fmt.Errorf("Multiple untagged security groups found for instance %s; ensure the k8s security group is tagged", instanceID)
 		}
-		return &untagged[0], nil
+		return untagged, nil
 	}
 
 	klog.Warningf("No security group found for instance %q", instanceID)
@@ -3028,22 +3022,24 @@ func (c *Cloud) updateInstanceSecurityGroupsForLoadBalancer(ctx context.Context,
 
 	// Scan instances for groups we want open
 	for _, instance := range instances {
-		securityGroup, err := findSecurityGroupForInstance(instance, taggedSecurityGroups)
+		securityGroups, err := findSecurityGroupsForInstance(instance, taggedSecurityGroups)
 		if err != nil {
 			return err
 		}
 
-		if securityGroup == nil {
+		if len(securityGroups) == 0 {
 			klog.Warning("Ignoring instance without security group: ", aws.ToString(instance.InstanceId))
 			continue
 		}
-		id := aws.ToString(securityGroup.GroupId)
-		if id == "" {
-			klog.Warningf("found security group without id: %v", securityGroup)
-			continue
-		}
+		for _, securityGroup := range securityGroups {
+			id := aws.ToString(securityGroup.GroupId)
+			if id == "" {
+				klog.Warningf("found security group without id: %v", securityGroup)
+				continue
+			}
 
-		instanceSecurityGroupIds[id] = true
+			instanceSecurityGroupIds[id] = true
+		}
 	}
 
 	// Compare to actual groups
