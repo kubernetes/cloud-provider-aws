@@ -5697,3 +5697,163 @@ func TestCloud_cleanupNLBSecurityGroups(t *testing.T) {
 		})
 	}
 }
+
+func TestIsSecurityGroupUsedByOtherLoadBalancers(t *testing.T) {
+	const sgID = "sg-shared"
+	const lbName = "a1b2c3"
+
+	tests := []struct {
+		name  string
+		pages []*elb.DescribeLoadBalancersOutput
+		want  bool
+	}{
+		{
+			name:  "no load balancers",
+			pages: []*elb.DescribeLoadBalancersOutput{{}},
+			want:  false,
+		},
+		{
+			name: "only the load balancer being deleted uses the group",
+			pages: []*elb.DescribeLoadBalancersOutput{{
+				LoadBalancerDescriptions: []elbtypes.LoadBalancerDescription{
+					{LoadBalancerName: aws.String(lbName), SecurityGroups: []string{sgID}},
+					{LoadBalancerName: aws.String("other"), SecurityGroups: []string{"sg-other"}},
+				},
+			}},
+			want: false,
+		},
+		{
+			name: "another load balancer uses the group",
+			pages: []*elb.DescribeLoadBalancersOutput{{
+				LoadBalancerDescriptions: []elbtypes.LoadBalancerDescription{
+					{LoadBalancerName: aws.String(lbName), SecurityGroups: []string{sgID}},
+					{LoadBalancerName: aws.String("other"), SecurityGroups: []string{"sg-other", sgID}},
+				},
+			}},
+			want: true,
+		},
+		{
+			name: "another load balancer on a later page uses the group",
+			pages: []*elb.DescribeLoadBalancersOutput{
+				{
+					LoadBalancerDescriptions: []elbtypes.LoadBalancerDescription{
+						{LoadBalancerName: aws.String(lbName), SecurityGroups: []string{sgID}},
+					},
+					NextMarker: aws.String("page2"),
+				},
+				{
+					LoadBalancerDescriptions: []elbtypes.LoadBalancerDescription{
+						{LoadBalancerName: aws.String("other"), SecurityGroups: []string{sgID}},
+					},
+				},
+			},
+			want: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			awsServices := newMockedFakeAWSServices(TestClusterID)
+			c, err := newAWSCloud(config.CloudConfig{}, awsServices)
+			require.NoError(t, err)
+			mockELB := awsServices.elb.(*MockedFakeELB)
+
+			var marker *string
+			for _, page := range tt.pages {
+				mockELB.On("DescribeLoadBalancers", &elb.DescribeLoadBalancersInput{Marker: marker}).Return(page).Once()
+				marker = page.NextMarker
+			}
+
+			got, err := c.isSecurityGroupUsedByOtherLoadBalancers(context.TODO(), sgID, lbName)
+			require.NoError(t, err)
+			assert.Equal(t, tt.want, got)
+			mockELB.AssertExpectations(t)
+		})
+	}
+}
+
+func TestUpdateInstanceSecurityGroupsForLoadBalancerSharedSecurityGroup(t *testing.T) {
+	const lbSGID = "sg-lb"
+	const nodeSGID = "sg-node"
+	const lbName = "a1b2c3"
+
+	clusterTags := []ec2types.Tag{
+		{Key: aws.String(TagNameKubernetesClusterLegacy), Value: aws.String(TestClusterID)},
+		{Key: aws.String(fmt.Sprintf("%s%s", TagNameKubernetesClusterPrefix, TestClusterID)), Value: aws.String(ResourceLifecycleOwned)},
+	}
+	lbRule := ec2types.IpPermission{
+		IpProtocol:       aws.String("-1"),
+		UserIdGroupPairs: []ec2types.UserIdGroupPair{{GroupId: aws.String(lbSGID)}},
+	}
+	nodeSG := ec2types.SecurityGroup{
+		GroupId:       aws.String(nodeSGID),
+		Tags:          clusterTags,
+		IpPermissions: []ec2types.IpPermission{lbRule},
+	}
+	lb := &elbtypes.LoadBalancerDescription{
+		LoadBalancerName: aws.String(lbName),
+		SecurityGroups:   []string{lbSGID},
+	}
+
+	tests := []struct {
+		name         string
+		isDeleting   bool
+		otherLBs     []elbtypes.LoadBalancerDescription
+		expectRevoke bool
+	}{
+		{
+			name:         "group used by another load balancer: rule is kept",
+			otherLBs:     []elbtypes.LoadBalancerDescription{{LoadBalancerName: aws.String("other"), SecurityGroups: []string{lbSGID}}},
+			expectRevoke: false,
+		},
+		{
+			name:         "group not used by another load balancer: rule is revoked",
+			otherLBs:     []elbtypes.LoadBalancerDescription{{LoadBalancerName: aws.String("other"), SecurityGroups: []string{"sg-other"}}},
+			expectRevoke: true,
+		},
+		{
+			name:         "group is being deleted: rule is revoked without listing load balancers",
+			isDeleting:   true,
+			expectRevoke: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			awsServices := newMockedFakeAWSServices(TestClusterID)
+			c, err := newAWSCloud(config.CloudConfig{}, awsServices)
+			require.NoError(t, err)
+			mockEC2 := awsServices.ec2.(*MockedFakeEC2)
+			mockELB := awsServices.elb.(*MockedFakeELB)
+
+			// getTaggedSecurityGroups
+			mockEC2.expectDescribeSecurityGroupsAll(TestClusterID)
+			// buildSecurityGroupRuleReferences: the node group allows ingress from the load balancer group
+			mockEC2.On("DescribeSecurityGroups", &ec2.DescribeSecurityGroupsInput{Filters: []ec2types.Filter{
+				newEc2Filter("ip-permission.group-id", lbSGID),
+			}}).Return([]ec2types.SecurityGroup{nodeSG})
+			if !tt.isDeleting {
+				mockELB.On("DescribeLoadBalancers", &elb.DescribeLoadBalancersInput{}).Return(&elb.DescribeLoadBalancersOutput{
+					LoadBalancerDescriptions: append([]elbtypes.LoadBalancerDescription{*lb}, tt.otherLBs...),
+				}).Once()
+			}
+			if tt.expectRevoke {
+				// removeSecurityGroupIngress
+				mockEC2.On("DescribeSecurityGroups", &ec2.DescribeSecurityGroupsInput{GroupIds: []string{nodeSGID}}).Return([]ec2types.SecurityGroup{nodeSG})
+				mockEC2.On("RevokeSecurityGroupIngress", &ec2.RevokeSecurityGroupIngressInput{
+					GroupId:       aws.String(nodeSGID),
+					IpPermissions: []ec2types.IpPermission{lbRule},
+				}).Return(&ec2.RevokeSecurityGroupIngressOutput{}, nil).Once()
+			}
+
+			err = c.updateInstanceSecurityGroupsForLoadBalancer(context.TODO(), lb, nil, map[string]string{}, tt.isDeleting)
+			require.NoError(t, err)
+
+			mockEC2.AssertExpectations(t)
+			mockELB.AssertExpectations(t)
+			if !tt.expectRevoke {
+				mockEC2.AssertNotCalled(t, "RevokeSecurityGroupIngress", mock.Anything)
+			}
+		})
+	}
+}

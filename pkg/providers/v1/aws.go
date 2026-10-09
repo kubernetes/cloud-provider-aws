@@ -25,6 +25,7 @@ import (
 	"io"
 	"net"
 	"regexp"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -1168,6 +1169,30 @@ func (c *Cloud) describeLoadBalancer(ctx context.Context, name string) (*elbtype
 		ret = &loadBalancer
 	}
 	return ret, nil
+}
+
+// isSecurityGroupUsedByOtherLoadBalancers returns true if a classic load balancer other than
+// loadBalancerName still has securityGroupID attached.
+func (c *Cloud) isSecurityGroupUsedByOtherLoadBalancers(ctx context.Context, securityGroupID string, loadBalancerName string) (bool, error) {
+	request := &elb.DescribeLoadBalancersInput{}
+	for {
+		response, err := c.elb.DescribeLoadBalancers(ctx, request)
+		if err != nil {
+			return false, fmt.Errorf("error listing load balancers: %w", err)
+		}
+		for _, loadBalancer := range response.LoadBalancerDescriptions {
+			if aws.ToString(loadBalancer.LoadBalancerName) == loadBalancerName {
+				continue
+			}
+			if slices.Contains(loadBalancer.SecurityGroups, securityGroupID) {
+				return true, nil
+			}
+		}
+		if aws.ToString(response.NextMarker) == "" {
+			return false, nil
+		}
+		request = &elb.DescribeLoadBalancersInput{Marker: response.NextMarker}
+	}
 }
 
 func (c *Cloud) addLoadBalancerTags(ctx context.Context, loadBalancerName string, requested map[string]string) error {
@@ -3047,6 +3072,7 @@ func (c *Cloud) updateInstanceSecurityGroupsForLoadBalancer(ctx context.Context,
 	}
 
 	// Compare to actual groups
+	removing := false
 	for actualGroup, hasClusterTag := range actualGroups {
 		actualGroupID := aws.ToString(actualGroup.GroupId)
 		if actualGroupID == "" {
@@ -3064,6 +3090,28 @@ func (c *Cloud) updateInstanceSecurityGroupsForLoadBalancer(ctx context.Context,
 				// If the security group is deleting, we should also remove the rule else
 				// we cannot remove the security group, we wiil get a dependency violation.
 				instanceSecurityGroupIds[actualGroupID] = false
+				removing = true
+			}
+		}
+	}
+
+	// The load balancer security group can be shared by several load balancers, through the
+	// security-groups annotation or the global ElbSecurityGroup setting. The ingress rule on the
+	// instance security group only identifies the source group, so it is shared as well: EC2
+	// keeps one rule no matter how many load balancers need it. Keep the rule while another
+	// load balancer still uses the group. When the group itself is being deleted, no other
+	// load balancer can be using it.
+	if removing && !isDeleting {
+		inUse, err := c.isSecurityGroupUsedByOtherLoadBalancers(ctx, loadBalancerSecurityGroupID, aws.ToString(lb.LoadBalancerName))
+		if err != nil {
+			return fmt.Errorf("error checking whether security group %s is used by other load balancers: %w", loadBalancerSecurityGroupID, err)
+		}
+		if inUse {
+			for instanceSecurityGroupID, add := range instanceSecurityGroupIds {
+				if !add {
+					klog.V(2).Infof("Keeping rule for traffic from the load balancer (%s) to instance (%s): the security group is still used by another load balancer", loadBalancerSecurityGroupID, instanceSecurityGroupID)
+					delete(instanceSecurityGroupIds, instanceSecurityGroupID)
+				}
 			}
 		}
 	}
