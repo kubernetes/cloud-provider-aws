@@ -455,6 +455,20 @@ var managedSgModeNLBTests = []loadBalancerTestCases{
 				framework.Failf("Expected NLB to have BYO SG %q, got %q", cfg.byoSecurityGroupID, attachedSGs[0])
 			}
 			framework.Logf("✓ Verified: NLB has only the BYO SG attached: %s", cfg.byoSecurityGroupID)
+
+			// Verify node SGs have an SG-to-SG ingress rule referencing the BYO SG
+			framework.Logf("Verifying node security groups have SG-to-SG reference to BYO SG %s", cfg.byoSecurityGroupID)
+			gomega.Eventually(cfg.ctx, func() error {
+				nodeSGs, err := getNodeInstanceSecurityGroups(cfg.ctx, cfg)
+				if err != nil {
+					return fmt.Errorf("failed to get node security groups: %w", err)
+				}
+				if !nodeSecurityGroupHasSGReference(nodeSGs, cfg.byoSecurityGroupID) {
+					return fmt.Errorf("no node security group has an ingress rule referencing BYO SG %s", cfg.byoSecurityGroupID)
+				}
+				return nil
+			}, 2*time.Minute, 5*time.Second).Should(gomega.Succeed(), "Node SGs should reference BYO SG")
+			framework.Logf("✓ Verified: Node SGs have SG-to-SG reference to BYO SG %s", cfg.byoSecurityGroupID)
 		},
 	},
 	// Test transition of NLB from Managed Security Group to Bring Your Own (BYO) Security Group (SG)
@@ -536,6 +550,23 @@ var managedSgModeNLBTests = []loadBalancerTestCases{
 				gomega.MatchError(gomega.ContainSubstring("InvalidGroup.NotFound")),
 			), "Managed SG should be deleted after transition to BYO SG")
 			framework.Logf("✓ Verified: Managed SG %s was deleted", managedSGID)
+
+			// Verify node SGs now reference the BYO SG (and no longer reference the old managed SG)
+			framework.Logf("Step 4: Verifying node security groups reference BYO SG %s", cfg.byoSecurityGroupID)
+			gomega.Eventually(cfg.ctx, func() error {
+				nodeSGs, err := getNodeInstanceSecurityGroups(cfg.ctx, cfg)
+				if err != nil {
+					return fmt.Errorf("failed to get node security groups: %w", err)
+				}
+				if !nodeSecurityGroupHasSGReference(nodeSGs, cfg.byoSecurityGroupID) {
+					return fmt.Errorf("no node security group has an ingress rule referencing BYO SG %s", cfg.byoSecurityGroupID)
+				}
+				if nodeSecurityGroupHasSGReference(nodeSGs, managedSGID) {
+					return fmt.Errorf("node security group still references old managed SG %s", managedSGID)
+				}
+				return nil
+			}, 2*time.Minute, 5*time.Second).Should(gomega.Succeed(), "Node SGs should reference BYO SG after transition")
+			framework.Logf("✓ Verified: Node SGs reference BYO SG %s and no longer reference managed SG %s", cfg.byoSecurityGroupID, managedSGID)
 		},
 	},
 	// Test transition of NLB from BYO Security Group to managed Security Group (SG)
@@ -605,6 +636,7 @@ var managedSgModeNLBTests = []loadBalancerTestCases{
 
 			// Step 3: Wait for controller to process the update and verify NLB has new managed SG
 			framework.Logf("Step 3: Waiting for controller to update NLB security groups and verifying new managed SG is attached")
+			var newManagedSGID string
 			err = wait.PollUntilContextTimeout(cfg.ctx, 5*time.Second, 2*time.Minute, true, func(ctx context.Context) (bool, error) {
 				managedSGs, err := getLoadBalancerSecurityGroups(cfg.ctx, lbDNS)
 				if err != nil {
@@ -620,6 +652,7 @@ var managedSgModeNLBTests = []loadBalancerTestCases{
 					return false, nil
 				}
 				framework.Logf("NLB %s has security groups after removing BYO annotation: %+v", lbDNS, managedSGs)
+				newManagedSGID = managedSGs[0]
 				return true, nil
 			})
 			framework.ExpectNoError(err, "Failed waiting for NLB to get new managed SG")
@@ -630,6 +663,20 @@ var managedSgModeNLBTests = []loadBalancerTestCases{
 			framework.ExpectNoError(err, "Failed to get BYO security group")
 			gomega.Expect(byoSG).ToNot(gomega.BeNil(), "BYO SG should still exist after transition to managed SG")
 			framework.Logf("✓ Verified: BYO SG %s still exists and was not deleted", cfg.byoSecurityGroupID)
+
+			// Verify node SGs now reference the new managed SG
+			framework.Logf("Step 4: Verifying node security groups reference new managed SG %s", newManagedSGID)
+			gomega.Eventually(cfg.ctx, func() error {
+				nodeSGs, err := getNodeInstanceSecurityGroups(cfg.ctx, cfg)
+				if err != nil {
+					return fmt.Errorf("failed to get node security groups: %w", err)
+				}
+				if !nodeSecurityGroupHasSGReference(nodeSGs, newManagedSGID) {
+					return fmt.Errorf("no node security group has an ingress rule referencing managed SG %s", newManagedSGID)
+				}
+				return nil
+			}, 2*time.Minute, 5*time.Second).Should(gomega.Succeed(), "Node SGs should reference new managed SG after transition")
+			framework.Logf("✓ Verified: Node SGs reference new managed SG %s", newManagedSGID)
 		},
 	},
 }
@@ -1444,4 +1491,65 @@ func getSecurityGroup(ctx context.Context, securityGroupID string) (*ec2types.Se
 	}
 
 	return &result.SecurityGroups[0], nil
+}
+
+// getNodeInstanceSecurityGroups returns the full SecurityGroup objects for all SGs attached to a node's EC2 instance.
+func getNodeInstanceSecurityGroups(ctx context.Context, cfg *e2eTestConfig) ([]ec2types.SecurityGroup, error) {
+	ec2Client, err := getAWSClientEC2(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	node, err := cfg.kubeClient.CoreV1().Nodes().Get(ctx, cfg.nodeSingleSample, metav1.GetOptions{})
+	if err != nil {
+		return nil, fmt.Errorf("failed to get node %s: %w", cfg.nodeSingleSample, err)
+	}
+
+	providerID := node.Spec.ProviderID
+	if providerID == "" {
+		return nil, fmt.Errorf("node %s has no provider ID", cfg.nodeSingleSample)
+	}
+	instanceID := providerID[strings.LastIndex(providerID, "/")+1:]
+
+	descResult, err := ec2Client.DescribeInstances(ctx, &ec2.DescribeInstancesInput{
+		InstanceIds: []string{instanceID},
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to describe instance %s: %w", instanceID, err)
+	}
+	if len(descResult.Reservations) == 0 || len(descResult.Reservations[0].Instances) == 0 {
+		return nil, fmt.Errorf("instance not found: %s", instanceID)
+	}
+
+	var sgIDs []string
+	for _, sg := range descResult.Reservations[0].Instances[0].SecurityGroups {
+		sgIDs = append(sgIDs, aws.ToString(sg.GroupId))
+	}
+	if len(sgIDs) == 0 {
+		return nil, fmt.Errorf("no security groups found on instance %s", instanceID)
+	}
+
+	sgResult, err := ec2Client.DescribeSecurityGroups(ctx, &ec2.DescribeSecurityGroupsInput{
+		GroupIds: sgIDs,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to describe security groups: %w", err)
+	}
+
+	return sgResult.SecurityGroups, nil
+}
+
+// nodeSecurityGroupHasSGReference checks whether any of the node's security groups has an
+// ingress rule with a UserIdGroupPairs entry referencing the given source security group ID.
+func nodeSecurityGroupHasSGReference(nodeSGs []ec2types.SecurityGroup, sourceSGID string) bool {
+	for _, sg := range nodeSGs {
+		for _, perm := range sg.IpPermissions {
+			for _, pair := range perm.UserIdGroupPairs {
+				if aws.ToString(pair.GroupId) == sourceSGID {
+					return true
+				}
+			}
+		}
+	}
+	return false
 }

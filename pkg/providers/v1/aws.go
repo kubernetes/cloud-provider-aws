@@ -2495,7 +2495,7 @@ func (c *Cloud) EnsureLoadBalancer(ctx context.Context, clusterName string, apiS
 		}
 
 		// Create/retrieve the Security Groups to be used with the NLB (aligned with CLB pattern)
-		securityGroupIDs, isManagedSg, err := c.ensureNLBSecurityGroup(ctx, clusterName, apiService, existingLB)
+		nlbSecurityGroupIDs, isManagedSg, err := c.ensureNLBSecurityGroup(ctx, clusterName, apiService, existingLB)
 		if err != nil {
 			return nil, fmt.Errorf("error ensuring NLB security group: %w", err)
 		}
@@ -2508,15 +2508,15 @@ func (c *Cloud) EnsureLoadBalancer(ctx context.Context, clusterName string, apiS
 			discoveredSubnetIDs,
 			internalELB,
 			annotations,
-			securityGroupIDs,
+			nlbSecurityGroupIDs,
 		)
 		if err != nil {
 			return nil, err
 		}
 
 		// Ensure SG rules for cluster-owned groups, only if the LB reconciliator finished successfully.
-		if isManagedSg && len(securityGroupIDs) > 0 {
-			if err := c.ensureNLBSecurityGroupRules(ctx, securityGroupIDs[0], ec2SourceRanges, v2Mappings); err != nil {
+		if isManagedSg && len(nlbSecurityGroupIDs) > 0 {
+			if err := c.ensureNLBSecurityGroupRules(ctx, nlbSecurityGroupIDs[0], ec2SourceRanges, v2Mappings); err != nil {
 				return nil, fmt.Errorf("error ensuring NLB security group rules: %w", err)
 			}
 		}
@@ -2524,7 +2524,7 @@ func (c *Cloud) EnsureLoadBalancer(ctx context.Context, clusterName string, apiS
 		// Cleanup old managed security groups and rules referencing them, if any
 		if existingLB != nil && len(existingLB.SecurityGroups) > 0 {
 			currentSGSet := sets.New(existingLB.SecurityGroups...)
-			expectedSGSet := sets.New(securityGroupIDs...)
+			expectedSGSet := sets.New(nlbSecurityGroupIDs...)
 			detachedSGs := currentSGSet.Difference(expectedSGSet).UnsortedList()
 			if len(detachedSGs) > 0 {
 				errs := c.removeOwnedSecurityGroups(ctx, loadBalancerName, detachedSGs)
@@ -2558,7 +2558,7 @@ func (c *Cloud) EnsureLoadBalancer(ctx context.Context, clusterName string, apiS
 			sourceRangeCidrs = append(sourceRangeCidrs, "0.0.0.0/0")
 		}
 
-		err = c.updateInstanceSecurityGroupsForNLB(ctx, loadBalancerName, instances, subnetCidrs, sourceRangeCidrs, v2Mappings)
+		err = c.updateInstanceSecurityGroupsForNLB(ctx, loadBalancerName, instances, subnetCidrs, sourceRangeCidrs, v2Mappings, nlbSecurityGroupIDs)
 		if err != nil {
 			klog.Warningf("Error opening ingress rules for the load balancer to the instances: %q", err)
 			return nil, err
@@ -3343,7 +3343,7 @@ func (c *Cloud) EnsureLoadBalancerDeleted(ctx context.Context, clusterName strin
 			}
 		}
 
-		if err = c.updateInstanceSecurityGroupsForNLB(ctx, loadBalancerName, nil, nil, nil, nil); err != nil {
+		if err = c.updateInstanceSecurityGroupsForNLB(ctx, loadBalancerName, nil, nil, nil, nil, lb.SecurityGroups); err != nil {
 			return fmt.Errorf("error deleting instance security group rules: %w", err)
 		}
 

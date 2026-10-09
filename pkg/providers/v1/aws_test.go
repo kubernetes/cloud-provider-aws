@@ -95,6 +95,16 @@ func (m *MockedFakeEC2) expectDescribeSecurityGroupsByFilter(clusterID, filterNa
 	}}).Return([]ec2types.SecurityGroup{{Tags: tags}})
 }
 
+func (m *MockedFakeEC2) AuthorizeSecurityGroupIngress(ctx context.Context, request *ec2.AuthorizeSecurityGroupIngressInput, optFns ...func(*ec2.Options)) (*ec2.AuthorizeSecurityGroupIngressOutput, error) {
+	for _, call := range m.ExpectedCalls {
+		if call.Method == "AuthorizeSecurityGroupIngress" {
+			args := m.Called(request)
+			return args.Get(0).(*ec2.AuthorizeSecurityGroupIngressOutput), args.Error(1)
+		}
+	}
+	return m.FakeEC2Impl.AuthorizeSecurityGroupIngress(ctx, request, optFns...)
+}
+
 func (m *MockedFakeEC2) RevokeSecurityGroupIngress(ctx context.Context, request *ec2.RevokeSecurityGroupIngressInput, optFns ...func(*ec2.Options)) (*ec2.RevokeSecurityGroupIngressOutput, error) {
 	args := m.Called(request)
 	return args.Get(0).(*ec2.RevokeSecurityGroupIngressOutput), args.Error(1)
@@ -4226,14 +4236,10 @@ func TestEnsureLoadBalancer(t *testing.T) {
 				NextToken:  nil,
 			}).Return([]ec2types.SecurityGroup{}, nil)
 
-			awsServices.ec2.(*MockedFakeEC2).On("DescribeSecurityGroups", &ec2.DescribeSecurityGroupsInput{
-				Filters: []ec2types.Filter{
-					{
-						Name:   aws.String("ip-permission.group-id"),
-						Values: []string{fakeSecurityGroupID},
-					},
-				},
-			}).Return([]ec2types.SecurityGroup{{GroupId: aws.String(fakeSecurityGroupID)}}, nil)
+			awsServices.ec2.(*MockedFakeEC2).On("DescribeSecurityGroups", mock.MatchedBy(func(input *ec2.DescribeSecurityGroupsInput) bool {
+				return len(input.Filters) == 1 &&
+					aws.ToString(input.Filters[0].Name) == "ip-permission.group-id"
+			})).Return([]ec2types.SecurityGroup{}, nil)
 
 			awsServices.elb.(*MockedFakeELB).On("DescribeLoadBalancers", &elb.DescribeLoadBalancersInput{
 				LoadBalancerNames: []string{fakeLoadBalancerName},

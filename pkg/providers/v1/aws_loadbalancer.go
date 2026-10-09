@@ -974,7 +974,7 @@ func (c *Cloud) chunkTargetDescriptions(targets []elbv2types.TargetDescription, 
 
 // updateInstanceSecurityGroupsForNLB will adjust securityGroup's settings to allow inbound traffic into instances from clientCIDRs and portMappings.
 // TIP: if either instances or clientCIDRs or portMappings are nil, then the securityGroup rules for lbName are cleared.
-func (c *Cloud) updateInstanceSecurityGroupsForNLB(ctx context.Context, lbName string, instances map[InstanceID]*ec2types.Instance, subnetCIDRs []string, clientCIDRs []string, portMappings []nlbPortMapping) error {
+func (c *Cloud) updateInstanceSecurityGroupsForNLB(ctx context.Context, lbName string, instances map[InstanceID]*ec2types.Instance, subnetCIDRs []string, clientCIDRs []string, portMappings []nlbPortMapping, nlbSecurityGroupIDs []string) error {
 	if c.cfg.Global.DisableSecurityGroupIngress {
 		return nil
 	}
@@ -1010,6 +1010,17 @@ func (c *Cloud) updateInstanceSecurityGroupsForNLB(ctx context.Context, lbName s
 			}
 			clusterSGs[sgID] = sg
 		}
+	}
+
+	if len(nlbSecurityGroupIDs) > 0 {
+		err := c.updateInstanceSecurityGroupsForNLBWithSGRules(ctx, lbName, clusterSGs, desiredSGIDs, nlbSecurityGroupIDs)
+		if err == nil {
+			return nil
+		}
+		if !strings.Contains(err.Error(), "RulesPerSecurityGroupLimitExceeded") {
+			return err
+		}
+		klog.Warningf("SG rule limit reached while adding SG-to-SG rules for NLB %s, falling back to CIDR-based rules: %v", lbName, err)
 	}
 
 	{
@@ -1061,6 +1072,106 @@ func (c *Cloud) updateInstanceSecurityGroupsForNLB(ctx context.Context, lbName s
 			}
 		}
 	}
+	return nil
+}
+
+// updateInstanceSecurityGroupsForNLBWithSGRules manages SG-to-SG rules on instance security
+// groups, referencing the NLB's security group(s) as the traffic source. This mirrors the CLB
+// behavior in updateInstanceSecurityGroupsForLoadBalancer. It also cleans up any legacy
+// CIDR-based rules that may have been created before the NLB had security groups.
+//
+// SG-to-SG rules are applied first so traffic keeps flowing during the transition from
+// CIDR-based rules. The peak rule count is N+1 during the window between adding the
+// SG-to-SG rule and removing the CIDR rules.
+func (c *Cloud) updateInstanceSecurityGroupsForNLBWithSGRules(ctx context.Context, lbName string, clusterSGs map[string]*ec2types.SecurityGroup, desiredSGIDs sets.String, nlbSecurityGroupIDs []string) error {
+	// Apply SG-to-SG rules for each NLB security group
+	for _, nlbSGID := range nlbSecurityGroupIDs {
+		if err := c.updateInstanceSecurityGroupForNLBBySGRef(ctx, nlbSGID, clusterSGs, desiredSGIDs); err != nil {
+			return err
+		}
+	}
+
+	// Clean up legacy CIDR-based rules from all cluster SGs (handles transition).
+	// Runs after SG-to-SG rules are in place so traffic keeps flowing.
+	clientRuleAnnotation := fmt.Sprintf("%s=%s", NLBClientRuleDescription, lbName)
+	healthRuleAnnotation := fmt.Sprintf("%s=%s", NLBHealthCheckRuleDescription, lbName)
+	for sgID, sg := range clusterSGs {
+		sgPerms := NewIPPermissionSet(sg.IpPermissions...).Ungroup()
+		if err := c.updateInstanceSecurityGroupForNLBTraffic(ctx, sgID, sgPerms, healthRuleAnnotation, "tcp", nil, nil); err != nil {
+			return err
+		}
+		if err := c.updateInstanceSecurityGroupForNLBTraffic(ctx, sgID, sgPerms, clientRuleAnnotation, "tcp", nil, nil); err != nil {
+			return err
+		}
+		if err := c.updateInstanceSecurityGroupForNLBMTU(ctx, sgID, sgPerms); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// updateInstanceSecurityGroupForNLBBySGRef reconciles SG-to-SG ingress rules on instance security
+// groups for a single NLB security group. It adds all-protocols rules to instance SGs that need
+// them and removes rules from instance SGs that no longer need them.
+func (c *Cloud) updateInstanceSecurityGroupForNLBBySGRef(ctx context.Context, nlbSGID string, clusterSGs map[string]*ec2types.SecurityGroup, desiredSGIDs sets.String) error {
+	actualGroups, _, err := c.buildSecurityGroupRuleReferences(ctx, nlbSGID)
+	if err != nil {
+		return fmt.Errorf("error building security group rule references: %w", err)
+	}
+
+	// Map of instance SG ID -> true=add, false=remove
+	instanceSGChanges := map[string]bool{}
+
+	for sgID := range desiredSGIDs {
+		instanceSGChanges[sgID] = true
+	}
+
+	for actualGroup, hasClusterTag := range actualGroups {
+		actualGroupID := aws.ToString(actualGroup.GroupId)
+		if actualGroupID == "" {
+			klog.Warning("Ignoring group without ID: ", actualGroup)
+			continue
+		}
+
+		adding, found := instanceSGChanges[actualGroupID]
+		if found && adding {
+			delete(instanceSGChanges, actualGroupID)
+		} else {
+			if hasClusterTag || len(desiredSGIDs) == 0 {
+				instanceSGChanges[actualGroupID] = false
+			}
+		}
+	}
+
+	allProtocols := "-1"
+	permission := ec2types.IpPermission{
+		IpProtocol:       &allProtocols,
+		UserIdGroupPairs: []ec2types.UserIdGroupPair{{GroupId: &nlbSGID}},
+	}
+	permissions := []ec2types.IpPermission{permission}
+
+	for instanceSGID, add := range instanceSGChanges {
+		if add {
+			klog.V(2).Infof("Adding rule for traffic from the NLB (%s) to instances (%s)", nlbSGID, instanceSGID)
+			changed, err := c.addSecurityGroupIngress(ctx, instanceSGID, permissions)
+			if err != nil {
+				return err
+			}
+			if !changed {
+				klog.Warning("Allowing ingress was not needed; concurrent change? groupId=", instanceSGID)
+			}
+		} else {
+			klog.V(2).Infof("Removing rule for traffic from the NLB (%s) to instance (%s)", nlbSGID, instanceSGID)
+			changed, err := c.removeSecurityGroupIngress(ctx, instanceSGID, permissions)
+			if err != nil {
+				return err
+			}
+			if !changed {
+				klog.Warning("Revoking ingress was not needed; concurrent change? groupId=", instanceSGID)
+			}
+		}
+	}
+
 	return nil
 }
 
