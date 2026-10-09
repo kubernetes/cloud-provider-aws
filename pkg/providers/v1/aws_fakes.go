@@ -695,6 +695,16 @@ func (elb *FakeELBV2) AddTags(ctx context.Context, input *elbv2.AddTagsInput, op
 	panic("Not implemented")
 }
 
+// RemoveTags is not implemented but is required for interface conformance
+func (elb *FakeELBV2) RemoveTags(ctx context.Context, input *elbv2.RemoveTagsInput, optFns ...func(*elbv2.Options)) (*elbv2.RemoveTagsOutput, error) {
+	panic("Not implemented")
+}
+
+// DescribeTags is not implemented but is required for interface conformance
+func (elb *FakeELBV2) DescribeTags(ctx context.Context, input *elbv2.DescribeTagsInput, optFns ...func(*elbv2.Options)) (*elbv2.DescribeTagsOutput, error) {
+	panic("Not implemented")
+}
+
 // CreateLoadBalancer is not implemented but is required for interface conformance
 func (elb *FakeELBV2) CreateLoadBalancer(ctx context.Context, input *elbv2.CreateLoadBalancerInput, optFns ...func(*elbv2.Options)) (*elbv2.CreateLoadBalancerOutput, error) {
 	panic("Not implemented")

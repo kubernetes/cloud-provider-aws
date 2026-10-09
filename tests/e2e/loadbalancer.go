@@ -48,6 +48,7 @@ const (
 	annotationLBTargetNodeLabels      = "service.beta.kubernetes.io/aws-load-balancer-target-node-labels"
 	annotationLBTargetGroupAttributes = "service.beta.kubernetes.io/aws-load-balancer-target-group-attributes"
 	annotationLBSecurityGroups        = "service.beta.kubernetes.io/aws-load-balancer-security-groups"
+	annotationLBAdditionalTags        = "service.beta.kubernetes.io/aws-load-balancer-additional-resource-tags"
 )
 
 var (
@@ -290,6 +291,66 @@ var nlbTests = []loadBalancerTestCases{
 			}
 			lbDNS := cfg.svc.Status.LoadBalancer.Ingress[0].Hostname
 			framework.ExpectNoError(getLBTargetCount(cfg.ctx, lbDNS, cfg.nodeCount), "AWS LB target count validation failed")
+		},
+	},
+	{
+		name:           "NLB should reconcile additional tags and preserve out-of-band tags",
+		resourceSuffix: "nlb-tags",
+		extraAnnotations: map[string]string{
+			annotationLBType:           "nlb",
+			annotationLBAdditionalTags: "e2e-tag=one,drop-tag=temp",
+		},
+		hookPreTest: func(cfg *e2eTestConfig) {
+			lbDNS := cfg.svc.Status.LoadBalancer.Ingress[0].Hostname
+			elbClient, err := getAWSClientLoadBalancer(cfg.ctx)
+			framework.ExpectNoError(err)
+
+			foundLB, err := getAWSLoadBalancerFromDNSName(cfg.ctx, elbClient, lbDNS)
+			framework.ExpectNoError(err)
+			lbARN := aws.ToString(foundLB.LoadBalancerArn)
+
+			listenerARNs, err := getLBListenerARNs(cfg.ctx, elbClient, lbARN)
+			framework.ExpectNoError(err)
+			targetGroupARNs, err := getLBTargetGroupARNs(cfg.ctx, elbClient, lbARN)
+			framework.ExpectNoError(err)
+			arns := append([]string{lbARN}, listenerARNs...)
+			arns = append(arns, targetGroupARNs...)
+
+			framework.Logf("verifying initial tags e2e-tag=one,drop-tag=temp on LB, listeners and target groups")
+			framework.ExpectNoError(verifyResourceTags(cfg.ctx, elbClient, arns, map[string]string{"e2e-tag": "one", "drop-tag": "temp"}, nil))
+
+			// A tag applied directly on the AWS resources, outside the controller's knowledge. It
+			// must survive every later reconcile, since the controller only manages keys it set.
+			framework.Logf("adding out-of-band tag e2e-external=manual directly via the AWS API")
+			_, err = elbClient.AddTags(cfg.ctx, &elbv2.AddTagsInput{
+				ResourceArns: arns,
+				Tags:         []elbv2types.Tag{{Key: aws.String("e2e-external"), Value: aws.String("manual")}},
+			})
+			framework.ExpectNoError(err)
+
+			framework.Logf("updating annotation to e2e-tag=two (dropping drop-tag)")
+			updated, err := cfg.LBJig.UpdateService(cfg.ctx, func(s *v1.Service) {
+				s.Annotations[annotationLBAdditionalTags] = "e2e-tag=two"
+			})
+			framework.ExpectNoError(err)
+			cfg.svc = updated
+
+			framework.Logf("verifying e2e-tag=two present, drop-tag removed, and out-of-band tag preserved")
+			framework.ExpectNoError(verifyResourceTags(cfg.ctx, elbClient, arns,
+				map[string]string{"e2e-tag": "two", "e2e-external": "manual"}, []string{"drop-tag"}))
+
+			framework.Logf("clearing all additional tags via annotation")
+			updated, err = cfg.LBJig.UpdateService(cfg.ctx, func(s *v1.Service) {
+				s.Annotations[annotationLBAdditionalTags] = ""
+			})
+			framework.ExpectNoError(err)
+			cfg.svc = updated
+
+			// The controller drops only the keys it managed (tracked via the managed-tags marker)
+			// and leaves the out-of-band tag untouched.
+			framework.Logf("verifying managed tag e2e-tag removed but out-of-band tag preserved after clear")
+			framework.ExpectNoError(verifyResourceTags(cfg.ctx, elbClient, arns,
+				map[string]string{"e2e-external": "manual"}, []string{"e2e-tag"}))
 		},
 	},
 	// Hairpining traffic test for NLB.
@@ -1444,4 +1505,78 @@ func getSecurityGroup(ctx context.Context, securityGroupID string) (*ec2types.Se
 	}
 
 	return &result.SecurityGroups[0], nil
+}
+
+func getLBListenerARNs(ctx context.Context, elbClient *elbv2.Client, lbARN string) ([]string, error) {
+	out, err := elbClient.DescribeListeners(ctx, &elbv2.DescribeListenersInput{
+		LoadBalancerArn: aws.String(lbARN),
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to describe listeners for LB %s: %v", lbARN, err)
+	}
+	arns := make([]string, 0, len(out.Listeners))
+	for _, l := range out.Listeners {
+		arns = append(arns, aws.ToString(l.ListenerArn))
+	}
+	return arns, nil
+}
+
+func getLBTargetGroupARNs(ctx context.Context, elbClient *elbv2.Client, lbARN string) ([]string, error) {
+	out, err := elbClient.DescribeTargetGroups(ctx, &elbv2.DescribeTargetGroupsInput{
+		LoadBalancerArn: aws.String(lbARN),
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to describe target groups for LB %s: %v", lbARN, err)
+	}
+	arns := make([]string, 0, len(out.TargetGroups))
+	for _, tg := range out.TargetGroups {
+		arns = append(arns, aws.ToString(tg.TargetGroupArn))
+	}
+	return arns, nil
+}
+
+func verifyResourceTags(ctx context.Context, elbClient *elbv2.Client, arns []string, expectedTags map[string]string, absentKeys []string) error {
+
+	// the function is called on already created LB & Listeners, where AWS tags show up in sub-seconds.
+	// the 10m timeout is enough to cover multiple reconcile attempts in the backoff cycle in failure case.
+	tagPollInterval := 15 * time.Second
+	tagPollTimeout := 10 * time.Minute
+	maxAttempts := int(tagPollTimeout/tagPollInterval) + 1
+	attempt := 0
+
+	return wait.PollUntilContextTimeout(ctx, tagPollInterval, tagPollTimeout, true, func(ctx context.Context) (bool, error) {
+		attempt++
+		// MaxLimit = 20 Resources per DescribeTags call.
+		out, err := elbClient.DescribeTags(ctx, &elbv2.DescribeTagsInput{
+			ResourceArns: arns,
+		})
+		if err != nil {
+			framework.Logf("verifyResourceTags: attempt %d/%d : DescribeTags transient error: %v",
+				attempt, maxAttempts, err)
+			return false, nil
+		}
+		for _, desc := range out.TagDescriptions {
+			actual := map[string]string{}
+			for _, t := range desc.Tags {
+				actual[aws.ToString(t.Key)] = aws.ToString(t.Value)
+			}
+			for k, v := range expectedTags {
+				if actual[k] != v {
+					framework.Logf("verifyResourceTags: attempt %d/%d : tag %q on %s not yet propagated: want %q got %q",
+						attempt, maxAttempts, k, aws.ToString(desc.ResourceArn), v, actual[k])
+					return false, nil
+				}
+			}
+			for _, k := range absentKeys {
+				if _, present := actual[k]; present {
+					framework.Logf("verifyResourceTags: attempt %d/%d : tag %q on %s not yet removed",
+						attempt, maxAttempts, k, aws.ToString(desc.ResourceArn))
+					return false, nil
+				}
+			}
+		}
+		framework.Logf("verifyResourceTags: attempt %d/%d : tags reconciled (present=%d absent=%d)",
+			attempt, maxAttempts, len(expectedTags), len(absentKeys))
+		return true, nil
+	})
 }
