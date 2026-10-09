@@ -1210,6 +1210,28 @@ func Test_getLoadBalancerSubnets(t *testing.T) {
 			},
 			wantErr: errors.New("expected to find 3, but found 1 subnets"),
 		},
+		{
+			name: "subnet ids in another vpc are not resolved",
+			subnets: []*ec2types.Subnet{
+				{
+					AvailabilityZone: aws.String("us-west-2c"),
+					SubnetId:         aws.String("subnet-a000001"),
+				},
+				{
+					AvailabilityZone: aws.String("us-west-2b"),
+					SubnetId:         aws.String("subnet-b000001"),
+					VpcId:            aws.String("vpc-other"),
+				},
+			},
+			service: &v1.Service{
+				ObjectMeta: metav1.ObjectMeta{
+					Annotations: map[string]string{
+						"service.beta.kubernetes.io/aws-load-balancer-subnets": "subnet-a000001, subnet-b000001",
+					},
+				},
+			},
+			wantErr: errors.New("expected to find 2, but found 1 subnets"),
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
