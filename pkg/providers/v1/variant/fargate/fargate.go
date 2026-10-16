@@ -62,7 +62,22 @@ func (f *fargateVariant) NodeAddresses(ctx context.Context, instanceID, vpcID st
 	if eni == nil || err != nil {
 		return nil, err
 	}
+	return f.nodeAddressesFromENI(eni), nil
+}
 
+func (f *fargateVariant) InstanceMetadata(ctx context.Context, instanceID, vpcID, region string) (cloudprovider.Zone, []v1.NodeAddress, error) {
+	eni, err := f.DescribeNetworkInterfaces(ctx, f.ec2API, instanceID, vpcID)
+	if eni == nil || err != nil {
+		return cloudprovider.Zone{}, nil, err
+	}
+	zone := cloudprovider.Zone{
+		FailureDomain: *eni.AvailabilityZone,
+		Region:        region,
+	}
+	return zone, f.nodeAddressesFromENI(eni), nil
+}
+
+func (f *fargateVariant) nodeAddressesFromENI(eni *ec2types.NetworkInterface) []v1.NodeAddress {
 	var addresses []v1.NodeAddress
 
 	// Assign NodeInternalIP based on IP family
@@ -81,7 +96,7 @@ func (f *fargateVariant) NodeAddresses(ctx context.Context, instanceID, vpcID st
 			addresses = append(addresses, nodeAddresses...)
 		}
 	}
-	return addresses, nil
+	return addresses
 }
 
 func (f *fargateVariant) InstanceExists(ctx context.Context, instanceID, vpcID string) (bool, error) {
