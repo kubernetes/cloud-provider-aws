@@ -136,12 +136,7 @@ func (c *Cloud) InstanceMetadata(ctx context.Context, node *v1.Node) (*cloudprov
 			return nil, err
 		}
 
-		zone, err = c.GetZoneByProviderID(ctx, providerID)
-		if err != nil {
-			return nil, err
-		}
-
-		nodeAddresses, err = c.NodeAddressesByProviderID(ctx, providerID)
+		zone, nodeAddresses, err = variant.GetVariant(string(instanceID)).InstanceMetadata(ctx, string(instanceID), c.vpcID, c.region)
 		if err != nil {
 			return nil, err
 		}

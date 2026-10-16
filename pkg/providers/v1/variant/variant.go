@@ -27,6 +27,7 @@ type Variant interface {
 	InstanceExists(ctx context.Context, instanceID, vpcID string) (bool, error)
 	InstanceShutdown(ctx context.Context, instanceID, vpcID string) (bool, error)
 	InstanceTypeByProviderID(id string) (string, error)
+	InstanceMetadata(ctx context.Context, instanceID, vpcID, region string) (cloudprovider.Zone, []v1.NodeAddress, error)
 }
 
 // RegisterVariant is used to register code that needs to be called for a specific variant
