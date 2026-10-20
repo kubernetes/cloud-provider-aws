@@ -17,6 +17,12 @@ import (
 var variantsLock sync.Mutex
 var variants = make(map[string]Variant)
 
+// InstanceMetadata is the instance information a Variant resolves for a node
+type InstanceMetadata struct {
+	Zone          cloudprovider.Zone
+	NodeAddresses []v1.NodeAddress
+}
+
 // Variant is a slightly different type of node
 type Variant interface {
 	Initialize(cloudConfig *config.CloudConfig, credentials aws.CredentialsProvider,
@@ -27,7 +33,7 @@ type Variant interface {
 	InstanceExists(ctx context.Context, instanceID, vpcID string) (bool, error)
 	InstanceShutdown(ctx context.Context, instanceID, vpcID string) (bool, error)
 	InstanceTypeByProviderID(id string) (string, error)
-	InstanceMetadata(ctx context.Context, instanceID, vpcID, region string) (cloudprovider.Zone, []v1.NodeAddress, error)
+	InstanceMetadata(ctx context.Context, instanceID, vpcID, region string) (*InstanceMetadata, error)
 }
 
 // RegisterVariant is used to register code that needs to be called for a specific variant
