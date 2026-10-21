@@ -28,6 +28,8 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	cloudprovider "k8s.io/cloud-provider"
 	"k8s.io/klog/v2"
+
+	"k8s.io/cloud-provider-aws/pkg/providers/v1/variant"
 )
 
 func (c *Cloud) getProviderID(ctx context.Context, node *v1.Node) (string, error) {
@@ -124,19 +126,33 @@ func (c *Cloud) InstanceMetadata(ctx context.Context, node *v1.Node) (*cloudprov
 		return nil, err
 	}
 
-	zone, err := c.GetZoneByProviderID(ctx, providerID)
-	if err != nil {
-		return nil, err
-	}
-
-	nodeAddresses, err := c.NodeAddressesByProviderID(ctx, providerID)
-	if err != nil {
-		return nil, err
-	}
-
 	instanceID, err := KubernetesInstanceID(providerID).MapToAWSInstanceID()
 	if err != nil {
 		return nil, err
+	}
+
+	var (
+		zone          cloudprovider.Zone
+		nodeAddresses []v1.NodeAddress
+	)
+	if v := variant.GetVariant(string(instanceID)); v != nil {
+		var metadata *variant.InstanceMetadata
+		metadata, err = v.InstanceMetadata(ctx, string(instanceID), c.vpcID, c.region)
+		if err != nil {
+			return nil, err
+		}
+		zone = metadata.Zone
+		nodeAddresses = metadata.NodeAddresses
+	} else {
+		zone, err = c.GetZoneByProviderID(ctx, providerID)
+		if err != nil {
+			return nil, err
+		}
+
+		nodeAddresses, err = c.NodeAddressesByProviderID(ctx, providerID)
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	additionalLabels, err := c.getAdditionalLabels(ctx, zone.FailureDomain, string(instanceID), instanceType, zone.Region, node.Labels)
