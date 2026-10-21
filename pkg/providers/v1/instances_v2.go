@@ -140,21 +140,19 @@ func (c *Cloud) InstanceMetadata(ctx context.Context, node *v1.Node) (*cloudprov
 		zone          cloudprovider.Zone
 		nodeAddresses []v1.NodeAddress
 	)
-	if variant.IsVariantNode(string(instanceID)) {
-		instanceType, err = c.InstanceTypeByProviderID(ctx, providerID)
+	if v := variant.GetVariant(string(instanceID)); v != nil {
+		instanceType, err = v.InstanceTypeByProviderID(string(instanceID))
 		if err != nil {
 			return nil, err
 		}
 
-		zone, err = c.GetZoneByProviderID(ctx, providerID)
+		var metadata *variant.InstanceMetadata
+		metadata, err = v.InstanceMetadata(ctx, string(instanceID), c.vpcID, c.region)
 		if err != nil {
 			return nil, err
 		}
-
-		nodeAddresses, err = c.NodeAddressesByProviderID(ctx, providerID)
-		if err != nil {
-			return nil, err
-		}
+		zone = metadata.Zone
+		nodeAddresses = metadata.NodeAddresses
 	} else {
 		instance, err := c.getInstanceByID(ctx, string(instanceID))
 		if err != nil {
