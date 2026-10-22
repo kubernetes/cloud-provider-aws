@@ -818,6 +818,7 @@ func contains(haystack []string, needle string) bool {
 
 // DescribeNetworkInterfaces returns list of ENIs for testing
 func (ec2i *FakeEC2Impl) DescribeNetworkInterfaces(ctx context.Context, input *ec2.DescribeNetworkInterfacesInput, optFns ...func(*ec2.Options)) (*ec2.DescribeNetworkInterfacesOutput, error) {
+	ec2i.aws.countCall("ec2", "DescribeNetworkInterfaces", "")
 	fargateNodeNamePrefix := "fargate-"
 	networkInterface := []ec2types.NetworkInterface{
 		{
