@@ -24,6 +24,50 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
+func TestGetTargetGroupAttributesFromAnnotation(t *testing.T) {
+	tests := []struct {
+		name               string
+		annotationValue    string
+		expectedAttributes map[string]string
+		expectedError      string
+	}{
+		{
+			name:            "valid attributes",
+			annotationValue: "preserve_client_ip.enabled=true,proxy_protocol_v2.enabled=false",
+			expectedAttributes: map[string]string{
+				"preserve_client_ip.enabled": "true",
+				"proxy_protocol_v2.enabled":  "false",
+			},
+		},
+		{
+			name:            "duplicate attribute",
+			annotationValue: "preserve_client_ip.enabled=true,preserve_client_ip.enabled=false",
+			expectedError:   "\"preserve_client_ip.enabled\" is set twice in the annotation",
+		},
+		{
+			name:            "empty attribute value",
+			annotationValue: "preserve_client_ip.enabled=",
+			expectedError:   "attribute value is empty for \"preserve_client_ip.enabled\"",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			attributes, err := getTargetGroupAttributesFromAnnotation(map[string]string{
+				ServiceAnnotationLoadBalancerTargetGroupAttributes: tt.annotationValue,
+			})
+
+			if tt.expectedError != "" {
+				assert.ErrorContains(t, err, tt.expectedError)
+				return
+			}
+
+			assert.NoError(t, err)
+			assert.Equal(t, tt.expectedAttributes, attributes)
+		})
+	}
+}
+
 func TestValidateServiceAnnotationTargetGroupAttributes(t *testing.T) {
 	tests := []struct {
 		name          string
@@ -100,14 +144,14 @@ func TestValidateServiceAnnotationTargetGroupAttributes(t *testing.T) {
 			expectedError: "",
 		},
 		{
-			name: "duplicate attribute in annotation (last one wins - no error expected)",
+			name: "duplicate attribute in annotation",
 			annotations: map[string]string{
 				ServiceAnnotationLoadBalancerTargetGroupAttributes: "preserve_client_ip.enabled=true,preserve_client_ip.enabled=false",
 			},
 			servicePorts: []v1.ServicePort{
 				{Port: 80, Protocol: v1.ProtocolTCP},
 			},
-			expectedError: "", // getKeyValuePropertiesFromAnnotation overwrites, so no duplicate detection
+			expectedError: "\"preserve_client_ip.enabled\" is set twice in the annotation",
 		},
 		{
 			name: "empty attribute value",

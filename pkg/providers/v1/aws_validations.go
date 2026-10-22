@@ -104,17 +104,12 @@ func validateServiceAnnotations(v *awsValidationInput) error {
 func validateServiceAnnotationTargetGroupAttributes(v *awsValidationInput) error {
 	errPrefix := "error validating target group attributes"
 
-	// Attributes are in format key=value separated by comma.
-	annotationGroupAttributes := getKeyValuePropertiesFromAnnotation(v.annotations, ServiceAnnotationLoadBalancerTargetGroupAttributes)
-	targetGroupAttributes := make(map[string]string, len(annotationGroupAttributes))
+	targetGroupAttributes, err := getTargetGroupAttributesFromAnnotation(v.annotations)
+	if err != nil {
+		return fmt.Errorf("%s: %w", errPrefix, err)
+	}
 
-	for attrKey, attrValue := range annotationGroupAttributes {
-		if _, ok := targetGroupAttributes[attrKey]; ok {
-			return fmt.Errorf("%s: %q is set twice in the annotation", errPrefix, attrKey)
-		}
-		if len(attrValue) == 0 {
-			return fmt.Errorf("%s: attribute value is empty for %q", errPrefix, attrKey)
-		}
+	for attrKey, attrValue := range targetGroupAttributes {
 
 		switch attrKey {
 		case targetGroupAttributePreserveClientIPEnabled:
@@ -141,4 +136,40 @@ func validateServiceAnnotationTargetGroupAttributes(v *awsValidationInput) error
 	}
 
 	return nil
+}
+
+// getTargetGroupAttributesFromAnnotation returns target group attributes from the
+// target group attributes annotation. It rejects duplicate attributes and empty
+// attribute values so validation does not silently overwrite user input.
+func getTargetGroupAttributesFromAnnotation(annotations map[string]string) (map[string]string, error) {
+	targetGroupAttributes := make(map[string]string)
+	annotationValue, ok := annotations[ServiceAnnotationLoadBalancerTargetGroupAttributes]
+	if !ok {
+		return targetGroupAttributes, nil
+	}
+
+	for _, rawAttribute := range strings.Split(strings.TrimSpace(annotationValue), ",") {
+		rawAttribute = strings.TrimSpace(rawAttribute)
+		if rawAttribute == "" {
+			continue
+		}
+
+		attrParts := strings.SplitN(rawAttribute, "=", 2)
+		attrKey := attrParts[0]
+		attrValue := ""
+		if len(attrParts) == 2 {
+			attrValue = attrParts[1]
+		}
+
+		if _, ok := targetGroupAttributes[attrKey]; ok {
+			return nil, fmt.Errorf("%q is set twice in the annotation", attrKey)
+		}
+		if attrValue == "" {
+			return nil, fmt.Errorf("attribute value is empty for %q", attrKey)
+		}
+
+		targetGroupAttributes[attrKey] = attrValue
+	}
+
+	return targetGroupAttributes, nil
 }
