@@ -29,6 +29,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	v1 "k8s.io/api/core/v1"
+	"k8s.io/cloud-provider-aws/pkg/providers/v1/config"
 	"k8s.io/cloud-provider-aws/pkg/services"
 )
 
@@ -282,6 +283,36 @@ func TestInstanceMetadata(t *testing.T) {
 		}
 
 		mockedTopologyManager.AssertNumberOfCalls(t, "GetNodeTopology", 1)
+	})
+
+	t.Run("Should limit ec2:DescribeNetworkInterfaces calls to a single request per Fargate node", func(t *testing.T) {
+		awsServices := newMockedFakeAWSServices(TestClusterID)
+		c, err := newAWSCloud(config.CloudConfig{}, awsServices)
+		if err != nil {
+			t.Fatalf("Error building aws cloud: %v", err)
+		}
+		var mockedTopologyManager MockedInstanceTopologyManager
+		c.instanceTopologyManager = &mockedTopologyManager
+		mockedTopologyManager.On("GetNodeTopology", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return((*ec2types.InstanceTopology)(nil), nil)
+		node := &v1.Node{
+			Spec: v1.NodeSpec{
+				ProviderID: "aws:///us-west-2c/1abc-2def/fargate-192.168.164.88",
+			},
+		}
+		describeNetworkInterfaces := "ec2:DescribeNetworkInterfaces:"
+		delete(awsServices.callCounts, describeNetworkInterfaces)
+
+		result, err := c.InstanceMetadata(context.TODO(), node)
+		if err != nil {
+			t.Errorf("Should not error getting InstanceMetadata: %s", err)
+		}
+		assert.Equal(t, 1, awsServices.callCounts[describeNetworkInterfaces])
+		assert.Equal(t, "us-west-2c", result.Zone)
+		assert.Equal(t, "us-west-2", result.Region)
+		assert.Equal(t, "", result.InstanceType)
+		assert.Equal(t, []v1.NodeAddress{
+			{Type: v1.NodeInternalIP, Address: "1.2.3.4"},
+		}, result.NodeAddresses)
 	})
 }
 
