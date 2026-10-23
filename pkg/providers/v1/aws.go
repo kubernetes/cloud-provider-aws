@@ -25,7 +25,6 @@ import (
 	"io"
 	"net"
 	"regexp"
-	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -45,6 +44,7 @@ import (
 	"gopkg.in/gcfg.v1"
 
 	v1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/apimachinery/pkg/util/wait"
@@ -422,6 +422,9 @@ type Cloud struct {
 	// Extract the function out to make it easier to test
 	nodeInformerHasSynced cache.InformerSynced
 
+	serviceInformer          informercorev1.ServiceInformer
+	serviceInformerHasSynced cache.InformerSynced
+
 	eventBroadcaster record.EventBroadcaster
 	eventRecorder    record.EventRecorder
 
@@ -472,6 +475,8 @@ func (c *Cloud) SetInformers(informerFactory informers.SharedInformerFactory) {
 	c.nodeInformer.Informer().AddIndexers(cache.Indexers{
 		"instanceID": InstanceIDIndexFunc,
 	})
+	c.serviceInformer = informerFactory.Core().V1().Services()
+	c.serviceInformerHasSynced = c.serviceInformer.Informer().HasSynced
 }
 
 func newEc2Filter(name string, values ...string) ec2types.Filter {
@@ -1171,28 +1176,40 @@ func (c *Cloud) describeLoadBalancer(ctx context.Context, name string) (*elbtype
 	return ret, nil
 }
 
-// isSecurityGroupUsedByOtherLoadBalancers returns true if a classic load balancer other than
-// loadBalancerName still has securityGroupID attached.
-func (c *Cloud) isSecurityGroupUsedByOtherLoadBalancers(ctx context.Context, securityGroupID string, loadBalancerName string) (bool, error) {
-	request := &elb.DescribeLoadBalancersInput{}
-	for {
-		response, err := c.elb.DescribeLoadBalancers(ctx, request)
-		if err != nil {
-			return false, fmt.Errorf("error listing load balancers: %w", err)
-		}
-		for _, loadBalancer := range response.LoadBalancerDescriptions {
-			if aws.ToString(loadBalancer.LoadBalancerName) == loadBalancerName {
-				continue
-			}
-			if slices.Contains(loadBalancer.SecurityGroups, securityGroupID) {
-				return true, nil
-			}
-		}
-		if aws.ToString(response.NextMarker) == "" {
-			return false, nil
-		}
-		request = &elb.DescribeLoadBalancersInput{Marker: response.NextMarker}
+// primaryLoadBalancerSecurityGroup returns the security group a classic load balancer Service
+// uses as the source of the ingress rule on the node security group: the first entry of the
+// security-groups annotation, or the global ElbSecurityGroup when the annotation is not set.
+// It returns "" when the Service gets its own security group.
+func (c *Cloud) primaryLoadBalancerSecurityGroup(annotations map[string]string) string {
+	if sgList := getSGListFromAnnotation(annotations[ServiceAnnotationLoadBalancerSecurityGroups]); len(sgList) > 0 {
+		return sgList[0]
 	}
+	return c.cfg.Global.ElbSecurityGroup
+}
+
+// isSecurityGroupUsedByOtherServices returns true if a classic load balancer Service in this
+// cluster, other than the one owning loadBalancerName, uses securityGroupID as its primary
+// load balancer security group.
+func (c *Cloud) isSecurityGroupUsedByOtherServices(securityGroupID string, loadBalancerName string) (bool, error) {
+	if c.serviceInformerHasSynced == nil || !c.serviceInformerHasSynced() {
+		return false, fmt.Errorf("service informer has not synced yet")
+	}
+	services, err := c.serviceInformer.Lister().List(labels.Everything())
+	if err != nil {
+		return false, fmt.Errorf("error listing services: %w", err)
+	}
+	for _, service := range services {
+		if service.Spec.Type != v1.ServiceTypeLoadBalancer || isNLB(service.Annotations) || isLBExternal(service.Annotations) {
+			continue
+		}
+		if cloudprovider.DefaultLoadBalancerName(service) == loadBalancerName {
+			continue
+		}
+		if c.primaryLoadBalancerSecurityGroup(service.Annotations) == securityGroupID {
+			return true, nil
+		}
+	}
+	return false, nil
 }
 
 func (c *Cloud) addLoadBalancerTags(ctx context.Context, loadBalancerName string, requested map[string]string) error {
@@ -3095,21 +3112,21 @@ func (c *Cloud) updateInstanceSecurityGroupsForLoadBalancer(ctx context.Context,
 		}
 	}
 
-	// The load balancer security group can be shared by several load balancers, through the
+	// The load balancer security group can be shared by several Services, through the
 	// security-groups annotation or the global ElbSecurityGroup setting. The ingress rule on the
 	// instance security group only identifies the source group, so it is shared as well: EC2
 	// keeps one rule no matter how many load balancers need it. Keep the rule while another
-	// load balancer still uses the group. When the group itself is being deleted, no other
-	// load balancer can be using it.
+	// Service in this cluster still uses the group as its primary one. When the group itself is
+	// being deleted, no other Service can be using it.
 	if removing && !isDeleting {
-		inUse, err := c.isSecurityGroupUsedByOtherLoadBalancers(ctx, loadBalancerSecurityGroupID, aws.ToString(lb.LoadBalancerName))
+		inUse, err := c.isSecurityGroupUsedByOtherServices(loadBalancerSecurityGroupID, aws.ToString(lb.LoadBalancerName))
 		if err != nil {
-			return fmt.Errorf("error checking whether security group %s is used by other load balancers: %w", loadBalancerSecurityGroupID, err)
+			return fmt.Errorf("error checking whether security group %s is used by other services: %w", loadBalancerSecurityGroupID, err)
 		}
 		if inUse {
 			for instanceSecurityGroupID, add := range instanceSecurityGroupIds {
 				if !add {
-					klog.V(2).Infof("Keeping rule for traffic from the load balancer (%s) to instance (%s): the security group is still used by another load balancer", loadBalancerSecurityGroupID, instanceSecurityGroupID)
+					klog.V(2).Infof("Keeping rule for traffic from the load balancer (%s) to instance (%s): the security group is still used by another service", loadBalancerSecurityGroupID, instanceSecurityGroupID)
 					delete(instanceSecurityGroupIds, instanceSecurityGroupID)
 				}
 			}

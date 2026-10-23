@@ -563,8 +563,7 @@ func (e *FakeELB) DeleteLoadBalancer(ctx context.Context, input *elb.DeleteLoadB
 // DescribeLoadBalancers is a mock implementation for testing
 func (e *FakeELB) DescribeLoadBalancers(ctx context.Context, input *elb.DescribeLoadBalancersInput, opts ...func(*elb.Options)) (*elb.DescribeLoadBalancersOutput, error) {
 	if input == nil || len(input.LoadBalancerNames) == 0 {
-		// Listing all load balancers; the fake does not track any.
-		return &elb.DescribeLoadBalancersOutput{}, nil
+		return nil, errors.New("Invalid input: LoadBalancerNames missing")
 	}
 	return &elb.DescribeLoadBalancersOutput{
 		LoadBalancerDescriptions: []elbtypes.LoadBalancerDescription{
