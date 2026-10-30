@@ -2725,3 +2725,64 @@ func TestEnsureLoadBalancerV2_ALPNPolicy_Modify(t *testing.T) {
 		})
 	}
 }
+
+// modifyTargetGroupCounter counts ModifyTargetGroup calls.
+type modifyTargetGroupCounter struct {
+	*MockedFakeELBV2
+	calls int
+}
+
+func (m *modifyTargetGroupCounter) ModifyTargetGroup(ctx context.Context, input *elbv2.ModifyTargetGroupInput, optFns ...func(*elbv2.Options)) (*elbv2.ModifyTargetGroupOutput, error) {
+	m.calls++
+	return m.MockedFakeELBV2.ModifyTargetGroup(ctx, input, optFns...)
+}
+
+func TestEnsureTargetGroupLeavesMatchingHTTPHealthCheckPath(t *testing.T) {
+	const arn = "arn:aws:elasticloadbalancing:us-west-2:123456789012:targetgroup/k8s-default-svc/abcdef"
+
+	newCloud := func(existingPath string) (*Cloud, *modifyTargetGroupCounter) {
+		mock := &modifyTargetGroupCounter{MockedFakeELBV2: &MockedFakeELBV2{
+			RegisteredInstances: map[string][]string{},
+			TargetGroups: []*elbv2types.TargetGroup{{
+				TargetGroupArn:          aws.String(arn),
+				Port:                    aws.Int32(80),
+				Protocol:                elbv2types.ProtocolEnumTcp,
+				HealthCheckProtocol:     elbv2types.ProtocolEnumHttp,
+				HealthCheckPath:         aws.String(existingPath),
+				HealthCheckPort:         aws.String("31234"),
+				HealthyThresholdCount:   aws.Int32(2),
+				UnhealthyThresholdCount: aws.Int32(2),
+			}},
+		}}
+		return &Cloud{elbv2: mock}, mock
+	}
+
+	mapping := func(path string) nlbPortMapping {
+		return nlbPortMapping{
+			TrafficPort: 80,
+			HealthCheckConfig: healthCheckConfig{
+				Port:               "31234",
+				Path:               path,
+				Protocol:           elbv2types.ProtocolEnumHttp,
+				HealthyThreshold:   2,
+				UnhealthyThreshold: 2,
+			},
+		}
+	}
+
+	t.Run("unchanged path", func(t *testing.T) {
+		c, mock := newCloud("/healthz")
+		_, err := c.ensureTargetGroup(context.TODO(), mock.TargetGroups[0], types.NamespacedName{Namespace: "default", Name: "svc"}, mapping("/healthz"), nil, "vpc-1", nil)
+		require.NoError(t, err)
+		assert.Zero(t, mock.calls)
+		assert.Equal(t, "/healthz", aws.ToString(mock.TargetGroups[0].HealthCheckPath))
+	})
+
+	t.Run("changed path", func(t *testing.T) {
+		c, mock := newCloud("/healthz")
+		got, err := c.ensureTargetGroup(context.TODO(), mock.TargetGroups[0], types.NamespacedName{Namespace: "default", Name: "svc"}, mapping("/ready"), nil, "vpc-1", nil)
+		require.NoError(t, err)
+		assert.Equal(t, 1, mock.calls)
+		assert.Equal(t, "/ready", aws.ToString(got.HealthCheckPath))
+	})
+}

@@ -867,7 +867,7 @@ func (c *Cloud) ensureTargetGroup(ctx context.Context, targetGroup *elbv2types.T
 			input.UnhealthyThresholdCount = aws.Int32(mapping.HealthCheckConfig.UnhealthyThreshold)
 		}
 		if !strings.EqualFold(string(mapping.HealthCheckConfig.Protocol), string(elbv2types.ProtocolEnumTcp)) {
-			if mapping.HealthCheckConfig.Path != aws.ToString(input.HealthCheckPath) {
+			if mapping.HealthCheckConfig.Path != aws.ToString(targetGroup.HealthCheckPath) {
 				input.HealthCheckPath = aws.String(mapping.HealthCheckConfig.Path)
 				dirtyHealthCheck = true
 			}
