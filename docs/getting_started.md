@@ -22,7 +22,8 @@ with the cloud controller manager.  The steps are as follows:
    `--pod-manifest-path`), or scaling down the kube controller manager
    deployment, or using `systemctl stop` if they are managed by systemd.
 1. Add the `--cloud-provider=external` to the kube-controller-manager config.
-1. Add the `--cloud-provider=external` to the kube apiserver config.
+1. Add the `--cloud-provider=external` to the kube apiserver config. Skip this
+   step on Kubernetes 1.33 and newer: kube-apiserver no longer has this flag.
 1. Add the `--cloud-provider=external` to each the kubelet's config.
 1. Add the tag `kubernetes.io/cluster/your_cluster_id=owned` (if resources are
    owned and managed by the cluster) or
@@ -32,6 +33,20 @@ with the cloud controller manager.  The steps are as follows:
 1. Apply the kustomize configuration: `kubectl apply -k
    'github.com/kubernetes/cloud-provider-aws/examples/existing-cluster/base/?ref=master'` or
    run the cloud cloud controller manager in some alternative way.
+
+### Node taints
+
+A kubelet started with `--cloud-provider=external` registers its node with the
+`node.cloudprovider.kubernetes.io/uninitialized=true:NoSchedule` taint. The
+aws-cloud-controller-manager removes the taint once it has initialized the
+node. If the taint stays after the cloud controller manager is running, check
+its logs, and check that:
+
+1. The aws-cloud-controller-manager minor version matches the Kubernetes minor
+   version of the cluster (see
+   [Compatibility with Kubernetes](README.md#compatibility-with-kubernetes)).
+1. The node names follow one of the conventions in the
+   [prerequisites](prerequisites.md#node-name-conventions).
 
 ### Using Leader Migration
 
@@ -43,7 +58,7 @@ Follow the detailed steps in [the documentation](https://kubernetes.io/docs/task
 
 | Component | Flag | Description |
 |------|-----------|-------------|
-| kube-apiserver | `--cloud-provider=external` | Disables the cloud provider in the API Server. This will disable the cloud provider code in the kube apiserver, which is limited to the persistent volume labelling controller.  |
+| kube-apiserver | `--cloud-provider=external` | Disables the cloud provider in the API Server. This will disable the cloud provider code in the kube apiserver, which is limited to the persistent volume labelling controller. Kubernetes 1.32 and older only; the flag was removed from kube-apiserver in 1.33.  |
 | kube-controller-manager | `--cloud-provider=external` | Disables the cloud provider in the Kube Controller Manager. This disables cloud related control loops, including the route controller, the service controller, and the node lifecycle controller. |
 | kube-controller-manager | `--leader-elect=true` | Enable leader election  |
 | kube-controller-manager | `--external-cloud-volume-plugin=aws` | Tells the Kube Controller Manager to run the volume loops that have cloud provider code in them.  This is required for volumes to work if you are not using CSI with migration enabled. |
