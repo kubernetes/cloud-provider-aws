@@ -48,6 +48,7 @@ import (
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/client-go/informers"
 	"k8s.io/client-go/kubernetes/fake"
+	cloudprovider "k8s.io/cloud-provider"
 
 	"k8s.io/cloud-provider-aws/pkg/providers/v1/config"
 )
@@ -5716,6 +5717,187 @@ func TestCloud_cleanupNLBSecurityGroups(t *testing.T) {
 			}
 
 			mockedEC2.AssertExpectations(t)
+		})
+	}
+}
+
+func withServices(t *testing.T, c *Cloud, services ...*v1.Service) {
+	t.Helper()
+	c.kubeClient = fake.NewSimpleClientset()
+	c.SetInformers(informers.NewSharedInformerFactory(c.kubeClient, 0))
+	for _, service := range services {
+		require.NoError(t, c.serviceInformer.Informer().GetStore().Add(service))
+	}
+	c.serviceInformerHasSynced = informerSynced
+}
+
+func lbService(name string, annotations map[string]string) *v1.Service {
+	return &v1.Service{
+		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: "default", UID: types.UID(name), Annotations: annotations},
+		Spec:       v1.ServiceSpec{Type: v1.ServiceTypeLoadBalancer},
+	}
+}
+
+func TestIsSecurityGroupUsedByOtherServices(t *testing.T) {
+	const sgID = "sg-shared"
+	self := lbService("self", map[string]string{ServiceAnnotationLoadBalancerSecurityGroups: sgID})
+	lbName := cloudprovider.DefaultLoadBalancerName(self)
+
+	clusterIP := lbService("clusterip", map[string]string{ServiceAnnotationLoadBalancerSecurityGroups: sgID})
+	clusterIP.Spec.Type = v1.ServiceTypeClusterIP
+
+	tests := []struct {
+		name             string
+		elbSecurityGroup string
+		services         []*v1.Service
+		want             bool
+	}{
+		{
+			name:     "only the service being deleted uses the group",
+			services: []*v1.Service{self, lbService("other", map[string]string{ServiceAnnotationLoadBalancerSecurityGroups: "sg-other"})},
+			want:     false,
+		},
+		{
+			name:     "another service uses the group as its primary group",
+			services: []*v1.Service{self, lbService("other", map[string]string{ServiceAnnotationLoadBalancerSecurityGroups: sgID + ",sg-other"})},
+			want:     true,
+		},
+		{
+			name:     "another service lists the group after its primary group",
+			services: []*v1.Service{self, lbService("other", map[string]string{ServiceAnnotationLoadBalancerSecurityGroups: "sg-other," + sgID})},
+			want:     false,
+		},
+		{
+			name:     "another service only lists the group as an extra group",
+			services: []*v1.Service{self, lbService("other", map[string]string{ServiceAnnotationLoadBalancerExtraSecurityGroups: sgID})},
+			want:     false,
+		},
+		{
+			name:             "another service without annotation uses the global ElbSecurityGroup",
+			elbSecurityGroup: sgID,
+			services:         []*v1.Service{self, lbService("other", nil)},
+			want:             true,
+		},
+		{
+			name:     "another service without annotation gets its own group",
+			services: []*v1.Service{self, lbService("other", nil)},
+			want:     false,
+		},
+		{
+			name:     "NLB service with the annotation does not count",
+			services: []*v1.Service{self, lbService("other", map[string]string{ServiceAnnotationLoadBalancerType: "nlb", ServiceAnnotationLoadBalancerSecurityGroups: sgID})},
+			want:     false,
+		},
+		{
+			name:     "non-LoadBalancer service with the annotation does not count",
+			services: []*v1.Service{self, clusterIP},
+			want:     false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			c, err := newAWSCloud(config.CloudConfig{}, newMockedFakeAWSServices(TestClusterID))
+			require.NoError(t, err)
+			c.cfg.Global.ElbSecurityGroup = tt.elbSecurityGroup
+			withServices(t, c, tt.services...)
+
+			got, err := c.isSecurityGroupUsedByOtherServices(sgID, lbName)
+			require.NoError(t, err)
+			assert.Equal(t, tt.want, got)
+		})
+	}
+
+	t.Run("service informer not synced", func(t *testing.T) {
+		c, err := newAWSCloud(config.CloudConfig{}, newMockedFakeAWSServices(TestClusterID))
+		require.NoError(t, err)
+		withServices(t, c)
+		c.serviceInformerHasSynced = informerNotSynced
+
+		_, err = c.isSecurityGroupUsedByOtherServices(sgID, lbName)
+		assert.Error(t, err)
+	})
+}
+
+func TestUpdateInstanceSecurityGroupsForLoadBalancerSharedSecurityGroup(t *testing.T) {
+	const lbSGID = "sg-lb"
+	const nodeSGID = "sg-node"
+
+	clusterTags := []ec2types.Tag{
+		{Key: aws.String(TagNameKubernetesClusterLegacy), Value: aws.String(TestClusterID)},
+		{Key: aws.String(fmt.Sprintf("%s%s", TagNameKubernetesClusterPrefix, TestClusterID)), Value: aws.String(ResourceLifecycleOwned)},
+	}
+	lbRule := ec2types.IpPermission{
+		IpProtocol:       aws.String("-1"),
+		UserIdGroupPairs: []ec2types.UserIdGroupPair{{GroupId: aws.String(lbSGID)}},
+	}
+	nodeSG := ec2types.SecurityGroup{
+		GroupId:       aws.String(nodeSGID),
+		Tags:          clusterTags,
+		IpPermissions: []ec2types.IpPermission{lbRule},
+	}
+	annotations := map[string]string{ServiceAnnotationLoadBalancerSecurityGroups: lbSGID}
+	self := lbService("self", annotations)
+	lb := &elbtypes.LoadBalancerDescription{
+		LoadBalancerName: aws.String(cloudprovider.DefaultLoadBalancerName(self)),
+		SecurityGroups:   []string{lbSGID},
+	}
+
+	tests := []struct {
+		name         string
+		isDeleting   bool
+		services     []*v1.Service
+		expectRevoke bool
+	}{
+		{
+			name:         "group used by another service: rule is kept",
+			services:     []*v1.Service{self, lbService("other", annotations)},
+			expectRevoke: false,
+		},
+		{
+			name:         "group not used by another service: rule is revoked",
+			services:     []*v1.Service{self, lbService("other", map[string]string{ServiceAnnotationLoadBalancerSecurityGroups: "sg-other"})},
+			expectRevoke: true,
+		},
+		{
+			name:         "group is being deleted: rule is revoked without consulting services",
+			isDeleting:   true,
+			expectRevoke: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			awsServices := newMockedFakeAWSServices(TestClusterID)
+			c, err := newAWSCloud(config.CloudConfig{}, awsServices)
+			require.NoError(t, err)
+			mockEC2 := awsServices.ec2.(*MockedFakeEC2)
+			if !tt.isDeleting {
+				withServices(t, c, tt.services...)
+			}
+
+			// getTaggedSecurityGroups
+			mockEC2.expectDescribeSecurityGroupsAll(TestClusterID)
+			// buildSecurityGroupRuleReferences: the node group allows ingress from the load balancer group
+			mockEC2.On("DescribeSecurityGroups", &ec2.DescribeSecurityGroupsInput{Filters: []ec2types.Filter{
+				newEc2Filter("ip-permission.group-id", lbSGID),
+			}}).Return([]ec2types.SecurityGroup{nodeSG})
+			if tt.expectRevoke {
+				// removeSecurityGroupIngress
+				mockEC2.On("DescribeSecurityGroups", &ec2.DescribeSecurityGroupsInput{GroupIds: []string{nodeSGID}}).Return([]ec2types.SecurityGroup{nodeSG})
+				mockEC2.On("RevokeSecurityGroupIngress", &ec2.RevokeSecurityGroupIngressInput{
+					GroupId:       aws.String(nodeSGID),
+					IpPermissions: []ec2types.IpPermission{lbRule},
+				}).Return(&ec2.RevokeSecurityGroupIngressOutput{}, nil).Once()
+			}
+
+			err = c.updateInstanceSecurityGroupsForLoadBalancer(context.TODO(), lb, nil, annotations, tt.isDeleting)
+			require.NoError(t, err)
+
+			mockEC2.AssertExpectations(t)
+			if !tt.expectRevoke {
+				mockEC2.AssertNotCalled(t, "RevokeSecurityGroupIngress", mock.Anything)
+			}
 		})
 	}
 }
