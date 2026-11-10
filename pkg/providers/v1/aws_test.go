@@ -5724,6 +5724,13 @@ func TestIsSecurityGroupUsedByOtherServices(t *testing.T) {
 	clusterIP := lbService("clusterip", map[string]string{ServiceAnnotationLoadBalancerSecurityGroups: sgID})
 	clusterIP.Spec.Type = v1.ServiceTypeClusterIP
 
+	deleting := lbService("deleting", map[string]string{ServiceAnnotationLoadBalancerSecurityGroups: sgID})
+	now := metav1.Now()
+	deleting.DeletionTimestamp = &now
+
+	withClass := lbService("with-class", map[string]string{ServiceAnnotationLoadBalancerSecurityGroups: sgID})
+	withClass.Spec.LoadBalancerClass = aws.String("service.k8s.aws/nlb")
+
 	tests := []struct {
 		name             string
 		elbSecurityGroup string
@@ -5769,6 +5776,16 @@ func TestIsSecurityGroupUsedByOtherServices(t *testing.T) {
 		{
 			name:     "non-LoadBalancer service with the annotation does not count",
 			services: []*v1.Service{self, clusterIP},
+			want:     false,
+		},
+		{
+			name:     "service being deleted does not count",
+			services: []*v1.Service{self, deleting},
+			want:     false,
+		},
+		{
+			name:     "service with loadBalancerClass set does not count",
+			services: []*v1.Service{self, withClass},
 			want:     false,
 		},
 	}

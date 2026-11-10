@@ -1188,7 +1188,7 @@ func (c *Cloud) primaryLoadBalancerSecurityGroup(annotations map[string]string) 
 }
 
 // isSecurityGroupUsedByOtherServices returns true if a classic load balancer Service in this
-// cluster, other than the one owning loadBalancerName, uses securityGroupID as its primary
+// cluster, other than the one owning loadBalancerName and not being deleted, uses securityGroupID as its primary
 // load balancer security group.
 func (c *Cloud) isSecurityGroupUsedByOtherServices(securityGroupID string, loadBalancerName string) (bool, error) {
 	if c.serviceInformerHasSynced == nil || !c.serviceInformerHasSynced() {
@@ -1200,6 +1200,11 @@ func (c *Cloud) isSecurityGroupUsedByOtherServices(securityGroupID string, loadB
 	}
 	for _, service := range services {
 		if service.Spec.Type != v1.ServiceTypeLoadBalancer || isNLB(service.Annotations) || isLBExternal(service.Annotations) {
+			continue
+		}
+		// A Service with loadBalancerClass set is not handled by this cloud provider, and one being
+		// deleted is about to release its load balancer, so neither should keep the rule.
+		if service.Spec.LoadBalancerClass != nil || service.DeletionTimestamp != nil {
 			continue
 		}
 		if cloudprovider.DefaultLoadBalancerName(service) == loadBalancerName {
