@@ -1,8 +1,7 @@
 # Credential Provider
 
-This feature is in alpha in 1.20 until 1.23 and shouldn't be used in production environments.
-The `KubeletCredentialProviders` feature gate needs to be enabled to use this functionality.
-Starting in Kubernetes 1.24, the credential provider feature has moved to beta.
+This feature was alpha from Kubernetes 1.20 through 1.23, beta in Kubernetes
+1.24 and 1.25, and is stable starting in Kubernetes 1.26.
 
 As part of the cloud provider extraction, [KEP-2133](https://github.com/kubernetes/enhancements/pull/2151) proposed an extensible way to fetch credentials for pulling images. When kubelet needs credentials to fetch an image, it will now invoke a plugin based on the configuration provided by the cluster operator. Please see the original KEP for details.
 
@@ -20,7 +19,7 @@ Example config:
             "name": "ecr-credential-provider",
             "matchImages" : [
                 "*.dkr.ecr.*.amazonaws.com",
-                "*.dkr.ecr.*.amazonaws.com.cn",
+                "*.dkr.ecr.*.amazonaws.com.cn"
             ],
             "apiVersion": "credentialprovider.kubelet.k8s.io/v1",
             "defaultCacheDuration": "0"
@@ -39,3 +38,32 @@ So `*.io` does not match `*.k8s.io`.
 ## Authentication
 
 The [AWS SDK credential chain](https://docs.aws.amazon.com/sdkref/latest/guide/standardized-credentials.html) is used to locate credentials for authenticating with AWS. For example, when you run the ECR credential provider on an EC2 instance, credentials are usually fetched from IMDS and no other configuration is necessary. If you do not run the ECR credential provider on EC2, you can specify credentials using environment variables, the `~/.aws/config` file, or any other standard method in the credential chain.
+
+## Global ECR tokens
+
+Existing configurations are unchanged: without `--ecr-private-token-type`, the
+provider uses regional tokens.
+
+Add `--ecr-private-token-type=global-token` to the provider `args` explicitly
+to use a global token for private ECR registries. It does not apply to ECR
+Public.
+
+```json
+{
+    "providers": [
+        {
+            "name": "ecr-credential-provider",
+            "matchImages": [
+                "*.dkr.ecr.*.amazonaws.com"
+            ],
+            "apiVersion": "credentialprovider.kubelet.k8s.io/v1",
+            "defaultCacheDuration": "0",
+            "args": [
+                "--ecr-private-token-type=global-token"
+            ]
+        }
+    ]
+}
+```
+
+For details, see [Private registry authentication in Amazon ECR](https://docs.aws.amazon.com/AmazonECR/latest/userguide/registry_auth.html).

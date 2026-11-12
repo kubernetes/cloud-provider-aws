@@ -33,6 +33,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/ecr"
 	"github.com/aws/aws-sdk-go-v2/service/ecrpublic"
+	"github.com/aws/aws-sdk-go-v2/service/signin"
 	"github.com/aws/aws-sdk-go-v2/service/sts"
 	"github.com/spf13/cobra"
 
@@ -42,9 +43,19 @@ import (
 	v1 "k8s.io/kubelet/pkg/apis/credentialprovider/v1"
 )
 
-const ecrPublicRegion string = "us-east-1"
+const (
+	ecrPublicRegion        = "us-east-1"
+	tokenTypeRegional      = "regional-token"
+	tokenTypeGlobal        = "global-token"
+	signInGrantType        = "client_credentials"
+	ecrGlobalTokenResource = "ecr.amazonaws.com"
+	tokenTypeFlagName      = "ecr-private-token-type"
+)
 
-var defaultHTTPClient = awshttp.NewBuildableClient().WithTimeout(30 * time.Second)
+var (
+	defaultHTTPClient  = awshttp.NewBuildableClient().WithTimeout(30 * time.Second)
+	tokenTypeFlagUsage = fmt.Sprintf("ECR private registry token type: %s or %s", tokenTypeRegional, tokenTypeGlobal)
+)
 
 var ecrPublicHosts []string = []string{"public.ecr.aws", "ecr-public.aws.com"}
 
@@ -60,6 +71,11 @@ type ECRPublic interface {
 	GetAuthorizationToken(ctx context.Context, params *ecrpublic.GetAuthorizationTokenInput, optFns ...func(*ecrpublic.Options)) (*ecrpublic.GetAuthorizationTokenOutput, error)
 }
 
+// SignIn is the subset of the AWS SignIn client used by the provider.
+type SignIn interface {
+	CreateBearerToken(ctx context.Context, params *signin.CreateBearerTokenInput, optFns ...func(*signin.Options)) (*signin.CreateBearerTokenOutput, error)
+}
+
 // STS abstracts the calls we make to aws-sdk for testing purposes
 type STS interface {
 	AssumeRoleWithWebIdentity(context.Context, *sts.AssumeRoleWithWebIdentityInput, ...func(*sts.Options)) (*sts.AssumeRoleWithWebIdentityOutput, error)
@@ -68,7 +84,9 @@ type STS interface {
 type ecrPlugin struct {
 	ecr       ECR
 	ecrPublic ECRPublic
+	signIn    SignIn
 	sts       STS
+	tokenType string
 }
 
 func defaultECRProvider(ctx context.Context, region string) (ECR, error) {
@@ -91,6 +109,29 @@ func defaultECRProvider(ctx context.Context, region string) (ECR, error) {
 	}
 
 	return ecr.NewFromConfig(cfg), nil
+}
+
+func defaultSignInProvider(ctx context.Context, region string) (SignIn, string, error) {
+	cfg, err := loadSignInConfig(ctx, region)
+	if err != nil {
+		return nil, cfg.Region, err
+	}
+
+	return signin.NewFromConfig(cfg), cfg.Region, nil
+}
+
+func loadSignInConfig(ctx context.Context, region string) (aws.Config, error) {
+	if region != "" {
+		return config.LoadDefaultConfig(ctx,
+			config.WithRegion(region),
+			config.WithHTTPClient(defaultHTTPClient),
+		)
+	}
+
+	klog.Warningf("No region found in the image reference, the default region will be used. Please refer to AWS SDK documentation for configuration purpose.")
+	return config.LoadDefaultConfig(ctx,
+		config.WithHTTPClient(defaultHTTPClient),
+	)
 }
 
 func publicECRProvider(ctx context.Context) (ECRPublic, error) {
@@ -191,6 +232,45 @@ func (e *ecrPlugin) getPrivateCredsData(ctx context.Context, imageHost string, i
 	}, nil
 }
 
+// getGlobalCredsData fetches a globally valid ECR token through the SignIn CreateBearerToken API.
+func (e *ecrPlugin) getGlobalCredsData(ctx context.Context, imageHost string, optFns ...func(*signin.Options)) (*credsData, error) {
+	klog.Infof("Getting global token for private registry %s", imageHost)
+
+	region := parseRegionFromECRPrivateHost(imageHost)
+	signInRegion := region
+	var err error
+	if e.signIn == nil {
+		e.signIn, signInRegion, err = defaultSignInProvider(ctx, region)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create SignIn client for image host %q (region %q): %w", imageHost, signInRegion, err)
+		}
+	}
+
+	requestStartedAt := time.Now()
+	output, err := e.signIn.CreateBearerToken(ctx, &signin.CreateBearerTokenInput{
+		GrantType: aws.String(signInGrantType),
+		Resource:  aws.String(ecrGlobalTokenResource),
+	}, optFns...)
+	if err != nil {
+		return nil, fmt.Errorf("SignIn CreateBearerToken failed for image host %q (region %q): %w", imageHost, signInRegion, err)
+	}
+	if output == nil ||
+		aws.ToString(output.AccessToken) == "" ||
+		aws.ToInt32(output.ExpiresIn) <= 0 ||
+		!strings.EqualFold(aws.ToString(output.TokenType), "Bearer") {
+		return nil, fmt.Errorf("SignIn CreateBearerToken returned missing or invalid token data for image host %q (region %q)", imageHost, signInRegion)
+	}
+
+	accessToken := aws.ToString(output.AccessToken)
+	expiresIn := aws.ToInt32(output.ExpiresIn)
+	expiresAt := requestStartedAt.Add(time.Duration(expiresIn) * time.Second)
+	authorizationToken := base64.StdEncoding.EncodeToString([]byte("AWS:" + accessToken))
+	return &credsData{
+		authToken: aws.String(authorizationToken),
+		expiresAt: &expiresAt,
+	}, nil
+}
+
 func (e *ecrPlugin) buildCredentialsProvider(ctx context.Context, request *v1.CredentialProviderRequest, imageHost string) aws.CredentialsProvider {
 	if request.ServiceAccountToken == "" {
 		return nil
@@ -247,6 +327,10 @@ func (e *ecrPlugin) GetCredentials(ctx context.Context, request *v1.CredentialPr
 	if err != nil {
 		return nil, err
 	}
+	tokenType, err := normalizeTokenType(e.tokenType)
+	if err != nil {
+		return nil, err
+	}
 
 	credentialsProvider := e.buildCredentialsProvider(ctx, request, imageHost)
 	if slices.Contains(ecrPublicHosts, imageHost) {
@@ -257,6 +341,14 @@ func (e *ecrPlugin) GetCredentials(ctx context.Context, request *v1.CredentialPr
 			})
 		}
 		creds, err = e.getPublicCredsData(ctx, optFns...)
+	} else if tokenType == tokenTypeGlobal {
+		var optFns = []func(*signin.Options){}
+		if credentialsProvider != nil {
+			optFns = append(optFns, func(o *signin.Options) {
+				o.Credentials = credentialsProvider
+			})
+		}
+		creds, err = e.getGlobalCredsData(ctx, imageHost, optFns...)
 	} else {
 		var optFns = []func(*ecr.Options){}
 		if credentialsProvider != nil {
@@ -331,6 +423,17 @@ func parseHostFromImageReference(image string) (string, error) {
 	return parsed.Hostname(), nil
 }
 
+func normalizeTokenType(tokenType string) (string, error) {
+	switch tokenType {
+	case "", tokenTypeRegional:
+		return tokenTypeRegional, nil
+	case tokenTypeGlobal:
+		return tokenTypeGlobal, nil
+	default:
+		return "", fmt.Errorf("unsupported --%s value %q; expected %q or %q", tokenTypeFlagName, tokenType, tokenTypeRegional, tokenTypeGlobal)
+	}
+}
+
 func parseRegionFromECRPrivateHost(host string) string {
 	splitHost := ecrPrivateHostPattern.FindStringSubmatch(host)
 	if len(splitHost) != 5 {
@@ -351,17 +454,19 @@ func main() {
 var gitVersion string
 
 func newCredentialProviderCommand() *cobra.Command {
+	var tokenType string
 	cmd := &cobra.Command{
 		Use:     "ecr-credential-provider",
 		Short:   "ECR credential provider for kubelet",
 		Version: gitVersion,
 		Run: func(cmd *cobra.Command, args []string) {
-			p := NewCredentialProvider(&ecrPlugin{})
+			p := NewCredentialProvider(&ecrPlugin{tokenType: tokenType})
 			if err := p.Run(context.TODO()); err != nil {
 				klog.Errorf("Error running credential provider plugin: %v", err)
 				os.Exit(1)
 			}
 		},
 	}
+	cmd.Flags().StringVar(&tokenType, tokenTypeFlagName, tokenTypeRegional, tokenTypeFlagUsage)
 	return cmd
 }
