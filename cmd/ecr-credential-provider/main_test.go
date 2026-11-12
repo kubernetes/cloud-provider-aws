@@ -21,6 +21,7 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 
@@ -29,6 +30,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/ecr/types"
 	"github.com/aws/aws-sdk-go-v2/service/ecrpublic"
 	publictypes "github.com/aws/aws-sdk-go-v2/service/ecrpublic/types"
+	"github.com/aws/aws-sdk-go-v2/service/signin"
 	"github.com/aws/aws-sdk-go-v2/service/sts"
 	ststypes "github.com/aws/aws-sdk-go-v2/service/sts/types"
 	"github.com/stretchr/testify/mock"
@@ -85,6 +87,30 @@ func (m *MockedECRPublic) GetAuthorizationToken(ctx context.Context, params *ecr
 	return args.Get(0).(*ecrpublic.GetAuthorizationTokenOutput), nil
 }
 
+type MockedSignIn struct {
+	mock.Mock
+}
+
+func (m *MockedSignIn) CreateBearerToken(ctx context.Context, params *signin.CreateBearerTokenInput, optFns ...func(*signin.Options)) (*signin.CreateBearerTokenOutput, error) {
+	args := m.Called(ctx, params)
+
+	opts := signin.Options{}
+	for _, fn := range optFns {
+		fn(&opts)
+	}
+	if opts.Credentials != nil {
+		if _, err := opts.Credentials.Retrieve(ctx); err != nil {
+			return nil, err
+		}
+	}
+
+	var output *signin.CreateBearerTokenOutput
+	if args.Get(0) != nil {
+		output = args.Get(0).(*signin.CreateBearerTokenOutput)
+	}
+	return output, args.Error(1)
+}
+
 type MockedSTS struct {
 	mock.Mock
 }
@@ -110,6 +136,14 @@ func generatePrivateGetAuthorizationTokenOutput(user string, password string, pr
 	return output
 }
 
+func generateSignInOutput(password string, expiresIn int32) *signin.CreateBearerTokenOutput {
+	return &signin.CreateBearerTokenOutput{
+		AccessToken: aws.String(password),
+		ExpiresIn:   aws.Int32(expiresIn),
+		TokenType:   aws.String("Bearer"),
+	}
+}
+
 func generateResponse(registry string, username string, password string) *v1.CredentialProviderResponse {
 	return &v1.CredentialProviderResponse{
 		CacheKeyType:  v1.RegistryPluginCacheKeyType,
@@ -130,6 +164,7 @@ func Test_GetCredentials_Private(t *testing.T) {
 		args                        []string
 		getAuthorizationTokenOutput *ecr.GetAuthorizationTokenOutput
 		getAuthorizationTokenError  error
+		tokenType                   string
 		response                    *v1.CredentialProviderResponse
 		expectedError               error
 	}{
@@ -137,6 +172,13 @@ func Test_GetCredentials_Private(t *testing.T) {
 			name:                        "success",
 			image:                       "123456789123.dkr.ecr.us-west-2.amazonaws.com",
 			getAuthorizationTokenOutput: generatePrivateGetAuthorizationTokenOutput("user", "pass", "", nil),
+			response:                    generateResponse("123456789123.dkr.ecr.us-west-2.amazonaws.com", "user", "pass"),
+		},
+		{
+			name:                        "explicit regional token",
+			image:                       "123456789123.dkr.ecr.us-west-2.amazonaws.com",
+			getAuthorizationTokenOutput: generatePrivateGetAuthorizationTokenOutput("user", "pass", "", nil),
+			tokenType:                   tokenTypeRegional,
 			response:                    generateResponse("123456789123.dkr.ecr.us-west-2.amazonaws.com", "user", "pass"),
 		},
 		{
@@ -194,7 +236,12 @@ func Test_GetCredentials_Private(t *testing.T) {
 	for _, testcase := range testcases {
 		t.Run(testcase.name, func(t *testing.T) {
 			mockECR := MockedECR{}
-			p := &ecrPlugin{ecr: &mockECR}
+			mockSignIn := MockedSignIn{}
+			p := &ecrPlugin{
+				ecr:       &mockECR,
+				signIn:    &mockSignIn,
+				tokenType: testcase.tokenType,
+			}
 			mockECR.On("GetAuthorizationToken", mock.Anything, mock.Anything).Return(testcase.getAuthorizationTokenOutput, testcase.getAuthorizationTokenError)
 
 			creds, err := p.GetCredentials(context.TODO(), &v1.CredentialProviderRequest{Image: testcase.image}, testcase.args)
@@ -216,6 +263,7 @@ func Test_GetCredentials_Private(t *testing.T) {
 					t.Fatalf("Unexpected CacheDuration. Expected: %s, got: %s", testcase.response.CacheDuration.Duration, creds.CacheDuration.Duration)
 				}
 			}
+			mockSignIn.AssertNotCalled(t, "CreateBearerToken", mock.Anything, mock.Anything)
 		})
 	}
 }
@@ -332,6 +380,7 @@ func Test_GetCredentials_Public(t *testing.T) {
 		args                        []string
 		getAuthorizationTokenOutput *ecrpublic.GetAuthorizationTokenOutput
 		getAuthorizationTokenError  error
+		tokenType                   string
 		response                    *v1.CredentialProviderResponse
 		expectedError               error
 	}{
@@ -339,6 +388,7 @@ func Test_GetCredentials_Public(t *testing.T) {
 			name:                        "success",
 			image:                       "public.ecr.aws",
 			getAuthorizationTokenOutput: generatePublicGetAuthorizationTokenOutput("user", "pass", nil),
+			tokenType:                   tokenTypeGlobal,
 			response:                    generateResponse("public.ecr.aws", "user", "pass"),
 		},
 		{
@@ -409,7 +459,10 @@ func Test_GetCredentials_Public(t *testing.T) {
 	for _, testcase := range testcases {
 		t.Run(testcase.name, func(t *testing.T) {
 			mockECRPublic := MockedECRPublic{}
-			p := &ecrPlugin{ecrPublic: &mockECRPublic}
+			p := &ecrPlugin{
+				ecrPublic: &mockECRPublic,
+				tokenType: testcase.tokenType,
+			}
 			mockECRPublic.On("GetAuthorizationToken", mock.Anything, mock.Anything).Return(testcase.getAuthorizationTokenOutput, testcase.getAuthorizationTokenError)
 
 			creds, err := p.GetCredentials(context.TODO(), &v1.CredentialProviderRequest{Image: testcase.image}, testcase.args)
@@ -640,5 +693,370 @@ func Test_getCacheDuration(t *testing.T) {
 		} else if actual.Round(time.Second) != tc.Expected {
 			t.Errorf("unexpected duration value: want %v, got %v", tc.Expected, actual.Duration)
 		}
+	}
+}
+
+func Test_GetCredentials_GlobalToken(t *testing.T) {
+	const registry = "123456789123.dkr.ecr.us-west-2.amazonaws.com"
+
+	mockECR := &MockedECR{}
+	mockPublic := &MockedECRPublic{}
+	mockSignIn := &MockedSignIn{}
+	mockSignIn.On(
+		"CreateBearerToken",
+		mock.Anything,
+		&signin.CreateBearerTokenInput{
+			GrantType: aws.String(signInGrantType),
+			Resource:  aws.String(ecrGlobalTokenResource),
+		},
+	).Return(generateSignInOutput("global-password", 3600), nil).Once()
+
+	provider := &ecrPlugin{
+		ecr:       mockECR,
+		ecrPublic: mockPublic,
+		signIn:    mockSignIn,
+		tokenType: tokenTypeGlobal,
+	}
+
+	response, err := provider.GetCredentials(
+		context.Background(),
+		&v1.CredentialProviderRequest{Image: registry + "/example:latest"},
+		nil,
+	)
+	if err != nil {
+		t.Fatalf("GetCredentials returned error: %v", err)
+	}
+
+	auth, ok := response.Auth[registry]
+	if !ok {
+		t.Fatalf("response did not contain auth for %s", registry)
+	}
+	if auth.Username != "AWS" || auth.Password != "global-password" {
+		t.Fatalf("unexpected auth response: username=%q password=%q", auth.Username, auth.Password)
+	}
+	if response.CacheDuration == nil || response.CacheDuration.Duration <= 0 {
+		t.Fatalf("expected positive cache duration, got %v", response.CacheDuration)
+	}
+
+	mockSignIn.AssertExpectations(t)
+	mockECR.AssertNotCalled(t, "GetAuthorizationToken", mock.Anything, mock.Anything)
+	mockPublic.AssertNotCalled(t, "GetAuthorizationToken", mock.Anything, mock.Anything)
+}
+
+func Test_GetCredentials_GlobalTokenForServiceAccount(t *testing.T) {
+	const (
+		registry = "123456789123.dkr.ecr.us-west-2.amazonaws.com"
+		roleARN  = "arn:aws:iam::123456789123:role/ecr-pull-role"
+	)
+
+	request := &v1.CredentialProviderRequest{
+		Image:               registry + "/example:latest",
+		ServiceAccountToken: "DEADBEEF=",
+		ServiceAccountAnnotations: map[string]string{
+			"eks.amazonaws.com/ecr-role-arn": roleARN,
+		},
+	}
+	expectedAssumeRoleInput := &sts.AssumeRoleWithWebIdentityInput{
+		RoleArn:          aws.String(roleARN),
+		RoleSessionName:  aws.String("ecr-credential-provider"),
+		WebIdentityToken: aws.String(request.ServiceAccountToken),
+	}
+
+	mockSTS := &MockedSTS{}
+	mockSTS.On(
+		"AssumeRoleWithWebIdentity",
+		mock.Anything,
+		expectedAssumeRoleInput,
+	).Return(&sts.AssumeRoleWithWebIdentityOutput{
+		Credentials: &ststypes.Credentials{
+			AccessKeyId:     aws.String("access-key-id"),
+			SecretAccessKey: aws.String("secret-access-key"),
+			SessionToken:    aws.String("session-token"),
+		},
+	}, nil).Once()
+
+	mockSignIn := &MockedSignIn{}
+	mockSignIn.On(
+		"CreateBearerToken",
+		mock.Anything,
+		&signin.CreateBearerTokenInput{
+			GrantType: aws.String(signInGrantType),
+			Resource:  aws.String(ecrGlobalTokenResource),
+		},
+	).Return(generateSignInOutput("global-password", 3600), nil).Once()
+
+	provider := &ecrPlugin{
+		signIn:    mockSignIn,
+		sts:       mockSTS,
+		tokenType: tokenTypeGlobal,
+	}
+	response, err := provider.GetCredentials(context.Background(), request, nil)
+	if err != nil {
+		t.Fatalf("GetCredentials returned error: %v", err)
+	}
+	if auth := response.Auth[registry]; auth.Username != "AWS" || auth.Password != "global-password" {
+		t.Fatalf("unexpected auth response: %#v", auth)
+	}
+
+	mockSTS.AssertExpectations(t)
+	mockSignIn.AssertExpectations(t)
+}
+
+func Test_GetCredentials_GlobalTokenErrors(t *testing.T) {
+	const registry = "123456789123.dkr.ecr.us-west-2.amazonaws.com"
+
+	signInError := errors.New("CreateBearerToken failed")
+	testcases := []struct {
+		name          string
+		output        *signin.CreateBearerTokenOutput
+		signInError   error
+		expectedError []string
+		expectedCause error
+	}{
+		{
+			name:          "SignIn API error",
+			signInError:   signInError,
+			expectedError: []string{"SignIn CreateBearerToken failed", registry, `region "us-west-2"`, signInError.Error()},
+			expectedCause: signInError,
+		},
+		{
+			name:          "nil response",
+			expectedError: []string{"SignIn CreateBearerToken returned missing or invalid token data", registry, `region "us-west-2"`},
+		},
+		{
+			name:          "empty access token",
+			output:        generateSignInOutput("", 3600),
+			expectedError: []string{"SignIn CreateBearerToken returned missing or invalid token data", registry, `region "us-west-2"`},
+		},
+		{
+			name:          "zero expiration",
+			output:        generateSignInOutput("global-password", 0),
+			expectedError: []string{"SignIn CreateBearerToken returned missing or invalid token data", registry, `region "us-west-2"`},
+		},
+		{
+			name:          "negative expiration",
+			output:        generateSignInOutput("global-password", -1),
+			expectedError: []string{"SignIn CreateBearerToken returned missing or invalid token data", registry, `region "us-west-2"`},
+		},
+		{
+			name: "missing token type",
+			output: &signin.CreateBearerTokenOutput{
+				AccessToken: aws.String("global-password"),
+				ExpiresIn:   aws.Int32(3600),
+			},
+			expectedError: []string{"SignIn CreateBearerToken returned missing or invalid token data", registry, `region "us-west-2"`},
+		},
+		{
+			name: "unexpected token type",
+			output: &signin.CreateBearerTokenOutput{
+				AccessToken: aws.String("global-password"),
+				ExpiresIn:   aws.Int32(3600),
+				TokenType:   aws.String("Basic"),
+			},
+			expectedError: []string{"SignIn CreateBearerToken returned missing or invalid token data", registry, `region "us-west-2"`},
+		},
+	}
+
+	for _, testcase := range testcases {
+		t.Run(testcase.name, func(t *testing.T) {
+			mockSignIn := &MockedSignIn{}
+			mockSignIn.On(
+				"CreateBearerToken",
+				mock.Anything,
+				&signin.CreateBearerTokenInput{
+					GrantType: aws.String(signInGrantType),
+					Resource:  aws.String(ecrGlobalTokenResource),
+				},
+			).Return(testcase.output, testcase.signInError).Once()
+
+			provider := &ecrPlugin{
+				signIn:    mockSignIn,
+				tokenType: tokenTypeGlobal,
+			}
+
+			_, err := provider.GetCredentials(
+				context.Background(),
+				&v1.CredentialProviderRequest{Image: registry + "/example:latest"},
+				nil,
+			)
+			if err == nil {
+				t.Fatal("expected error")
+			}
+			for _, expected := range testcase.expectedError {
+				if !strings.Contains(err.Error(), expected) {
+					t.Fatalf("expected error %q to contain %q", err.Error(), expected)
+				}
+			}
+			if testcase.expectedCause != nil && !errors.Is(err, testcase.expectedCause) {
+				t.Fatalf("expected error %q to wrap %q", err, testcase.expectedCause)
+			}
+
+			mockSignIn.AssertExpectations(t)
+		})
+	}
+}
+
+func Test_GetCredentials_GlobalTokenSupportsCustomHost(t *testing.T) {
+	const registry = "registry.example.com"
+
+	mockSignIn := &MockedSignIn{}
+	mockSignIn.On(
+		"CreateBearerToken",
+		mock.Anything,
+		&signin.CreateBearerTokenInput{
+			GrantType: aws.String(signInGrantType),
+			Resource:  aws.String(ecrGlobalTokenResource),
+		},
+	).Return(generateSignInOutput("global-password", 3600), nil).Once()
+
+	provider := &ecrPlugin{
+		signIn:    mockSignIn,
+		tokenType: tokenTypeGlobal,
+	}
+
+	response, err := provider.GetCredentials(
+		context.Background(),
+		&v1.CredentialProviderRequest{Image: registry + "/example:latest"},
+		nil,
+	)
+	if err != nil {
+		t.Fatalf("GetCredentials returned error: %v", err)
+	}
+
+	auth, ok := response.Auth[registry]
+	if !ok {
+		t.Fatalf("response did not contain auth for %s", registry)
+	}
+	if auth.Username != "AWS" || auth.Password != "global-password" {
+		t.Fatalf("unexpected auth response: username=%q password=%q", auth.Username, auth.Password)
+	}
+
+	mockSignIn.AssertExpectations(t)
+}
+
+func Test_GetCredentials_GlobalTokenIsScopedToRequestedHostname(t *testing.T) {
+	registries := []string{
+		"123456789123.dkr.ecr.us-west-2.amazonaws.com",
+		"registry.example.com",
+	}
+
+	mockSignIn := &MockedSignIn{}
+	mockSignIn.On(
+		"CreateBearerToken",
+		mock.Anything,
+		&signin.CreateBearerTokenInput{
+			GrantType: aws.String(signInGrantType),
+			Resource:  aws.String(ecrGlobalTokenResource),
+		},
+	).Return(generateSignInOutput("global-password", 3600), nil).Twice()
+
+	provider := &ecrPlugin{
+		signIn:    mockSignIn,
+		tokenType: tokenTypeGlobal,
+	}
+
+	for _, registry := range registries {
+		response, err := provider.GetCredentials(
+			context.Background(),
+			&v1.CredentialProviderRequest{Image: registry + "/example:latest"},
+			nil,
+		)
+		if err != nil {
+			t.Fatalf("GetCredentials returned error for %s: %v", registry, err)
+		}
+		if response.CacheKeyType != v1.RegistryPluginCacheKeyType {
+			t.Fatalf("expected registry cache key type for %s, got %s", registry, response.CacheKeyType)
+		}
+		if len(response.Auth) != 1 {
+			t.Fatalf("expected one auth entry for %s, got %d", registry, len(response.Auth))
+		}
+		if _, ok := response.Auth[registry]; !ok {
+			t.Fatalf("response did not contain auth for requested hostname %s", registry)
+		}
+	}
+
+	mockSignIn.AssertExpectations(t)
+}
+
+func TestNormalizeTokenType(t *testing.T) {
+	testcases := []struct {
+		name      string
+		input     string
+		expected  string
+		expectErr bool
+	}{
+		{name: "empty defaults regional", input: "", expected: tokenTypeRegional},
+		{name: "regional", input: tokenTypeRegional, expected: tokenTypeRegional},
+		{name: "global", input: tokenTypeGlobal, expected: tokenTypeGlobal},
+		{name: "invalid", input: "automatic", expectErr: true},
+	}
+
+	for _, testcase := range testcases {
+		t.Run(testcase.name, func(t *testing.T) {
+			actual, err := normalizeTokenType(testcase.input)
+			if testcase.expectErr {
+				if err == nil {
+					t.Fatal("expected validation error")
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if actual != testcase.expected {
+				t.Fatalf("expected %q, got %q", testcase.expected, actual)
+			}
+		})
+	}
+}
+
+func TestLoadSignInConfigRegionSelection(t *testing.T) {
+	t.Setenv("AWS_ACCESS_KEY_ID", "access-key-id")
+	t.Setenv("AWS_SECRET_ACCESS_KEY", "secret-access-key")
+	t.Setenv("AWS_REGION", "us-east-1")
+
+	testcases := []struct {
+		name           string
+		explicitRegion string
+		expectedRegion string
+	}{
+		{
+			name:           "regional ECR hostname region overrides SDK configuration",
+			explicitRegion: "us-west-2",
+			expectedRegion: "us-west-2",
+		},
+		{
+			name:           "custom hostname uses SDK region configuration",
+			expectedRegion: "us-east-1",
+		},
+	}
+
+	for _, testcase := range testcases {
+		t.Run(testcase.name, func(t *testing.T) {
+			cfg, err := loadSignInConfig(context.Background(), testcase.explicitRegion)
+			if err != nil {
+				t.Fatalf("loadSignInConfig returned error: %v", err)
+			}
+			if cfg.Region != testcase.expectedRegion {
+				t.Fatalf("expected region %q, got %q", testcase.expectedRegion, cfg.Region)
+			}
+		})
+	}
+}
+
+func TestCredentialProviderCommandECRPrivateTokenTypeFlag(t *testing.T) {
+	cmd := newCredentialProviderCommand()
+	flag := cmd.Flags().Lookup("ecr-private-token-type")
+	if flag == nil {
+		t.Fatal("expected --ecr-private-token-type flag")
+	}
+	if flag.DefValue != tokenTypeRegional {
+		t.Fatalf("expected default value %q, got %q", tokenTypeRegional, flag.DefValue)
+	}
+	if err := cmd.ParseFlags([]string{"--" + tokenTypeFlagName + "=" + tokenTypeGlobal}); err != nil {
+		t.Fatalf("ParseFlags returned error: %v", err)
+	}
+	if flag.Value.String() != tokenTypeGlobal {
+		t.Fatalf("expected parsed value %q, got %q", tokenTypeGlobal, flag.Value.String())
 	}
 }
