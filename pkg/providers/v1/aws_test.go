@@ -3962,6 +3962,74 @@ func TestDescribeInstances(t *testing.T) {
 	}
 }
 
+func TestDescribeSecurityGroups(t *testing.T) {
+	tests := []struct {
+		name   string
+		input  *ec2.DescribeSecurityGroupsInput
+		expect func(*MockedEC2API)
+	}{
+		{
+			name:  "MaxResults set on empty input and NextToken respected",
+			input: &ec2.DescribeSecurityGroupsInput{},
+			expect: func(m *MockedEC2API) {
+				m.On("DescribeSecurityGroups", &ec2.DescribeSecurityGroupsInput{
+					MaxResults: aws.Int32(1000),
+				}).Return(&ec2.DescribeSecurityGroupsOutput{
+					SecurityGroups: []ec2types.SecurityGroup{{GroupId: aws.String("sg-1")}},
+					NextToken:      aws.String("asdf"),
+				}, nil)
+				m.On("DescribeSecurityGroups", &ec2.DescribeSecurityGroupsInput{
+					MaxResults: aws.Int32(1000),
+					NextToken:  aws.String("asdf"),
+				}).Return(&ec2.DescribeSecurityGroupsOutput{
+					SecurityGroups: []ec2types.SecurityGroup{{GroupId: aws.String("sg-2")}},
+				}, nil)
+			},
+		},
+		{
+			name: "MaxResults set on filter-only input",
+			input: &ec2.DescribeSecurityGroupsInput{
+				Filters: []ec2types.Filter{newEc2Filter("vpc-id", "vpc-1")},
+			},
+			expect: func(m *MockedEC2API) {
+				m.On("DescribeSecurityGroups", &ec2.DescribeSecurityGroupsInput{
+					Filters:    []ec2types.Filter{newEc2Filter("vpc-id", "vpc-1")},
+					MaxResults: aws.Int32(1000),
+				}).Return(&ec2.DescribeSecurityGroupsOutput{}, nil)
+			},
+		},
+		{
+			name:  "caller-provided MaxResults is kept",
+			input: &ec2.DescribeSecurityGroupsInput{MaxResults: aws.Int32(5)},
+			expect: func(m *MockedEC2API) {
+				m.On("DescribeSecurityGroups", &ec2.DescribeSecurityGroupsInput{
+					MaxResults: aws.Int32(5),
+				}).Return(&ec2.DescribeSecurityGroupsOutput{}, nil)
+			},
+		},
+		{
+			name:  "MaxResults not set when GroupIds are provided",
+			input: &ec2.DescribeSecurityGroupsInput{GroupIds: []string{"sg-1"}},
+			expect: func(m *MockedEC2API) {
+				m.On("DescribeSecurityGroups", &ec2.DescribeSecurityGroupsInput{
+					GroupIds: []string{"sg-1"},
+				}).Return(&ec2.DescribeSecurityGroupsOutput{}, nil)
+			},
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			mockedEC2API := newMockedEC2API()
+			test.expect(mockedEC2API)
+			fakeEC2 := awsSdkEC2{ec2: mockedEC2API}
+			_, err := fakeEC2.DescribeSecurityGroups(context.TODO(), test.input)
+			assert.NoError(t, err)
+			mockedEC2API.AssertExpectations(t)
+		})
+	}
+}
+
 func TestInstanceIDIndexFunc(t *testing.T) {
 	type args struct {
 		obj interface{}
