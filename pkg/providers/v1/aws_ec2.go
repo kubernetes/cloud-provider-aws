@@ -118,6 +118,11 @@ func (s *awsSdkEC2) DescribeSecurityGroups(ctx context.Context, request *ec2.Des
 	results := []ec2types.SecurityGroup{}
 	var nextToken *string
 	requestTime := time.Now()
+
+	if request.MaxResults == nil && len(request.GroupIds) == 0 && len(request.GroupNames) == 0 {
+		request.MaxResults = aws.Int32(1000)
+	}
+
 	for {
 		response, err := s.ec2.DescribeSecurityGroups(ctx, request)
 		if err != nil {
